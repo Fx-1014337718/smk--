@@ -71,6 +71,8 @@ namespace 码料机
         public bool HandshakeEnabled = true, 自动码放仍写旧版寄存器;
         public int D减基址得到保持寄存器号;
         public int D_PC上位机自动 = 4000, D_PC心跳 = 4001;
+        public int D_PC运行状态 = -1, D_PC故障码 = -1, D_PC恢复允许脉冲 = -1;
+        public int D_PLC现场中断请求 = -1, D_PLC故障复位确认 = -1, D_PLC继续请求 = -1;
         public int D_PC_A取料请求拍照 = 4018, D_PC_B取料请求拍照 = 4020, D_PC_A放料请求拍照 = 4022, D_PC_B放料请求拍照 = 4024;
         public int D_PC_A工位取料个数 = 4026, D_PC_B工位取料个数 = 4028, D_PC_A工位放料个数 = 4030, D_PC_B工位放料个数 = 4032;
         public int D_A取料坐标X = 4200, D_B取料坐标X = 4208, D_A放料拍照位X = 4216, D_B放料拍照位X = 4224, D_A放料目标坐标X = 4232, D_B放料目标坐标X = 4240;
@@ -101,6 +103,12 @@ namespace 码料机
             void d(string k, ref int f) => f = Ini(s, k, f, ini);
             d("D_PC上位机自动", ref h.D_PC上位机自动);
             d("D_PC心跳", ref h.D_PC心跳);
+            d("D_PC运行状态", ref h.D_PC运行状态);
+            d("D_PC故障码", ref h.D_PC故障码);
+            d("D_PC恢复允许脉冲", ref h.D_PC恢复允许脉冲);
+            d("D_PLC现场中断请求", ref h.D_PLC现场中断请求);
+            d("D_PLC故障复位确认", ref h.D_PLC故障复位确认);
+            d("D_PLC继续请求", ref h.D_PLC继续请求);
             d("D_PC_A取料请求拍照", ref h.D_PC_A取料请求拍照);
             d("D_PC_B取料请求拍照", ref h.D_PC_B取料请求拍照);
             d("D_PC_A放料请求拍照", ref h.D_PC_A放料请求拍照);

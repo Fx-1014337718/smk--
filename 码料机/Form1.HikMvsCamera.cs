@@ -111,19 +111,23 @@ namespace 码料机
             }
         }
 
+        /// <summary>停止取流、断开设备并释放 MVS SDK 引用（关闭软件或重载配置时调用）。</summary>
         private void ReleaseHikCamera()
         {
-            if (_hikCamera == null)
+            _hikCameraConnected = false;
+            var cam = _hikCamera;
+            _hikCamera = null;
+            if (cam == null)
                 return;
+
             try
             {
-                _hikCamera.PreviewFrame -= OnHikPreviewFrame;
-                _hikCamera.FrameSaved -= OnHikFrameSaved;
-                _hikCamera.Dispose();
+                cam.PreviewFrame -= OnHikPreviewFrame;
+                cam.FrameSaved -= OnHikFrameSaved;
+                cam.Disconnect();
+                cam.Dispose();
             }
             catch { }
-            _hikCamera = null;
-            _hikCameraConnected = false;
         }
 
         private void OnHikPreviewFrame(Bitmap bmp)
@@ -160,11 +164,9 @@ namespace 码料机
                 DisposeOfflinePreviewImage();
                 _offlinePreviewPicture.Image = (Image)bmp.Clone();
                 _offlinePreviewPicture.Visible = true;
-                if (vmRenderControl1 != null)
-                    vmRenderControl1.Visible = false;
                 _btnLoadTestImage?.BringToFront();
                 _btnHikGrab?.BringToFront();
-                LayoutVmPreviewToolbar();
+                LayoutPreviewToolbar();
             }
             catch (Exception ex)
             {
@@ -172,6 +174,37 @@ namespace 码料机
             }
         }
 
+        /// <summary>海康 MVS 软触发/连续采图并落盘，供金沃 DLL 使用。</summary>
+        private async Task<bool> TryHikvisionCaptureAsync()
+        {
+            if (!_hikCameraConnected || _hikCamera == null)
+                return false;
+
+            string mode = _jinwo.HikTriggerMode ?? "";
+            if (!mode.Equals("Continuous", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!_hikCamera.TriggerSoftware())
+                {
+                    TEXT("[海康] 软触发失败: " + (_hikCamera.LastError ?? ""));
+                    return false;
+                }
+                await Task.Delay(120).ConfigureAwait(false);
+            }
+
+            string path = _jinwo.ResolveHikCaptureSavePath();
+            for (int i = 0; i < 25 && !File.Exists(path); i++)
+                await Task.Delay(40).ConfigureAwait(false);
+
+            if (!File.Exists(path))
+                return false;
+
+            _offlineTestImagePath = path;
+            _jinwo.SetCaptureImageOverride(path);
+            ProcessPipelineLog.ImageLoaded("[海康→金沃]", path, path, "MVS 采图");
+            return true;
+        }
+
+        /// <summary>海康采图 → 预览 → 可选金沃识别。</summary>
         private async Task GrabHikFrameAndShowAsync(bool runJinwoAfterSave)
         {
             if (!_hikCameraConnected || _hikCamera == null)
@@ -180,33 +213,31 @@ namespace 码料机
                 return;
             }
 
-            string mode = _jinwo.HikTriggerMode ?? "";
-            if (!mode.Equals("Continuous", StringComparison.OrdinalIgnoreCase))
+            if (!await TryHikvisionCaptureAsync().ConfigureAwait(true))
             {
-                if (!_hikCamera.TriggerSoftware())
-                {
-                    TEXT("[海康] 软触发失败: " + (_hikCamera.LastError ?? ""));
-                    return;
-                }
-                TEXT("[海康] 已发送软触发");
-                await Task.Delay(120).ConfigureAwait(true);
+                TEXT("[海康] 采图失败或未落盘（请确认「每帧保存采图」=1）");
+                return;
             }
 
-            string path = _jinwo.ResolveHikCaptureSavePath();
-            if (File.Exists(path))
-            {
-                _offlineTestImagePath = path;
-                _jinwo.SetCaptureImageOverride(path);
-                SafeInvoke(() => ShowOfflinePreviewAfterUndistort(path));
-                ProcessPipelineLog.ImageLoaded("[海康]", path, path, "相机采图");
-            }
-            else
-            {
-                TEXT("[海康] 等待帧回调保存…（请确认「每帧保存采图」=1 或连续模式已在落盘）");
-            }
+            string path = _jinwo.ResolveCaptureImagePath();
+            SafeInvoke(() => ShowOfflinePreviewAfterUndistort(path));
 
             if (runJinwoAfterSave && _jinwo.IsEnabled && _jinwo.IsLoaded)
+                await RunJinwoOnCaptureAsync("海康拍照").ConfigureAwait(true);
+        }
+
+        /// <summary>对当前采图（优先海康落盘路径）运行金沃 DLL。</summary>
+        private async Task RunJinwoOnCaptureAsync(string tag)
+        {
+            try
+            {
+                TEXT($"[{tag}] 金沃识别中…");
                 await RunJinwoOfflineProcessAsync().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                TEXT($"[金沃] {tag} 识别异常: " + ex.Message);
+            }
         }
 
         private void EnsureHikGrabButton()
@@ -227,10 +258,20 @@ namespace 码料机
             };
             _btnHikGrab.FlatAppearance.BorderSize = 0;
             _btnHikGrab.Padding = new Padding(10, 4, 10, 4);
-            _btnHikGrab.Click += async (s, e) => await GrabHikFrameAndShowAsync(runJinwoAfterSave: true).ConfigureAwait(true);
+            _btnHikGrab.Click += async (s, e) =>
+            {
+                try
+                {
+                    await GrabHikFrameAndShowAsync(runJinwoAfterSave: true).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    TEXT("[海康] 拍照异常: " + ex.Message);
+                }
+            };
             panelVmPreviewHost.Controls.Add(_btnHikGrab);
-            panelVmPreviewHost.Resize += (s, e) => LayoutVmPreviewToolbar();
-            LayoutVmPreviewToolbar();
+            panelVmPreviewHost.Resize += (s, e) => LayoutPreviewToolbar();
+            LayoutPreviewToolbar();
         }
     }
 }

@@ -45,8 +45,7 @@ namespace 码料机
             Text = "位置设定";
 
             AutoScaleMode = AutoScaleMode.Dpi;
-
-
+            UiLayoutHelper.ApplyDialogChrome(this);
 
             _leftPanel = new PhotoStationPanel();
 
@@ -238,7 +237,7 @@ namespace 码料机
 
             DialogPrompts.ShowInfo("左/右机台位置参数已保存。", "保存成功");
 
-            MainForm?.ReloadPhotoPositionConfig(pushPlacePhotoToPlc: true);
+            MainForm?.ReloadPhotoPositionConfig(pushToPlc: true);
 
         }
 
@@ -286,7 +285,7 @@ namespace 码料机
 
                     if (!PhotoPositionConfig.SaveBoth(left, right, _iniPath)) return false;
 
-                    MainForm?.ReloadPhotoPositionConfig(pushPlacePhotoToPlc: true);
+                    MainForm?.ReloadPhotoPositionConfig(pushToPlc: true);
 
                     _dirty = false;
 
@@ -418,7 +417,7 @@ namespace 码料机
 
                     Padding = new Padding(10, 6, 10, 10),
 
-                    Font = new Font("Microsoft YaHei UI", 10F),
+                    Font = UiLayoutHelper.Body,
 
                     Margin = new Padding(0, 0, 0, 8),
 

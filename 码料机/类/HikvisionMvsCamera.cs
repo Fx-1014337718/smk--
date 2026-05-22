@@ -438,6 +438,10 @@ namespace 码料机
         {
             lock (_sync)
             {
+                PreviewFrame = null;
+                FrameSaved = null;
+                _previewEnabled = false;
+                _saveEachFrame = false;
                 DisconnectInternal();
                 if (_sdkInitialized)
                 {

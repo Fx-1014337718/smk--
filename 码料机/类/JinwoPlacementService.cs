@@ -100,11 +100,42 @@ namespace 码料机
                 throw new InvalidOperationException(action + " 失败: " + dll.ReadLastError());
         }
 
+        /// <summary>DLL 从当前工作目录读取标定 yml（与识图算位一致）。</summary>
+        private void RunInCalibWorkDir(Action action)
+        {
+            string prevDir = Directory.GetCurrentDirectory();
+            try
+            {
+                Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
+                action();
+            }
+            finally
+            {
+                try { Directory.SetCurrentDirectory(prevDir); } catch { }
+            }
+        }
+
+        private void RequireCalibFilesForDll()
+        {
+            if (_ini == null || !_ini.IncludeRobotCoordinate) return;
+            string dir = _ini.ResolveCalibWorkDir();
+            string cam = Path.Combine(dir, "camera_calib.yml");
+            string rob = Path.Combine(dir, "robot_calib.yml");
+            if (File.Exists(cam) && File.Exists(rob)) return;
+            throw new InvalidOperationException(
+                "标定文件缺失（请放在 exe 旁 配置文件 目录，文件名须为 camera_calib.yml 与 robot_calib.yml）：\n"
+                + "  目录: " + dir + "\n"
+                + "  camera_calib.yml: " + (File.Exists(cam) ? "OK" : "缺失") + "\n"
+                + "  robot_calib.yml: " + (File.Exists(rob) ? "OK" : "缺失"));
+        }
+
         /// <summary>根据工位产品/箱体与 INI 生成托盘配置并校验。</summary>
+        /// <param name="gridFromAlgorithmOnly">为 true 时不采用上位机行列层估算，仅 INI 显式填写时才 SetTrayGrid，有效网格由 GetEffectiveGrid 给出。</param>
         public JinwoNative.JinwoTrayConfig BuildTrayConfig(
             double boxLength, double boxWidth, double boxHeight,
             double bearingOuterDiameter, double bearingHeight,
-            int layoutRows, int layoutCols, int layoutLayers)
+            int layoutRows, int layoutCols, int layoutLayers,
+            bool gridFromAlgorithmOnly = false)
         {
             RequireDll();
             var cfg = JinwoNative.CreateEmptyTrayConfig();
@@ -113,11 +144,15 @@ namespace 码料机
             int rows = _ini.TrayRows > 0 ? _ini.TrayRows : layoutRows;
             int cols = _ini.TrayCols > 0 ? _ini.TrayCols : layoutCols;
             int layers = _ini.TrayLayers > 0 ? _ini.TrayLayers : layoutLayers;
-            if (rows < 1) rows = 1;
-            if (cols < 1) cols = 1;
-            if (layers < 1) layers = 1;
+            if (!gridFromAlgorithmOnly)
+            {
+                if (rows < 1) rows = 1;
+                if (cols < 1) cols = 1;
+                if (layers < 1) layers = 1;
+            }
 
-            RequireOk(_dll.SetTrayGrid(ref cfg, rows, cols, layers), _dll, "Jinwo_SetTrayGrid");
+            if (rows > 0 && cols > 0 && layers > 0)
+                RequireOk(_dll.SetTrayGrid(ref cfg, rows, cols, layers), _dll, "Jinwo_SetTrayGrid");
 
             double layerPitchZ = _ini.LayerPitchZ > 0 ? _ini.LayerPitchZ : bearingHeight;
             RequireOk(_dll.SetBearing(ref cfg, bearingOuterDiameter, bearingHeight, _ini.BearingGap, layerPitchZ), _dll, "Jinwo_SetBearing");
@@ -143,14 +178,37 @@ namespace 码料机
 
             RequireOk(_dll.SetRobotPlace(ref cfg, _ini.TargetZ, _ini.TargetRz), _dll, "Jinwo_SetRobotPlace");
 
-            for (int i = 0; i < JinwoNative.MarkerCount; i++)
-                RequireOk(_dll.SetMarkerRobotPoint(ref cfg, i, _ini.MarkerRobotX[i], _ini.MarkerRobotY[i]), _dll, "Jinwo_SetMarkerRobotPoint");
+            if (!_ini.IncludeRobotCoordinate && HasManualMarkerRobotPoints())
+            {
+                for (int i = 0; i < JinwoNative.MarkerCount; i++)
+                    RequireOk(_dll.SetMarkerRobotPoint(ref cfg, i, _ini.MarkerRobotX[i], _ini.MarkerRobotY[i]), _dll, "Jinwo_SetMarkerRobotPoint");
+            }
 
             if (_ini.FirstCenterOffsetX != 0 || _ini.FirstCenterOffsetY != 0)
                 RequireOk(_dll.SetFirstCenterOffset(ref cfg, _ini.FirstCenterOffsetX, _ini.FirstCenterOffsetY), _dll, "Jinwo_SetFirstCenterOffset");
 
-            RequireOk(_dll.ValidateConfig(ref cfg), _dll, "Jinwo_ValidateConfig");
+            _ini.EnsureCalibFilesForDll();
+            RequireCalibFilesForDll();
+            lock (_sync)
+            {
+                RunInCalibWorkDir(() =>
+                {
+                    RequireOk(_dll.ValidateConfig(ref cfg), _dll, "Jinwo_ValidateConfig");
+                    if (_dll.ValidateTrayGeometry != null)
+                        RequireOk(_dll.ValidateTrayGeometry(ref cfg), _dll, "Jinwo_ValidateTrayGeometry");
+                });
+            }
             return cfg;
+        }
+
+        private bool HasManualMarkerRobotPoints()
+        {
+            for (int i = 0; i < JinwoNative.MarkerCount; i++)
+            {
+                if (_ini.MarkerRobotX[i] != 0 || _ini.MarkerRobotY[i] != 0)
+                    return true;
+            }
+            return false;
         }
 
         public bool TryGetEffectiveGrid(ref JinwoNative.JinwoTrayConfig cfg, out int rows, out int cols, out int capacity)
@@ -235,28 +293,61 @@ namespace 码料机
             return preparedPath;
         }
 
-        public JinwoNative.JinwoMarkerResult DetectMarkers(string imagePath)
+        public bool TryDetectMarkers(string imagePath, out JinwoNative.JinwoMarkerResult result, out string error)
         {
-            RequireDll();
-            string algoPath = PrepareAlgorithmImage(imagePath);
-            ProcessPipelineLog.RecognizeStart("黑圆检测", algoPath);
-            var result = JinwoNative.CreateEmptyMarkerResult();
+            result = JinwoNative.CreateEmptyMarkerResult();
+            error = null;
             try
             {
-                lock (_sync)
-                    RequireOk(_dll.DetectMarkersFromImage(algoPath, ref result), _dll, "Jinwo_DetectMarkersFromImage");
+                RequireDll();
+                if (!File.Exists(imagePath))
+                {
+                    error = "采图不存在: " + imagePath;
+                    ProcessPipelineLog.RecognizeFailed("黑圆检测", error);
+                    return false;
+                }
+
+                string algoPath = PrepareAlgorithmImage(imagePath);
+                ProcessPipelineLog.RecognizeStart("黑圆检测", algoPath);
+                string prevDir = Directory.GetCurrentDirectory();
+                try
+                {
+                    Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
+                    int rc;
+                    lock (_sync)
+                        rc = _dll.DetectMarkersFromImage(algoPath, ref result);
+                    if (rc == 0)
+                    {
+                        error = "Jinwo_DetectMarkersFromImage 失败: " + _dll.ReadLastError();
+                        ProcessPipelineLog.RecognizeFailed("黑圆检测", error);
+                        return false;
+                    }
+                }
+                finally
+                {
+                    try { Directory.SetCurrentDirectory(prevDir); } catch { }
+                }
+
                 int n = result.MarkerPixels?.Length ?? 0;
                 ProcessPipelineLog.RecognizeDone("黑圆检测", $"检测到 {n} 个标记");
-                return result;
+                return true;
             }
             catch (Exception ex)
             {
-                ProcessPipelineLog.RecognizeFailed("黑圆检测", ex.Message);
-                throw;
+                error = ex.Message;
+                ProcessPipelineLog.RecognizeFailed("黑圆检测", error);
+                return false;
             }
         }
 
-        public JinwoNative.JinwoPoseResult CalculatePose(
+        public JinwoNative.JinwoMarkerResult DetectMarkers(string imagePath)
+        {
+            if (!TryDetectMarkers(imagePath, out var result, out string error))
+                throw new InvalidOperationException(error ?? "黑圆检测失败");
+            return result;
+        }
+
+        public JinwoNative.JinwoBearingCenterResult[] CalculateAllBearingCenters(
             ref JinwoNative.JinwoTrayConfig cfg,
             string imagePath,
             int placedCount,
@@ -267,12 +358,150 @@ namespace 码料机
                 throw new FileNotFoundException("采图不存在: " + imagePath);
 
             string algoPath = PrepareAlgorithmImage(imagePath);
-            ProcessPipelineLog.RecognizeStart("箱姿算位", algoPath, $"已放件数={placedCount}");
+            ProcessPipelineLog.RecognizeStart("轴承中心算位", algoPath, $"已放件数={placedCount}");
             Directory.CreateDirectory(_ini.ResolveEffectImageDir());
+            int includeRobot = _ini.IncludeRobotCoordinate ? 1 : 0;
+            int save = _ini.SaveEffectImage ? 1 : 0;
+            effectImagePath = null;
+
             string prevDir = Directory.GetCurrentDirectory();
             try
             {
-                Directory.SetCurrentDirectory(_ini.ResolveEffectImageDir());
+                Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
+
+                int centerCount = 0;
+                var effectBuf = new StringBuilder(1024);
+                lock (_sync)
+                {
+                    RequireOk(_dll.CalculateAllBearingCentersFromImage(
+                        ref cfg,
+                        algoPath,
+                        includeRobot,
+                        save,
+                        placedCount,
+                        null,
+                        0,
+                        out centerCount,
+                        effectBuf,
+                        effectBuf.Capacity),
+                        _dll, "Jinwo_CalculateAllBearingCentersFromImage");
+                }
+
+                string raw = effectBuf.Length > 0 ? effectBuf.ToString().Trim() : null;
+                effectImagePath = ResolveEffectImagePath(raw);
+                if (save != 0 && string.IsNullOrEmpty(effectImagePath))
+                    effectImagePath = FindNewestEffectImage();
+
+                if (centerCount <= 0)
+                    throw new InvalidOperationException("DLL 未返回轴承中心点");
+
+                var centers = new JinwoNative.JinwoBearingCenterResult[centerCount];
+                lock (_sync)
+                {
+                    RequireOk(_dll.CalculateAllBearingCentersFromImage(
+                        ref cfg,
+                        algoPath,
+                        includeRobot,
+                        0,
+                        placedCount,
+                        centers,
+                        centerCount,
+                        out centerCount,
+                        null,
+                        0),
+                        _dll, "Jinwo_CalculateAllBearingCentersFromImage");
+                }
+
+                if (centerCount > 0 && centerCount < centers.Length)
+                    Array.Resize(ref centers, centerCount);
+
+                ProcessPipelineLog.RecognizeDone("轴承中心算位", $"共 {centers.Length} 个中心点");
+                return centers;
+            }
+            catch (Exception ex)
+            {
+                effectImagePath = null;
+                ProcessPipelineLog.RecognizeFailed("轴承中心算位", ex.Message);
+                throw;
+            }
+            finally
+            {
+                try { Directory.SetCurrentDirectory(prevDir); } catch { }
+            }
+        }
+
+        public bool TryFindBearingCenter(JinwoNative.JinwoBearingCenterResult[] centers, int placedCount, out JinwoNative.JinwoBearingCenterResult center)
+        {
+            center = default;
+            if (centers == null || centers.Length == 0) return false;
+
+            for (int i = 0; i < centers.Length; i++)
+            {
+                if (centers[i].Count == placedCount)
+                {
+                    center = centers[i];
+                    return true;
+                }
+            }
+
+            if (placedCount >= 0 && placedCount < centers.Length)
+            {
+                center = centers[placedCount];
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>算法只给 XY 与层行列；Z = 基准高度 + 层号×层高，Rz 用设定值。</summary>
+        public static void ApplyManualPlaceCoordinates(ref JinwoNative.JinwoPoseResult pose, double baseZ, double layerPitchZ, double rz)
+        {
+            int layer = Math.Max(0, pose.Layer);
+            pose.Z = baseZ + layer * layerPitchZ;
+            pose.Rz = rz;
+        }
+
+        public JinwoNative.JinwoPoseResult CalculatePose(
+            ref JinwoNative.JinwoTrayConfig cfg,
+            string imagePath,
+            int placedCount,
+            out string effectImagePath,
+            double? manualBaseZ = null,
+            double? manualRz = null,
+            double? layerPitchOverride = null)
+        {
+            RequireDll();
+            if (_dll.CalculateAllBearingCentersFromImage != null)
+            {
+                var centers = CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out effectImagePath);
+                if (!TryFindBearingCenter(centers, placedCount, out var next))
+                    throw new InvalidOperationException($"未找到序号 {placedCount} 的放料位（共 {centers.Length} 个中心点）");
+
+                if (_ini.IncludeRobotCoordinate && next.HasRobot == 0)
+                    throw new InvalidOperationException("DLL 未输出机械坐标，请确认工作目录下 camera_calib.yml 与 robot_calib.yml 有效");
+
+                int effRows = 0, effCols = 0, capacity = 0;
+                TryGetEffectiveGrid(ref cfg, out effRows, out effCols, out capacity);
+                var pose = JinwoNative.ToPoseResult(next, effRows, effCols, capacity);
+                FinalizePoseZAndRz(ref cfg, ref pose, manualBaseZ, manualRz, layerPitchOverride);
+                ProcessPipelineLog.RecognizeDone("箱姿算位",
+                    $"世界({pose.X:F2},{pose.Y:F2}) Z={pose.Z:F2} Rz={pose.Rz:F2}° 层{pose.Layer + 1}/行{pose.Row + 1}/列{pose.Col + 1}"
+                    + (string.IsNullOrEmpty(effectImagePath) ? "" : " 效果图=" + Path.GetFileName(effectImagePath)));
+                return pose;
+            }
+
+            if (_dll.CalculatePoseFromImage == null)
+                throw new InvalidOperationException("DLL 缺少 Jinwo_CalculateAllBearingCentersFromImage 与 Jinwo_CalculatePoseFromImage");
+
+            if (!File.Exists(imagePath))
+                throw new FileNotFoundException("采图不存在: " + imagePath);
+
+            string algoPath = PrepareAlgorithmImage(imagePath);
+            ProcessPipelineLog.RecognizeStart("箱姿算位", algoPath, $"已放件数={placedCount}");
+            effectImagePath = null;
+            string prevDir = Directory.GetCurrentDirectory();
+            try
+            {
+                Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
                 var pose = JinwoNative.CreateEmptyPoseResult();
                 var effectBuf = new StringBuilder(1024);
                 int save = _ini.SaveEffectImage ? 1 : 0;
@@ -286,20 +515,31 @@ namespace 码料机
                 effectImagePath = ResolveEffectImagePath(raw);
                 if (save != 0 && string.IsNullOrEmpty(effectImagePath))
                     effectImagePath = FindNewestEffectImage();
+                FinalizePoseZAndRz(ref cfg, ref pose, manualBaseZ, manualRz, layerPitchOverride);
                 ProcessPipelineLog.RecognizeDone("箱姿算位",
                     $"世界({pose.X:F2},{pose.Y:F2}) Z={pose.Z:F2} Rz={pose.Rz:F2}° 层{pose.Layer + 1}/行{pose.Row + 1}/列{pose.Col + 1}"
                     + (string.IsNullOrEmpty(effectImagePath) ? "" : " 效果图=" + Path.GetFileName(effectImagePath)));
                 return pose;
             }
-            catch (Exception ex)
-            {
-                ProcessPipelineLog.RecognizeFailed("箱姿算位", ex.Message);
-                throw;
-            }
             finally
             {
                 try { Directory.SetCurrentDirectory(prevDir); } catch { }
             }
+        }
+
+        private void FinalizePoseZAndRz(
+            ref JinwoNative.JinwoTrayConfig cfg,
+            ref JinwoNative.JinwoPoseResult pose,
+            double? manualBaseZ,
+            double? manualRz,
+            double? layerPitchOverride)
+        {
+            double baseZ = manualBaseZ ?? _ini.TargetZ;
+            double pitch = layerPitchOverride ?? (_ini.LayerPitchZ > 0 ? _ini.LayerPitchZ : cfg.LayerPitchZ);
+            if (pitch <= 0 && cfg.BearingHeight > 0)
+                pitch = cfg.BearingHeight;
+            double rz = manualRz ?? _ini.TargetRz;
+            ApplyManualPlaceCoordinates(ref pose, baseZ, pitch, rz);
         }
 
         /// <summary>DLL 返回的效果图路径可能是相对路径（相对效果图目录）。</summary>
@@ -359,11 +599,6 @@ namespace 码料机
         public string ResolveCaptureImagePath()
             => JinwoAlgorithmConfig.ResolveCaptureImagePath(_captureImageOverride ?? _ini?.CaptureImagePath);
 
-        public bool RunVmBeforeJinwo => _ini?.RunVmBeforeJinwo == true;
-        public string VmProcedureName => string.IsNullOrWhiteSpace(_ini?.VmProcedureName)
-            ? VMSol.DefaultProcedureName
-            : _ini.VmProcedureName.Trim();
-
         public bool HikCameraEnabled => _ini?.HikCameraEnabled == true;
         public string HikSerialNumber => _ini?.HikSerialNumber ?? "";
         public string HikTriggerMode => string.IsNullOrWhiteSpace(_ini?.HikTriggerMode) ? "Software" : _ini.HikTriggerMode.Trim();
@@ -371,7 +606,7 @@ namespace 码料机
         public int HikPreviewIntervalMs => _ini?.HikPreviewIntervalMs ?? 200;
         public bool HikSaveEveryFrame => _ini?.HikSaveEveryFrame != false;
         public string ResolveHikCaptureSavePath() => _ini?.ResolveHikCaptureSavePath()
-            ?? Path.Combine(Application.StartupPath, VMSol.DefaultOfflineFeedFileName);
+            ?? Path.Combine(Application.StartupPath, OfflineCaptureHelper.DefaultOfflineFeedFileName);
 
         public void Dispose()
         {

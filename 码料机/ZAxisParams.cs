@@ -22,6 +22,7 @@ namespace 码料机
             StartPosition = FormStartPosition.CenterParent;
             Text = "Z轴参数设定";
             AutoScaleMode = AutoScaleMode.Dpi;
+            UiLayoutHelper.ApplyDialogChrome(this);
 
             _leftPanel = new ZAxisStationPanel();
             _rightPanel = new ZAxisStationPanel();
@@ -107,16 +108,17 @@ namespace 码料机
 
             public ZAxisStationPanel()
             {
-                Padding = new Padding(12, 8, 12, 12);
+                Font = UiLayoutHelper.Body;
+                Padding = new Padding(14, 10, 14, 14);
                 var table = new TableLayoutPanel
                 {
                     Dock = DockStyle.Top,
                     AutoSize = true,
                     AutoSizeMode = AutoSizeMode.GrowAndShrink,
                     ColumnCount = 2,
-                    Padding = new Padding(0, 4, 0, 8),
+                    Padding = new Padding(0, 6, 0, 10),
                 };
-                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 168));
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 188));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
                 table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -125,7 +127,8 @@ namespace 码料机
                     Text = "单位：毫米（mm）",
                     ForeColor = SystemColors.GrayText,
                     AutoSize = true,
-                    Margin = new Padding(0, 0, 0, 8),
+                    Font = UiLayoutHelper.Body,
+                    Margin = new Padding(0, 0, 0, 10),
                 };
                 table.Controls.Add(hint, 0, 0);
                 table.SetColumnSpan(hint, 2);
@@ -150,11 +153,13 @@ namespace 码料机
                 {
                     Text = label,
                     AutoSize = true,
+                    Font = UiLayoutHelper.Body,
                     Anchor = AnchorStyles.Right,
-                    Margin = new Padding(0, 8, 6, 0),
+                    Margin = new Padding(0, 10, 8, 4),
                 };
                 box.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-                box.Margin = new Padding(0, 4, 0, 4);
+                box.Font = UiLayoutHelper.Combo;
+                box.Margin = new Padding(0, 6, 0, 6);
                 t.Controls.Add(lbl, 0, row);
                 t.Controls.Add(box, 1, row);
             }

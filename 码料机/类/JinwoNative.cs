@@ -77,6 +77,28 @@ namespace 码料机
             public JinwoPoint[] MarkerPixels;
         }
 
+        [StructLayout(LayoutKind.Sequential, Pack = 8, CharSet = CharSet.Ansi)]
+        public struct JinwoBearingCenterResult
+        {
+            public int Count;
+            public int Row;
+            public int Col;
+            public int Layer;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string Name;
+
+            public double TrayX;
+            public double TrayY;
+            public double PixelX;
+            public double PixelY;
+            public double RobotX;
+            public double RobotY;
+            public double RobotZ;
+            public double RobotRz;
+            public int HasRobot;
+        }
+
         [UnmanagedFunctionPointer(ApiConv)]
         public delegate int JinwoInitConfigFn(ref JinwoTrayConfig config);
 
@@ -117,6 +139,9 @@ namespace 码料机
         public delegate int JinwoValidateConfigFn(ref JinwoTrayConfig config);
 
         [UnmanagedFunctionPointer(ApiConv)]
+        public delegate int JinwoValidateTrayGeometryFn(ref JinwoTrayConfig config);
+
+        [UnmanagedFunctionPointer(ApiConv)]
         public delegate int JinwoDetectMarkersFromImageFn(
             [MarshalAs(UnmanagedType.LPStr)] string imagePath,
             ref JinwoMarkerResult result);
@@ -128,6 +153,19 @@ namespace 码料机
             int currentCount,
             int saveEffectImage,
             ref JinwoPoseResult pose,
+            StringBuilder effectPath,
+            int effectPathCapacity);
+
+        [UnmanagedFunctionPointer(ApiConv)]
+        public delegate int JinwoCalculateAllBearingCentersFromImageFn(
+            ref JinwoTrayConfig config,
+            [MarshalAs(UnmanagedType.LPStr)] string imagePath,
+            int includeRobotCoordinate,
+            int saveEffectImage,
+            int currentCount,
+            [Out] JinwoBearingCenterResult[] centers,
+            int bufferSize,
+            out int centerCount,
             StringBuilder effectPath,
             int effectPathCapacity);
 
@@ -167,8 +205,10 @@ namespace 码料机
             public JinwoSetMarkerRobotPointFn SetMarkerRobotPoint { get; private set; }
             public JinwoSetFirstCenterOffsetFn SetFirstCenterOffset { get; private set; }
             public JinwoValidateConfigFn ValidateConfig { get; private set; }
+            public JinwoValidateTrayGeometryFn ValidateTrayGeometry { get; private set; }
             public JinwoDetectMarkersFromImageFn DetectMarkersFromImage { get; private set; }
             public JinwoCalculatePoseFromImageFn CalculatePoseFromImage { get; private set; }
+            public JinwoCalculateAllBearingCentersFromImageFn CalculateAllBearingCentersFromImage { get; private set; }
             public JinwoGetEffectiveGridFn GetEffectiveGrid { get; private set; }
             public JinwoGetLastErrorFn GetLastError { get; private set; }
 
@@ -195,10 +235,16 @@ namespace 码料机
                 dll.SetMarkerRobotPoint = LoadFn<JinwoSetMarkerRobotPointFn>(module, "Jinwo_SetMarkerRobotPoint");
                 dll.SetFirstCenterOffset = LoadFn<JinwoSetFirstCenterOffsetFn>(module, "Jinwo_SetFirstCenterOffset");
                 dll.ValidateConfig = LoadFn<JinwoValidateConfigFn>(module, "Jinwo_ValidateConfig");
+                dll.ValidateTrayGeometry = TryLoadFn<JinwoValidateTrayGeometryFn>(module, "Jinwo_ValidateTrayGeometry");
                 dll.DetectMarkersFromImage = LoadFn<JinwoDetectMarkersFromImageFn>(module, "Jinwo_DetectMarkersFromImage");
-                dll.CalculatePoseFromImage = LoadFn<JinwoCalculatePoseFromImageFn>(module, "Jinwo_CalculatePoseFromImage");
+                dll.CalculatePoseFromImage = TryLoadFn<JinwoCalculatePoseFromImageFn>(module, "Jinwo_CalculatePoseFromImage");
+                dll.CalculateAllBearingCentersFromImage = TryLoadFn<JinwoCalculateAllBearingCentersFromImageFn>(
+                    module, "Jinwo_CalculateAllBearingCentersFromImage");
                 dll.GetEffectiveGrid = LoadFn<JinwoGetEffectiveGridFn>(module, "Jinwo_GetEffectiveGrid");
                 dll.GetLastError = LoadFn<JinwoGetLastErrorFn>(module, "Jinwo_GetLastError");
+                if (dll.CalculateAllBearingCentersFromImage == null && dll.CalculatePoseFromImage == null)
+                    throw new EntryPointNotFoundException(
+                        "DLL 过旧：缺少 Jinwo_CalculateAllBearingCentersFromImage，请将新版 JinwoRobotArm.dll 放到 配置文件 或 exe 目录（当前: " + dllPath + "）");
                 return dll;
             }
 
@@ -208,6 +254,12 @@ namespace 码料机
                 if (addr == IntPtr.Zero)
                     throw new EntryPointNotFoundException("DLL 缺少导出函数: " + name);
                 return Marshal.GetDelegateForFunctionPointer<T>(addr);
+            }
+
+            private static T TryLoadFn<T>(IntPtr module, string name) where T : class
+            {
+                IntPtr addr = GetProcAddress(module, name);
+                return addr == IntPtr.Zero ? null : Marshal.GetDelegateForFunctionPointer<T>(addr);
             }
 
             public string ReadLastError()
@@ -244,6 +296,25 @@ namespace 码料机
         public static JinwoPoseResult CreateEmptyPoseResult()
         {
             return new JinwoPoseResult { MarkerPixels = new JinwoPoint[MarkerCount] };
+        }
+
+        /// <summary>算法仅输出 XY 与层行列；Z、Rz 由上位机按设定值与层号计算。</summary>
+        public static JinwoPoseResult ToPoseResult(JinwoBearingCenterResult center, int effectiveRows = 0, int effectiveCols = 0, int capacity = 0)
+        {
+            return new JinwoPoseResult
+            {
+                X = center.HasRobot != 0 ? center.RobotX : center.TrayX,
+                Y = center.HasRobot != 0 ? center.RobotY : center.TrayY,
+                Z = 0,
+                Rz = 0,
+                Row = center.Row,
+                Col = center.Col,
+                Layer = center.Layer,
+                EffectiveRows = effectiveRows,
+                EffectiveCols = effectiveCols,
+                Capacity = capacity,
+                MarkerPixels = new JinwoPoint[MarkerCount],
+            };
         }
     }
 }

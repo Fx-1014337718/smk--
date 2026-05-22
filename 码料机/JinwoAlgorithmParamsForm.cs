@@ -28,6 +28,7 @@ namespace 码料机
             StartPosition = FormStartPosition.CenterParent;
             Text = "金沃算法设定";
             AutoScaleMode = AutoScaleMode.Dpi;
+            UiLayoutHelper.ApplyDialogChrome(this);
 
             _editorAlgorithm = BuildAlgorithmEditor();
             _editorHik = BuildHikEditor();
@@ -63,10 +64,9 @@ namespace 码料机
             _editorAlgorithm.SetText("Dll路径", c.DllFileName);
             _editorAlgorithm.SetText("OpenCv运行时目录", c.OpenCvRuntimeDir);
             _editorAlgorithm.SetText("采图路径", c.CaptureImagePath);
-            _editorAlgorithm.SetBool("运行VM流程", c.RunVmBeforeJinwo);
             _editorAlgorithm.SetBool("保存效果图", c.SaveEffectImage);
+            _editorAlgorithm.SetBool("输出机械坐标", c.IncludeRobotCoordinate);
             _editorAlgorithm.SetText("效果图目录", c.EffectImageDir);
-            _editorAlgorithm.SetText("VM流程名", c.VmProcedureName);
 
             _editorHik.SetBool("启用", c.HikCameraEnabled);
             _editorHik.SetText("序列号", c.HikSerialNumber);
@@ -121,12 +121,9 @@ namespace 码料机
             cfg.DllFileName = _editorAlgorithm.GetText("Dll路径");
             cfg.OpenCvRuntimeDir = _editorAlgorithm.GetText("OpenCv运行时目录");
             cfg.CaptureImagePath = _editorAlgorithm.GetText("采图路径");
-            cfg.RunVmBeforeJinwo = _editorAlgorithm.GetBool("运行VM流程");
             cfg.SaveEffectImage = _editorAlgorithm.GetBool("保存效果图");
+            cfg.IncludeRobotCoordinate = _editorAlgorithm.GetBool("输出机械坐标");
             cfg.EffectImageDir = _editorAlgorithm.GetText("效果图目录");
-            cfg.VmProcedureName = _editorAlgorithm.GetText("VM流程名");
-            if (string.IsNullOrWhiteSpace(cfg.VmProcedureName))
-                cfg.VmProcedureName = VMSol.DefaultProcedureName;
 
             cfg.HikCameraEnabled = _editorHik.GetBool("启用");
             cfg.HikSerialNumber = _editorHik.GetText("序列号");
@@ -249,14 +246,14 @@ namespace 码料机
             var ed = new JinwoParamsEditor();
             ed.Changed += MarkDirty;
             ed.AddHint("启用=1 时使用 JinwoRobotArm.dll；采图路径为空则回退 Feed.bmp。");
+            ed.AddHint("机械坐标由 DLL 读取 配置文件\\camera_calib.yml 与 robot_calib.yml（与金沃dll-测试一致）。");
             ed.AddCheck("启用", "启用金沃算法:");
             ed.AddPath("Dll路径", "DLL 路径:", PathPickKind.File, "动态库 (*.dll)|*.dll|所有文件 (*.*)|*.*");
             ed.AddPath("OpenCv运行时目录", "OpenCV 运行时目录:", PathPickKind.Folder);
             ed.AddPath("采图路径", "采图路径:", PathPickKind.File, "图像 (*.bmp;*.jpg;*.png)|*.bmp;*.jpg;*.png|所有文件 (*.*)|*.*");
-            ed.AddCheck("运行VM流程", "运行 VM 流程后再算位:");
             ed.AddCheck("保存效果图", "保存效果图:");
+            ed.AddCheck("输出机械坐标", "输出机械坐标(读yml):");
             ed.AddText("效果图目录", "效果图目录:");
-            ed.AddText("VM流程名", "VM 流程名:");
             return ed;
         }
 
@@ -264,7 +261,7 @@ namespace 码料机
         {
             var ed = new JinwoParamsEditor();
             ed.Changed += MarkDirty;
-            ed.AddHint("金沃模式下可用海康 MVS 采图；序列号在 MVS 客户端查看。");
+            ed.AddHint("金沃启用时：海康 MVS 采图 → 金沃 DLL 识别。");
             ed.AddCheck("启用", "启用海康相机:");
             ed.AddText("序列号", "相机序列号:");
             ed.AddText("触发模式", "触发模式 (如 Software):");
@@ -293,7 +290,7 @@ namespace 码料机
         {
             var ed = new JinwoParamsEditor();
             ed.Changed += MarkDirty;
-            ed.AddHint("标定与托盘几何参数，单位一般为 mm。");
+            ed.AddHint("标定与托盘几何参数，单位一般为 mm。启用「输出机械坐标」时黑圆机器人坐标由 yml 提供，可留 0。");
             ed.AddDouble("相机距离", "相机距离 (mm):");
             ed.AddDouble("木箱深度", "木箱深度 (mm):");
             ed.AddDouble("放料平面高度补偿", "放料平面高度补偿 (mm):");
@@ -322,7 +319,7 @@ namespace 码料机
         {
             var ed = new JinwoParamsEditor();
             ed.Changed += MarkDirty;
-            ed.AddHint("camera_calib.yml 用于畸变矫正（与九点机械标定文件无关）。");
+            ed.AddHint("camera_calib.yml：畸变矫正 + DLL 机械坐标（工作目录=配置文件）。");
             ed.AddCheck("启用", "启用畸变矫正:");
             ed.AddPath("标定文件", "标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
             ed.AddDouble("Alpha", "Alpha:");
@@ -334,7 +331,7 @@ namespace 码料机
         {
             var ed = new JinwoParamsEditor();
             ed.Changed += MarkDirty;
-            ed.AddHint("robot_calib.yml 含 pixel_to_robot_matrix，用于像素转机械坐标。");
+            ed.AddHint("robot_calib.yml：DLL 像素转机械坐标（工作目录=配置文件，与金沃dll-测试 一致）。");
             ed.AddPath("标定文件", "标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
             return ed;
         }
@@ -354,12 +351,13 @@ namespace 码料机
             public JinwoParamsEditor()
             {
                 AutoScroll = true;
-                Padding = new Padding(8, 4, 8, 12);
+                Font = UiLayoutHelper.Body;
+                Padding = new Padding(10, 6, 10, 14);
                 _table.Dock = DockStyle.Top;
                 _table.AutoSize = true;
                 _table.AutoSizeMode = AutoSizeMode.GrowAndShrink;
                 _table.ColumnCount = 2;
-                _table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
+                _table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220));
                 _table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 Controls.Add(_table);
             }
@@ -374,8 +372,9 @@ namespace 码料机
                     Text = text,
                     ForeColor = SystemColors.GrayText,
                     AutoSize = true,
-                    MaximumSize = new Size(520, 0),
-                    Margin = new Padding(0, 0, 0, 10),
+                    Font = UiLayoutHelper.Body,
+                    MaximumSize = new Size(560, 0),
+                    Margin = new Padding(0, 0, 0, 12),
                 };
                 _table.Controls.Add(lbl, 0, _row);
                 _table.SetColumnSpan(lbl, 2);
@@ -385,7 +384,7 @@ namespace 码料机
             public void AddCheck(string key, string label)
             {
                 RegisterLabel(key, label);
-                var cb = new CheckBox { AutoSize = true, Margin = new Padding(0, 6, 0, 4) };
+                var cb = new CheckBox { AutoSize = true, Font = UiLayoutHelper.Body, Margin = new Padding(0, 8, 0, 6) };
                 cb.CheckedChanged += (_, __) => Changed?.Invoke(this, EventArgs.Empty);
                 AddControlRow(label, cb);
                 _fields[key] = cb;
@@ -465,7 +464,8 @@ namespace 码料机
                 var tb = new TextBox
                 {
                     Anchor = AnchorStyles.Left | AnchorStyles.Right,
-                    Margin = new Padding(0, 4, 0, 4),
+                    Font = UiLayoutHelper.Combo,
+                    Margin = new Padding(0, 6, 0, 6),
                 };
                 tb.TextChanged += (_, __) => Changed?.Invoke(this, EventArgs.Empty);
                 return tb;
@@ -478,8 +478,9 @@ namespace 码料机
                 {
                     Text = label,
                     AutoSize = true,
+                    Font = UiLayoutHelper.Body,
                     Anchor = AnchorStyles.Right,
-                    Margin = new Padding(0, 8, 6, 0),
+                    Margin = new Padding(0, 10, 8, 4),
                 };
                 _table.Controls.Add(lbl, 0, _row);
                 _table.Controls.Add(control, 1, _row);

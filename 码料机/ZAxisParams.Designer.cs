@@ -54,7 +54,7 @@ namespace 码料机
             // 
             this.labelUnitHint.AutoSize = true;
             this.labelUnitHint.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.labelUnitHint.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F);
+            this.labelUnitHint.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F);
             this.labelUnitHint.ForeColor = System.Drawing.SystemColors.GrayText;
             this.labelUnitHint.Location = new System.Drawing.Point(3, 3);
             this.labelUnitHint.Margin = new System.Windows.Forms.Padding(3, 3, 3, 8);
@@ -69,7 +69,7 @@ namespace 码料机
             this.tabControl.Controls.Add(this.tabPageLeft);
             this.tabControl.Controls.Add(this.tabPageRight);
             this.tabControl.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.tabControl.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F);
+            this.tabControl.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.tabControl.Location = new System.Drawing.Point(3, 48);
             this.tabControl.Margin = new System.Windows.Forms.Padding(3, 3, 3, 3);
             this.tabControl.Name = "tabControl";
@@ -123,7 +123,7 @@ namespace 码料机
             // 
             // buttonSave
             // 
-            this.buttonSave.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F);
+            this.buttonSave.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.buttonSave.Location = new System.Drawing.Point(0, 0);
             this.buttonSave.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
             this.buttonSave.Name = "buttonSave";
@@ -135,7 +135,7 @@ namespace 码料机
             // 
             // buttonCancel
             // 
-            this.buttonCancel.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F);
+            this.buttonCancel.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.buttonCancel.Location = new System.Drawing.Point(78, 0);
             this.buttonCancel.Margin = new System.Windows.Forms.Padding(0);
             this.buttonCancel.Name = "buttonCancel";
@@ -151,11 +151,11 @@ namespace 码料机
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
             this.ClientSize = new System.Drawing.Size(500, 400);
             this.Controls.Add(this.tableLayoutMain);
-            this.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F);
+            this.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
-            this.MinimumSize = new System.Drawing.Size(500, 400);
+            this.MinimumSize = new System.Drawing.Size(540, 440);
             this.Name = "ZAxisParams";
             this.Padding = new System.Windows.Forms.Padding(12);
             this.Text = "Z轴参数设定";

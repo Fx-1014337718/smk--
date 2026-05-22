@@ -193,11 +193,11 @@ namespace 码料机
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
             this.ClientSize = new System.Drawing.Size(600, 520);
             this.Controls.Add(this.tableLayoutMain);
-            this.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F);
+            this.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
-            this.MinimumSize = new System.Drawing.Size(600, 520);
+            this.MinimumSize = new System.Drawing.Size(640, 560);
             this.Name = "JinwoAlgorithmParamsForm";
             this.Padding = new System.Windows.Forms.Padding(12);
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;

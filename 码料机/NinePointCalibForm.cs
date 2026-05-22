@@ -21,7 +21,7 @@ namespace 码料机
         private readonly TextBox _txtU = new TextBox { Width = 120, Anchor = AnchorStyles.Left };
         private readonly TextBox _txtV = new TextBox { Width = 120, Anchor = AnchorStyles.Left };
         private readonly Label _lblRobotMeta = new Label { AutoSize = false, Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText };
-        private readonly Label _lblConvert = new Label { AutoSize = false, Dock = DockStyle.Fill, Font = new Font("Microsoft YaHei UI", 10f, FontStyle.Bold) };
+        private readonly Label _lblConvert = new Label { AutoSize = false, Dock = DockStyle.Fill, Font = UiLayoutHelper.BodyBold };
         private readonly Label _lblHint = new Label
         {
             AutoSize = false,
@@ -47,8 +47,9 @@ namespace 码料机
             MaximizeBox = false;
             MinimizeBox = false;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(640, 520);
-            Padding = new Padding(12);
+            Font = UiLayoutHelper.FormBase;
+            ClientSize = new Size(680, 560);
+            Padding = new Padding(14, 12, 14, 14);
 
             var root = new TableLayoutPanel
             {

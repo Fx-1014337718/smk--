@@ -17,8 +17,9 @@ namespace 码料机
         public Parameters(Form1 ms)
         {
             InitializeComponent();
+            UiLayoutHelper.ApplyDialogChrome(this);
             cc = ms;
-            Size = new Size(450, 550);
+            Size = new Size(480, 580);
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             Text = "产品参数设置";

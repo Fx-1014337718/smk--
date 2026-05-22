@@ -14,10 +14,10 @@ namespace 码料机
         public string DllFileName { get; set; } = "JinwoRobotArm.dll";
         public string OpenCvRuntimeDir { get; set; } = "";
         public string CaptureImagePath { get; set; } = "";
-        public bool RunVmBeforeJinwo { get; set; } = true;
         public bool SaveEffectImage { get; set; } = true;
+        /// <summary>1 时 DLL 从工作目录读取 camera_calib.yml / robot_calib.yml 计算机械坐标。</summary>
+        public bool IncludeRobotCoordinate { get; set; } = true;
         public string EffectImageDir { get; set; } = "jinwo_render";
-        public string VmProcedureName { get; set; } = VMSol.DefaultProcedureName;
 
         public int TrayRows { get; set; }
         public int TrayCols { get; set; }
@@ -50,7 +50,7 @@ namespace 码料机
         public double UndistortionAlpha { get; set; } = 1.0;
         public bool UndistortionCropBlackEdge { get; set; }
 
-        /// <summary>启用海康 MVS 采图（与 smk-vision-rx 相同 SDK，金沃模式替代 VM 图像源）。</summary>
+        /// <summary>启用海康 MVS 采图（与 smk-vision-rx 相同 SDK）。</summary>
         public bool HikCameraEnabled { get; set; }
         public string HikSerialNumber { get; set; } = "";
         public string HikTriggerMode { get; set; } = "Software";
@@ -85,10 +85,9 @@ namespace 码料机
             c.DllFileName = IniAPI.GetPrivateProfileString(alg, "Dll路径", "JinwoRobotArm.dll", IniPath);
             c.OpenCvRuntimeDir = IniAPI.GetPrivateProfileString(alg, "OpenCv运行时目录", "", IniPath);
             c.CaptureImagePath = IniAPI.GetPrivateProfileString(alg, "采图路径", "", IniPath);
-            c.RunVmBeforeJinwo = IniAPI.GetPrivateProfileInt(alg, "运行VM流程", 1, IniPath) != 0;
             c.SaveEffectImage = IniAPI.GetPrivateProfileInt(alg, "保存效果图", 1, IniPath) != 0;
+            c.IncludeRobotCoordinate = IniAPI.GetPrivateProfileInt(alg, "输出机械坐标", 1, IniPath) != 0;
             c.EffectImageDir = IniAPI.GetPrivateProfileString(alg, "效果图目录", "jinwo_render", IniPath);
-            c.VmProcedureName = IniAPI.GetPrivateProfileString(alg, "VM流程名", VMSol.DefaultProcedureName, IniPath);
 
             c.TrayRows = IniAPI.GetPrivateProfileInt(tray, "每层行数", 0, IniPath);
             c.TrayCols = IniAPI.GetPrivateProfileInt(tray, "每层列数", 0, IniPath);
@@ -159,10 +158,9 @@ namespace 码料机
             ok &= IniAPI.INIWriteValue(path, alg, "Dll路径", DllFileName ?? "");
             ok &= IniAPI.INIWriteValue(path, alg, "OpenCv运行时目录", OpenCvRuntimeDir ?? "");
             ok &= IniAPI.INIWriteValue(path, alg, "采图路径", CaptureImagePath ?? "");
-            ok &= IniAPI.INIWriteValue(path, alg, "运行VM流程", RunVmBeforeJinwo ? "1" : "0");
             ok &= IniAPI.INIWriteValue(path, alg, "保存效果图", SaveEffectImage ? "1" : "0");
+            ok &= IniAPI.INIWriteValue(path, alg, "输出机械坐标", IncludeRobotCoordinate ? "1" : "0");
             ok &= IniAPI.INIWriteValue(path, alg, "效果图目录", EffectImageDir ?? "");
-            ok &= IniAPI.INIWriteValue(path, alg, "VM流程名", VmProcedureName ?? VMSol.DefaultProcedureName);
 
             ok &= IniAPI.INIWriteValue(path, hik, "启用", HikCameraEnabled ? "1" : "0");
             ok &= IniAPI.INIWriteValue(path, hik, "序列号", HikSerialNumber ?? "");
@@ -256,11 +254,39 @@ namespace 码料机
         {
             if (Path.IsPathRooted(DllFileName) && File.Exists(DllFileName))
                 return Path.GetFullPath(DllFileName);
-            string besideExe = Path.Combine(Application.StartupPath, DllFileName);
-            if (File.Exists(besideExe)) return besideExe;
-            string inConfig = Path.Combine(Parameters.IniDir, DllFileName);
-            if (File.Exists(inConfig)) return inConfig;
-            return besideExe;
+
+            string fileName = string.IsNullOrWhiteSpace(DllFileName) ? "JinwoRobotArm.dll" : DllFileName;
+            var candidates = new System.Collections.Generic.List<string>();
+            void AddIfExists(string path)
+            {
+                if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                    candidates.Add(Path.GetFullPath(path));
+            }
+
+            AddIfExists(Path.Combine(Parameters.IniDir, fileName));
+            AddIfExists(Path.Combine(Application.StartupPath, fileName));
+            AddIfExists(Path.GetFullPath(Path.Combine(Application.StartupPath, "..", "..", fileName)));
+
+            if (candidates.Count > 0)
+            {
+                string best = candidates[0];
+                DateTime bestTime = File.GetLastWriteTimeUtc(best);
+                long bestSize = new FileInfo(best).Length;
+                for (int i = 1; i < candidates.Count; i++)
+                {
+                    var fi = new FileInfo(candidates[i]);
+                    DateTime t = fi.LastWriteTimeUtc;
+                    if (t > bestTime || (t == bestTime && fi.Length > bestSize))
+                    {
+                        best = candidates[i];
+                        bestTime = t;
+                        bestSize = fi.Length;
+                    }
+                }
+                return best;
+            }
+
+            return Path.Combine(Application.StartupPath, fileName);
         }
 
         public string ResolveOpenCvRuntimeDir()
@@ -280,30 +306,48 @@ namespace 码料机
                 : Path.Combine(Application.StartupPath, EffectImageDir);
         }
 
+        /// <summary>DLL 读取 camera_calib.yml / robot_calib.yml 时的工作目录（与 金沃dll-测试 一致）。</summary>
+        public string ResolveCalibWorkDir()
+        {
+            Directory.CreateDirectory(Parameters.IniDir);
+            return Parameters.IniDir;
+        }
+
+        public void EnsureCalibFilesForDll()
+        {
+            string workDir = ResolveCalibWorkDir();
+            Directory.CreateDirectory(workDir);
+            EnsureDefaultCalibFile();
+            EnsureDefaultRobotCalibFile();
+            // DLL 固定从工作目录读取 camera_calib.yml / robot_calib.yml（相对路径）
+            SyncCalibFileIntoWorkDir(ResolveUndistortionCalibPath(), Path.Combine(workDir, "camera_calib.yml"));
+            SyncCalibFileIntoWorkDir(ResolveNinePointRobotCalibPath(), Path.Combine(workDir, "robot_calib.yml"));
+        }
+
+        static void SyncCalibFileIntoWorkDir(string sourcePath, string destPath)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath)) return;
+            string src = Path.GetFullPath(sourcePath);
+            string dst = Path.GetFullPath(destPath);
+            if (string.Equals(src, dst, StringComparison.OrdinalIgnoreCase)) return;
+            File.Copy(src, dst, overwrite: true);
+        }
+
         /// <summary>海康采图落盘路径：INI「采图路径」优先，否则 exe\Feed.bmp。</summary>
         public string ResolveHikCaptureSavePath()
         {
             if (!string.IsNullOrWhiteSpace(CaptureImagePath))
                 return Path.GetFullPath(CaptureImagePath);
-            return Path.Combine(Application.StartupPath, VMSol.DefaultOfflineFeedFileName);
+            return Path.Combine(Application.StartupPath, OfflineCaptureHelper.DefaultOfflineFeedFileName);
         }
 
-        /// <summary>采图文件路径：优先 INI 指定，否则 vm_vision.ini，否则 exe\Feed.bmp。</summary>
+        /// <summary>采图文件路径：优先 INI 指定，否则 exe\Feed.bmp。</summary>
         public static string ResolveCaptureImagePath(string overridePath)
         {
             if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
                 return Path.GetFullPath(overridePath);
 
-            string vmIni = Path.Combine(Parameters.IniDir, "vm_vision.ini");
-            string folder = IniAPI.GetPrivateProfileString("LocalImage", "Folder", "", vmIni);
-            string file = IniAPI.GetPrivateProfileString("LocalImage", "FileName", "Feed.bmp", vmIni);
-            if (!string.IsNullOrWhiteSpace(folder))
-            {
-                string combined = Path.Combine(folder, file);
-                if (File.Exists(combined)) return Path.GetFullPath(combined);
-            }
-            string besideExe = Path.Combine(Application.StartupPath, file);
-            if (File.Exists(besideExe)) return besideExe;
+            string besideExe = Path.Combine(Application.StartupPath, OfflineCaptureHelper.DefaultOfflineFeedFileName);
             return besideExe;
         }
 
@@ -314,14 +358,13 @@ namespace 码料机
 Dll路径=JinwoRobotArm.dll
 OpenCv运行时目录=
 采图路径=
-运行VM流程=1
 保存效果图=1
+输出机械坐标=1
 效果图目录=jinwo_render
-VM流程名=木箱定位
 
 [海康相机]
-; 金沃 DLL 模式下用海康 MVS 采图（实现同 smk-vision-rx）；序列号在 MVS 客户端查看
-启用=0
+; 金沃 DLL 模式下用海康 MVS 采图；序列号在 MVS 客户端查看
+启用=1
 序列号=
 触发模式=Software
 实时预览=1
@@ -377,29 +420,32 @@ Alpha=1.0
 
         public const string DefaultRobotCalibYaml = @"%YAML:1.0
 ---
+point_count: 8
 image_points: !!opencv-matrix
-   rows: 9
+   rows: 8
    cols: 2
    dt: f
-   data: [ 961.508545, 422.125702, 3021.32568, 351.771423, 4772.36572,
-       297.051422, 1090.49146, 1668.95996, 2896.25146, 1539.97705,
-       4631.65723, 1528.25134, 871.611389, 2907.97705, 2509.30273,
-       2880.61694, 4678.56006, 2747.72559 ]
+   data: [ 785.622864, 437.759979, 2911.88574, 300.959991, 4678.56006,
+       234.514282, 875.519958, 1770.58276, 2841.53125, 1590.78857,
+       4659.01709, 1496.98279, 973.234253, 3064.31982, 4674.65137,
+       2747.72559 ]
 robot_points: !!opencv-matrix
-   rows: 9
+   rows: 8
    cols: 2
    dt: f
-   data: [ 0., 200., 300., 200., 600., 200., 0., 100., 300., 100., 600.,
-       100., 0., 0., 300., 0., 600., 0. ]
+   data: [ 378.605988, -1171.07202, 10.5120001, -1191.24597, -295.729004,
+       -1201.18201, 369.234985, -940.45697, 26.8889999, -969.252991,
+       -291.742004, -980.705994, 363.372986, -704.916992, -301.351013,
+       -757.33197 ]
 pixel_to_robot_matrix: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 0.16358560067544012, 0.015547623427131048,
-       -183.09882944827621, -0.0028491614195563855,
-       -0.081307173831573251, 238.55994006394889, 2.9855421128158282e-06,
-       6.8094445781992782e-07, 1. ]
-avg_error_mm: 14.892828152857204
+   data: [ -0.17108774009893885, 0.0016034159262719296,
+       508.57450306068466, 0.0028438434376436075, 0.18556918550560397,
+       -1246.3891096298378, -1.3222562955490156e-06,
+       -1.3890119582775986e-05, 1. ]
+avg_error_mm: 1.5218143578095396
 ";
 
         public const string DefaultCalibYaml = @"%YAML:1.0
