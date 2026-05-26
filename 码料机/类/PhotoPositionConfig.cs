@@ -14,7 +14,7 @@ namespace 码料机
         public static readonly string IniDir = Path.Combine(Application.StartupPath, "配置文件");
         public static readonly string IniFile = Path.Combine(IniDir, "拍照位置.ini");
 
-        /// <summary>取料位置（PLC 取料请求拍照时下发）。</summary>
+        /// <summary>取料位置（软件启动连接 PLC、位置设定保存后下发，取料请求时不重复写）。</summary>
         public double PickX { get; set; }
         public double PickY { get; set; }
         public double PickZ { get; set; }
@@ -100,6 +100,10 @@ namespace 码料机
         {
             return left.Save(true, iniPath) & right.Save(false, iniPath);
         }
+
+        /// <summary>放料位置 X/Y 至少一项非零，表示已在位置设定中配置固定放料目标。</summary>
+        public bool HasConfiguredPlacePosition =>
+            Math.Abs(PlaceX) > 1e-3 || Math.Abs(PlaceY) > 1e-3;
 
         private static bool IsEmpty(PhotoPositionConfig c) =>
             c == null || (Math.Abs(c.PickX) < 1e-9 && Math.Abs(c.PickY) < 1e-9 && Math.Abs(c.PickZ) < 1e-9

@@ -25,6 +25,12 @@ namespace 码料机
 
         public const float LabeledComboRowHeight = 46f;
         public const float QtyInputRowHeight = 48f;
+        /// <summary>预览区工具栏、换框按钮行统一可视高度（含 12pt 字体与内边距）。</summary>
+        public const int PreviewToolbarButtonHeight = 44;
+        /// <summary>换框操作区：按钮行、指示条行固定高度，避免 TableLayout 在空间不足时压扁控件。</summary>
+        public const float FrameActionButtonRowHeight = 44f;
+        public const float FrameIndicatorRowHeight = 36f;
+        public const float FrameChangeBlockRowHeight = 150f;
         public const float StationNameColumnWidth = 148f;
         public static readonly Padding StationTablePadding = new Padding(16, 12, 16, 14);
         public static readonly Padding FormContentPadding = new Padding(14, 12, 14, 14);

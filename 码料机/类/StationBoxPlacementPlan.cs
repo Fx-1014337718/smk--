@@ -10,6 +10,9 @@ namespace 码料机
         public int DllCount;
         public float WorldX, WorldY, Z, Rz;
         public int Layer, Row, Col;
+        /// <summary>算法识别的图像像素坐标；无效时为 double.NaN。</summary>
+        public double PixelX = double.NaN, PixelY = double.NaN;
+        public bool HasPixel => !double.IsNaN(PixelX) && !double.IsNaN(PixelY);
         public string Label => $"第{Index + 1}件 L{Layer + 1}/R{Row + 1}/C{Col + 1}";
     }
 

@@ -18,6 +18,10 @@ namespace 码料机
         /// <summary>1 时 DLL 从工作目录读取 camera_calib.yml / robot_calib.yml 计算机械坐标。</summary>
         public bool IncludeRobotCoordinate { get; set; } = true;
         public string EffectImageDir { get; set; } = "jinwo_render";
+        /// <summary>识别失败后的额外重试次数（总尝试 = 1 + 本值）。</summary>
+        public int RecognizeRetryCount { get; set; } = 2;
+        /// <summary>每次重试前等待毫秒（给相机/机械稳定时间）。</summary>
+        public int RecognizeRetryDelayMs { get; set; } = 300;
 
         public int TrayRows { get; set; }
         public int TrayCols { get; set; }
@@ -88,6 +92,12 @@ namespace 码料机
             c.SaveEffectImage = IniAPI.GetPrivateProfileInt(alg, "保存效果图", 1, IniPath) != 0;
             c.IncludeRobotCoordinate = IniAPI.GetPrivateProfileInt(alg, "输出机械坐标", 1, IniPath) != 0;
             c.EffectImageDir = IniAPI.GetPrivateProfileString(alg, "效果图目录", "jinwo_render", IniPath);
+            c.RecognizeRetryCount = IniAPI.GetPrivateProfileInt(alg, "识别重试次数", 2, IniPath);
+            if (c.RecognizeRetryCount < 0) c.RecognizeRetryCount = 0;
+            if (c.RecognizeRetryCount > 10) c.RecognizeRetryCount = 10;
+            c.RecognizeRetryDelayMs = IniAPI.GetPrivateProfileInt(alg, "识别重试间隔毫秒", 300, IniPath);
+            if (c.RecognizeRetryDelayMs < 0) c.RecognizeRetryDelayMs = 0;
+            if (c.RecognizeRetryDelayMs > 5000) c.RecognizeRetryDelayMs = 5000;
 
             c.TrayRows = IniAPI.GetPrivateProfileInt(tray, "每层行数", 0, IniPath);
             c.TrayCols = IniAPI.GetPrivateProfileInt(tray, "每层列数", 0, IniPath);
@@ -161,6 +171,8 @@ namespace 码料机
             ok &= IniAPI.INIWriteValue(path, alg, "保存效果图", SaveEffectImage ? "1" : "0");
             ok &= IniAPI.INIWriteValue(path, alg, "输出机械坐标", IncludeRobotCoordinate ? "1" : "0");
             ok &= IniAPI.INIWriteValue(path, alg, "效果图目录", EffectImageDir ?? "");
+            ok &= IniAPI.INIWriteValue(path, alg, "识别重试次数", RecognizeRetryCount.ToString());
+            ok &= IniAPI.INIWriteValue(path, alg, "识别重试间隔毫秒", RecognizeRetryDelayMs.ToString());
 
             ok &= IniAPI.INIWriteValue(path, hik, "启用", HikCameraEnabled ? "1" : "0");
             ok &= IniAPI.INIWriteValue(path, hik, "序列号", HikSerialNumber ?? "");
@@ -361,6 +373,9 @@ OpenCv运行时目录=
 保存效果图=1
 输出机械坐标=1
 效果图目录=jinwo_render
+; 识别失败时自动重试：总尝试次数 = 1 + 识别重试次数
+识别重试次数=2
+识别重试间隔毫秒=300
 
 [海康相机]
 ; 金沃 DLL 模式下用海康 MVS 采图；序列号在 MVS 客户端查看
@@ -416,6 +431,14 @@ Alpha=1.0
 [九点标定]
 ; robot_calib.yml：用于像素坐标转机械坐标（pixel_to_robot_matrix），与「算法\金沃\九点标定」格式一致
 标定文件=robot_calib.yml
+
+[有无料]
+; 判断有无轴承.dll：放料拍照后、输出坐标前做箱内异物检测；检测到异物写 D0.11=1
+启用=1
+Dll路径=判断有无轴承.dll
+OpenCv运行时目录=
+采图路径=
+效果图目录=bearing_presence_render
 ";
 
         public const string DefaultRobotCalibYaml = @"%YAML:1.0

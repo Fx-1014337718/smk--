@@ -93,7 +93,11 @@
     <Compile Include="WorkerAssistDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="VisionRecognizeRetryDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="类\StackingPlacement.cs" />
+    <Compile Include="类\ZStackPlacement.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -136,6 +140,7 @@
     <Compile Include="类\ZAxisConfig.cs" />
     <Compile Include="类\PhotoPositionConfig.cs" />
     <Compile Include="类\StationUiSelectionConfig.cs" />
+    <Compile Include="类\RuntimeOperationConfig.cs" />
     <Compile Include="类\UiLayoutHelper.cs" />
     <Compile Include="类\Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -143,12 +148,36 @@
     <Compile Include="类\JinwoNative.cs" />
     <Compile Include="类\JinwoAlgorithmConfig.cs" />
     <Compile Include="类\JinwoPlacementService.cs" />
+    <Compile Include="类\PlcAlarmDefinitions.cs" />
+    <Compile Include="类\BearingPresenceNative.cs" />
+    <Compile Include="类\BearingPresenceConfig.cs" />
+    <Compile Include="类\BearingPresenceService.cs" />
+    <Compile Include="类\AlgorithmTestRenderPaths.cs" />
+    <Compile Include="PlcAlarmPanelForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="类\JinwoImagePreview.cs" />
     <Compile Include="类\HikvisionMvsCamera.cs" />
     <Compile Include="Form1.HikMvsCamera.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.AlgorithmTest.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.ManualPlaceSelect.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="AlgorithmTestForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ManualPlaceSelectForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="PlacementSlotCanvas.cs" />
+    <Compile Include="PlacementGridSchematic.cs" />
     <Compile Include="类\CameraUndistortion.cs" />
     <Compile Include="NinePointCalibForm.cs">
       <SubType>Form</SubType>
@@ -201,6 +230,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="配置文件\JinwoRobotArm.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="配置文件\判断有无轴承.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

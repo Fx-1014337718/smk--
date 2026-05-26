@@ -222,6 +222,80 @@ namespace 码料机
             }
         }
 
+        /// <summary>
+        /// GetEffectiveGrid 之后补全层数：INI 显式层数优先；否则取「容量反推」与「箱深÷层高」的较大值，并写回 SetTrayGrid。
+        /// </summary>
+        public bool TryFinalizeTrayGrid(
+            ref JinwoNative.JinwoTrayConfig cfg,
+            ref int effRows,
+            ref int effCols,
+            ref int capacity,
+            double boxHeight,
+            double bearingHeight,
+            out int maxLayers)
+        {
+            maxLayers = 1;
+            if (_dll == null || effRows < 1 || effCols < 1) return false;
+
+            int perLayer = effRows * effCols;
+            if (perLayer < 1) return false;
+
+            if (_ini.TrayLayers > 0)
+            {
+                maxLayers = _ini.TrayLayers;
+            }
+            else
+            {
+                if (cfg.Layers > 0)
+                    maxLayers = cfg.Layers;
+                if (capacity >= perLayer)
+                {
+                    int fromCapacity = capacity / perLayer;
+                    if (fromCapacity > maxLayers)
+                        maxLayers = fromCapacity;
+                }
+                int geoLayers = EstimateLayersFromBoxDepth(cfg, boxHeight, bearingHeight);
+                if (geoLayers > maxLayers)
+                    maxLayers = geoLayers;
+            }
+
+            maxLayers = Math.Max(1, maxLayers);
+            bool gridMismatch = cfg.Rows != effRows || cfg.Cols != effCols || cfg.Layers != maxLayers;
+            bool singleLayerCapacity = capacity > 0 && capacity <= perLayer;
+            if (gridMismatch || singleLayerCapacity)
+            {
+                lock (_sync)
+                {
+                    var tray = cfg;
+                    RequireOk(_dll.SetTrayGrid(ref tray, effRows, effCols, maxLayers), _dll, "Jinwo_SetTrayGrid");
+                    RunInCalibWorkDir(() =>
+                    {
+                        RequireOk(_dll.ValidateConfig(ref tray), _dll, "Jinwo_ValidateConfig");
+                        if (_dll.ValidateTrayGeometry != null)
+                            RequireOk(_dll.ValidateTrayGeometry(ref tray), _dll, "Jinwo_ValidateTrayGeometry");
+                    });
+                    int r = RequireOkRet(_dll.GetEffectiveGrid(ref tray, out effRows, out effCols, out capacity));
+                    cfg = tray;
+                    if (r == 0) return false;
+                }
+            }
+
+            if (capacity < perLayer * maxLayers)
+                capacity = perLayer * maxLayers;
+            return true;
+        }
+
+        private int EstimateLayersFromBoxDepth(JinwoNative.JinwoTrayConfig cfg, double boxHeight, double bearingHeight)
+        {
+            double depth = cfg.BoxDepth > 1e-3 ? cfg.BoxDepth
+                : (_ini.BoxDepth > 1e-3 ? _ini.BoxDepth : boxHeight);
+            double pitch = _ini.LayerPitchZ > 1e-3 ? _ini.LayerPitchZ
+                : (cfg.LayerPitchZ > 1e-3 ? cfg.LayerPitchZ
+                : (bearingHeight > 1e-3 ? bearingHeight : cfg.BearingHeight));
+            if (depth <= 1e-3 || pitch <= 1e-3) return 1;
+            return Math.Max(1, (int)(depth / pitch));
+        }
+
         private static int RequireOkRet(int result) => result;
 
         /// <summary>
@@ -352,6 +426,14 @@ namespace 码料机
             string imagePath,
             int placedCount,
             out string effectImagePath)
+            => CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out effectImagePath, false);
+
+        public JinwoNative.JinwoBearingCenterResult[] CalculateAllBearingCenters(
+            ref JinwoNative.JinwoTrayConfig cfg,
+            string imagePath,
+            int placedCount,
+            out string effectImagePath,
+            bool forceSaveEffectImage)
         {
             RequireDll();
             if (!File.Exists(imagePath))
@@ -361,7 +443,7 @@ namespace 码料机
             ProcessPipelineLog.RecognizeStart("轴承中心算位", algoPath, $"已放件数={placedCount}");
             Directory.CreateDirectory(_ini.ResolveEffectImageDir());
             int includeRobot = _ini.IncludeRobotCoordinate ? 1 : 0;
-            int save = _ini.SaveEffectImage ? 1 : 0;
+            int save = (forceSaveEffectImage || _ini.SaveEffectImage) ? 1 : 0;
             effectImagePath = null;
 
             string prevDir = Directory.GetCurrentDirectory();
@@ -452,11 +534,23 @@ namespace 码料机
             return false;
         }
 
-        /// <summary>算法只给 XY 与层行列；Z = 基准高度 + 层号×层高，Rz 用设定值。</summary>
-        public static void ApplyManualPlaceCoordinates(ref JinwoNative.JinwoPoseResult pose, double baseZ, double layerPitchZ, double rz)
+        /// <summary>
+        /// 矩阵摆放料 Z：基准 + 产品高度层数×单件高度（竖直 9 层=2+2+2+3 四档取放，Z 仍按 9 个厚度抬升）。
+        /// </summary>
+        public static void ApplyManualPlaceCoordinates(
+            ref JinwoNative.JinwoPoseResult pose,
+            double baseZ,
+            double productHeight,
+            double rz,
+            int placedCount,
+            int maxRows,
+            int maxCols)
         {
-            int layer = Math.Max(0, pose.Layer);
-            pose.Z = baseZ + layer * layerPitchZ;
+            int stackHeight = placedCount >= 0 && maxRows > 0 && maxCols > 0
+                ? ZStackPlacement.GetStackHeightFromPlacedCount(placedCount, maxRows, maxCols)
+                : Math.Max(0, pose.Layer);
+            pose.Layer = stackHeight;
+            pose.Z = ZStackPlacement.ComputePlaceZ(baseZ, stackHeight, productHeight);
             pose.Rz = rz;
         }
 
@@ -467,12 +561,27 @@ namespace 码料机
             out string effectImagePath,
             double? manualBaseZ = null,
             double? manualRz = null,
-            double? layerPitchOverride = null)
+            double? productHeightForZ = null,
+            int maxRows = 0,
+            int maxCols = 0)
+            => CalculatePose(ref cfg, imagePath, placedCount, out effectImagePath, manualBaseZ, manualRz, productHeightForZ, maxRows, maxCols, false);
+
+        public JinwoNative.JinwoPoseResult CalculatePose(
+            ref JinwoNative.JinwoTrayConfig cfg,
+            string imagePath,
+            int placedCount,
+            out string effectImagePath,
+            double? manualBaseZ,
+            double? manualRz,
+            double? productHeightForZ,
+            int maxRows,
+            int maxCols,
+            bool forceSaveEffectImage)
         {
             RequireDll();
             if (_dll.CalculateAllBearingCentersFromImage != null)
             {
-                var centers = CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out effectImagePath);
+                var centers = CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out effectImagePath, forceSaveEffectImage);
                 if (!TryFindBearingCenter(centers, placedCount, out var next))
                     throw new InvalidOperationException($"未找到序号 {placedCount} 的放料位（共 {centers.Length} 个中心点）");
 
@@ -482,7 +591,7 @@ namespace 码料机
                 int effRows = 0, effCols = 0, capacity = 0;
                 TryGetEffectiveGrid(ref cfg, out effRows, out effCols, out capacity);
                 var pose = JinwoNative.ToPoseResult(next, effRows, effCols, capacity);
-                FinalizePoseZAndRz(ref cfg, ref pose, manualBaseZ, manualRz, layerPitchOverride);
+                FinalizePoseZAndRz(ref cfg, ref pose, placedCount, maxRows, maxCols, manualBaseZ, manualRz, productHeightForZ);
                 ProcessPipelineLog.RecognizeDone("箱姿算位",
                     $"世界({pose.X:F2},{pose.Y:F2}) Z={pose.Z:F2} Rz={pose.Rz:F2}° 层{pose.Layer + 1}/行{pose.Row + 1}/列{pose.Col + 1}"
                     + (string.IsNullOrEmpty(effectImagePath) ? "" : " 效果图=" + Path.GetFileName(effectImagePath)));
@@ -504,7 +613,7 @@ namespace 码料机
                 Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
                 var pose = JinwoNative.CreateEmptyPoseResult();
                 var effectBuf = new StringBuilder(1024);
-                int save = _ini.SaveEffectImage ? 1 : 0;
+                int save = (forceSaveEffectImage || _ini.SaveEffectImage) ? 1 : 0;
                 lock (_sync)
                 {
                     RequireOk(_dll.CalculatePoseFromImage(
@@ -515,7 +624,7 @@ namespace 码料机
                 effectImagePath = ResolveEffectImagePath(raw);
                 if (save != 0 && string.IsNullOrEmpty(effectImagePath))
                     effectImagePath = FindNewestEffectImage();
-                FinalizePoseZAndRz(ref cfg, ref pose, manualBaseZ, manualRz, layerPitchOverride);
+                FinalizePoseZAndRz(ref cfg, ref pose, placedCount, maxRows, maxCols, manualBaseZ, manualRz, productHeightForZ);
                 ProcessPipelineLog.RecognizeDone("箱姿算位",
                     $"世界({pose.X:F2},{pose.Y:F2}) Z={pose.Z:F2} Rz={pose.Rz:F2}° 层{pose.Layer + 1}/行{pose.Row + 1}/列{pose.Col + 1}"
                     + (string.IsNullOrEmpty(effectImagePath) ? "" : " 效果图=" + Path.GetFileName(effectImagePath)));
@@ -530,16 +639,25 @@ namespace 码料机
         private void FinalizePoseZAndRz(
             ref JinwoNative.JinwoTrayConfig cfg,
             ref JinwoNative.JinwoPoseResult pose,
+            int placedCount,
+            int maxRows,
+            int maxCols,
             double? manualBaseZ,
             double? manualRz,
-            double? layerPitchOverride)
+            double? productHeightForZ)
         {
             double baseZ = manualBaseZ ?? _ini.TargetZ;
-            double pitch = layerPitchOverride ?? (_ini.LayerPitchZ > 0 ? _ini.LayerPitchZ : cfg.LayerPitchZ);
-            if (pitch <= 0 && cfg.BearingHeight > 0)
-                pitch = cfg.BearingHeight;
+            double productHeight = productHeightForZ ?? 0;
+            if (productHeight <= 1e-6 && _ini.LayerPitchZ > 1e-3)
+                productHeight = _ini.LayerPitchZ;
+            if (productHeight <= 1e-6 && cfg.LayerPitchZ > 1e-3)
+                productHeight = cfg.LayerPitchZ;
+            if (productHeight <= 1e-6 && cfg.BearingHeight > 1e-3)
+                productHeight = cfg.BearingHeight;
+            int rows = maxRows > 0 ? maxRows : Math.Max(0, cfg.Rows);
+            int cols = maxCols > 0 ? maxCols : Math.Max(0, cfg.Cols);
             double rz = manualRz ?? _ini.TargetRz;
-            ApplyManualPlaceCoordinates(ref pose, baseZ, pitch, rz);
+            ApplyManualPlaceCoordinates(ref pose, baseZ, productHeight, rz, placedCount, rows, cols);
         }
 
         /// <summary>DLL 返回的效果图路径可能是相对路径（相对效果图目录）。</summary>
@@ -605,6 +723,8 @@ namespace 码料机
         public bool HikLivePreview => _ini?.HikLivePreview != false;
         public int HikPreviewIntervalMs => _ini?.HikPreviewIntervalMs ?? 200;
         public bool HikSaveEveryFrame => _ini?.HikSaveEveryFrame != false;
+        public int RecognizeRetryCount => _ini?.RecognizeRetryCount ?? 2;
+        public int RecognizeRetryDelayMs => _ini?.RecognizeRetryDelayMs ?? 300;
         public string ResolveHikCaptureSavePath() => _ini?.ResolveHikCaptureSavePath()
             ?? Path.Combine(Application.StartupPath, OfflineCaptureHelper.DefaultOfflineFeedFileName);
 

@@ -46,7 +46,7 @@ namespace 码料机
         private class StationData
         {
             public string Name; // 界面显示用机台名
-            public int PickQty = 1, PlaceQty = 1; // 单次抓取个数 / 单次投放个数（界面限制 1~5）
+            public int PickQty = 2, PlaceQty = 2; // 本周期 PLC 取/放个数（由竖直档 2,2,…,3 决定，如总高 9→2+2+2+3）
             public bool IsFull; // 当前箱是否已满（矩阵层满或木框走完）
             public int Layer, Row, Col; // 矩阵模式：层、行、列下标；木框模式复用 Col 为槽索引
             public double BoxLength, BoxWidth, BoxHeight, OuterDiam, SingleProductHeight; // 箱与产品几何（mm）
@@ -59,6 +59,8 @@ namespace 码料机
             public List<PointF> FramePositions; // 木框模式：每槽圆心箱内局部坐标列表
             /// <summary>当前箱放料视觉是否已完成：false=下次放料请求需拍照识箱；true=仅下发下一放料目标。换箱/确认参数时清零。</summary>
             public bool PlcPlaceBoxVisionDone;
+            /// <summary>已向 PLC 发满料=1，等待人工换箱后 PLC 将该位清 0；清 0 后下次放料请求重新拍照。</summary>
+            public bool PlcAwaitingBoxChangeAfterFull;
             /// <summary>金沃 DLL 托盘配置（由工位箱体/产品与 金沃算法.ini 托盘节合成；确认参数或自动恢复后有效）。</summary>
             public bool HasJinwoTrayConfig;
             public JinwoNative.JinwoTrayConfig JinwoTray;
@@ -68,6 +70,12 @@ namespace 码料机
             public int LastIssuedPlanIndex = -1;
             /// <summary>暂停时若存在待确认下发，恢复前必须经工人窗体确认。</summary>
             public bool RequireWorkerConfirmForLastIssue;
+            /// <summary>手动指定放料：由算法规划表选位，非顺序下发。</summary>
+            public bool ManualSlotSelectEnabled;
+            /// <summary>手动指定：下一发 PLC 的规划表序号（0 基），-1 表示尚未选择。</summary>
+            public int ManualPendingSlotIndex = -1;
+            /// <summary>手动指定：已确认放入的规划表序号（按确认顺序）。</summary>
+            public readonly List<int> ManualCompletedOrder = new List<int>();
 
             public PointF GetNextPosition()
             {
@@ -139,7 +147,13 @@ namespace 码料机
         private string _offlineTestImagePath; // 当前离线测试图（Feed.bmp 或所选图落盘路径）
         private readonly MachineAppState _machine = new MachineAppState(); // 空闲/自动/故障状态机
         private readonly JinwoPlacementService _jinwo = new JinwoPlacementService();
+        private readonly BearingPresenceService _bearingPresence = new BearingPresenceService();
+        private readonly RuntimeOperationConfig _runtimeOp = new RuntimeOperationConfig();
+        private CheckBox _chkLeftUseConfiguredPlace;
+        private CheckBox _chkRightUseConfiguredPlace;
+        // _chkLeftUseManualSlotSelect / _chkRightUseManualSlotSelect 见 Form1.ManualPlaceSelect.cs
         private Button _btnLoadTestImage;
+        private FlowLayoutPanel _previewToolbarHost;
         private PictureBox _offlinePreviewPicture;
 
         private readonly struct NextPlacement // 下一放料点：箱内局部 + 世界 + 角度
@@ -167,11 +181,16 @@ namespace 码料机
             pathZAxis = ZAxisConfig.IniFile;
             pathPhotoPos = PhotoPositionConfig.IniFile;
             EnsureConfigIniFiles();
+            _runtimeOp.Load();
+            SyncManualSlotSelectFlagsFromConfig();
             ReloadZAxisConfig();
             ReloadPhotoPositionConfig();
             JinwoAlgorithmConfig.EnsureDefaultIniFile();
             _jinwo.ReloadConfig();
+            _bearingPresence.ReloadConfig();
             EnsureOfflinePreviewControl();
+            if (toolStripLabel10 != null)
+                toolStripLabel10.Click += toolStripLabel10_Click;
             timer.Interval = 1000;
             timer.Tick += timer_Tick;
             timer.Start();
@@ -210,6 +229,7 @@ namespace 码料机
         public void ReloadJinwoAlgorithmConfig()
         {
             _jinwo.ReloadConfig();
+            _bearingPresence.ReloadConfig();
             RefreshJinwoStatusUi();
             RefreshVisionStatusUi();
             RefreshCameraStatusUi();
@@ -295,6 +315,8 @@ namespace 码料机
             RefreshJinwoStatusUi();
             TryInitHikCameraOnLoad();
             RefreshAllStationsJinwoTraySilent();
+            if (_runtimeOp.HasManualPlaceMode || _runtimeOp.HasManualSlotSelectMode)
+                TEXT("[放料] " + DescribeManualPlaceMode());
         }
 
         private void RefreshJinwoStatusUi()
@@ -353,13 +375,7 @@ namespace 码料机
             toolStripLabel11.ForeColor = fore;
             toolStripLabel11.ToolTipText = _machine.IsFault
                 ? "故障停机时：单击此处并按提示清除故障（须先排除现场隐患）。"
-                : (_machine.IsPaused ? "现场暂停中：确认安全后点击日志下方「继续运行」。" : "当前运行状态");
-            if (_btnFieldPause != null) _btnFieldPause.Enabled = !_machine.IsFault && !_machine.IsPaused;
-            if (_btnFieldResume != null) _btnFieldResume.Enabled = _machine.IsPaused;
-            if (_btnFieldRephotoBox != null) _btnFieldRephotoBox.Enabled = currentStation != null;
-            if (_btnFieldWorkerConfirm != null) _btnFieldWorkerConfirm.Enabled = currentStation != null && !_machine.IsFault;
-            if (_btnFieldFallen != null) _btnFieldFallen.Enabled = !_machine.IsFault;
-            if (_btnFieldChangeBox != null) _btnFieldChangeBox.Enabled = currentStation != null;
+                : (_machine.IsPaused ? "现场暂停中：请在现场/HMI 确认安全后继续。" : "当前运行状态");
         }
 
         /// <summary>状态栏「运行状态」在故障时单击：确认后清除故障回到空闲。</summary>
@@ -674,6 +690,76 @@ namespace 码料机
             }
         }
 
+        private bool CanVisionManualRetake() => ShouldUseHikCamera() && _hikCameraConnected;
+
+        /// <summary>弹出文件选择并落盘为金沃采图路径。</summary>
+        private async Task<bool> TryPickAndLoadOfflineImageAsync()
+        {
+            string picked = null;
+            SafeInvoke(() =>
+            {
+                using (var dlg = new OpenFileDialog())
+                {
+                    dlg.Title = "选择图片重试识别";
+                    dlg.Filter = "图像文件|*.bmp;*.png;*.jpg;*.jpeg;*.tif;*.tiff|所有文件|*.*";
+                    if (!string.IsNullOrEmpty(_offlineTestImagePath))
+                    {
+                        try
+                        {
+                            dlg.InitialDirectory = Path.GetDirectoryName(_offlineTestImagePath);
+                            dlg.FileName = Path.GetFileName(_offlineTestImagePath);
+                        }
+                        catch { }
+                    }
+                    if (dlg.ShowDialog(this) == DialogResult.OK)
+                        picked = dlg.FileName;
+                }
+            });
+            if (string.IsNullOrWhiteSpace(picked))
+                return false;
+            await LoadOfflineTestImageAsync(picked).ConfigureAwait(true);
+            string feed = _jinwo.ResolveCaptureImagePath();
+            return File.Exists(feed);
+        }
+
+        private VisionRecognizeRetryAction PromptVisionRecognizeRetry(string phase, string reason)
+        {
+            if (!VisionRecognizeRetryDialog.TryShow(this, phase, reason, CanVisionManualRetake(), out var action))
+                return VisionRecognizeRetryAction.Abort;
+            return action;
+        }
+
+        private async Task<bool> ExecuteVisionRecognizeRetryActionAsync(VisionRecognizeRetryAction action, string phase)
+        {
+            switch (action)
+            {
+                case VisionRecognizeRetryAction.RetakePhoto:
+                    if (!CanVisionManualRetake())
+                    {
+                        TEXT("[识别重试] 相机未连接，无法重新拍照");
+                        return false;
+                    }
+                    bool captured = await TryHikvisionCaptureAsync().ConfigureAwait(true);
+                    SafeInvoke(() => TEXT(captured
+                        ? $"[识别重试] {phase} 已重新拍照"
+                        : "[识别重试] 重新拍照失败（请检查相机连接与采图路径）"));
+                    if (captured)
+                    {
+                        string path = _jinwo.ResolveCaptureImagePath();
+                        SafeInvoke(() => ShowOfflinePreviewAfterUndistort(path));
+                    }
+                    return captured;
+                case VisionRecognizeRetryAction.LoadImage:
+                    bool loaded = await TryPickAndLoadOfflineImageAsync().ConfigureAwait(true);
+                    SafeInvoke(() => TEXT(loaded
+                        ? $"[识别重试] {phase} 已加载图片"
+                        : "[识别重试] 加载图片失败或已取消"));
+                    return loaded;
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>海康采图或金沃离线算图。</summary>
         private async void toolStripLabelPhoto_Click(object sender, EventArgs e)
         {
@@ -685,6 +771,35 @@ namespace 码料机
 
         /// <summary>调用金沃 DLL 绘制/保存结果图并显示到预览框（优先 DLL 效果图）。</summary>
         private async Task<bool> TryShowJinwoRenderedImageAsync(StationData st, string imagePath)
+        {
+            if (st == null || string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+                return false;
+            if (!_jinwo.IsEnabled || !_jinwo.IsLoaded)
+                return false;
+
+            string lastErr = null;
+            while (true)
+            {
+                if (await TryShowJinwoRenderedImageOnceAsync(st, imagePath).ConfigureAwait(true))
+                    return true;
+
+                lastErr = "金沃算位或黑圆检测未成功";
+                VisionRecognizeRetryAction action = VisionRecognizeRetryAction.Abort;
+                SafeInvoke(() => action = PromptVisionRecognizeRetry("拍照识别", lastErr));
+                if (action == VisionRecognizeRetryAction.Abort)
+                    return false;
+                if (!await ExecuteVisionRecognizeRetryActionAsync(action, "拍照识别").ConfigureAwait(true))
+                    continue;
+                imagePath = _jinwo.ResolveCaptureImagePath();
+                if (!File.Exists(imagePath))
+                {
+                    TEXT("[识别重试] 无有效采图文件");
+                    continue;
+                }
+            }
+        }
+
+        private async Task<bool> TryShowJinwoRenderedImageOnceAsync(StationData st, string imagePath)
         {
             if (st == null || string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
                 return false;
@@ -706,11 +821,32 @@ namespace 码料机
                     JinwoNative.JinwoPoseResult pose = default;
                     string effectPath = null;
                     string err = null;
-                    bool ok = await Task.Run(() =>
-                        TryJinwoCalculatePose(st, count, out pose, out effectPath, out err)).ConfigureAwait(true);
+                    bool ok = false;
+                    int maxAttempts = GetAlgorithmRecognizeMaxAttempts();
+                    int delayMs = GetAlgorithmRecognizeRetryDelayMs();
+                    for (int attempt = 1; attempt <= maxAttempts; attempt++)
+                    {
+                        if (attempt > 1)
+                        {
+                            TEXT($"[金沃] 算位第{attempt}/{maxAttempts}次重试…");
+                            if (ShouldUseHikCamera() && _hikCameraConnected)
+                            {
+                                await TryHikvisionCaptureAsync().ConfigureAwait(true);
+                                imagePath = _jinwo.ResolveCaptureImagePath();
+                            }
+                            else if (delayMs > 0)
+                                await Task.Delay(delayMs).ConfigureAwait(true);
+                            _jinwo.TryPrepareAlgorithmImage(imagePath, out previewBasePath, out _);
+                        }
+                        ok = await Task.Run(() =>
+                            TryJinwoCalculatePose(st, count, out pose, out effectPath, out err)).ConfigureAwait(true);
+                        if (ok) break;
+                        if (attempt < maxAttempts)
+                            ProcessPipelineLog.Write($"[算法识别] 算位 第{attempt}次失败: {err}");
+                    }
                     if (!ok)
                     {
-                        TEXT("[金沃] 算位失败: " + err);
+                        TEXT("[金沃] 算位失败: " + err + (maxAttempts > 1 ? $"（已重试{maxAttempts}次）" : ""));
                         ShowOfflinePreviewImage(previewBasePath);
                         return false;
                     }
@@ -727,12 +863,34 @@ namespace 码料机
                 string overlayPath = null;
                 string markerErr = null;
                 JinwoNative.JinwoMarkerResult markers = default;
-                bool markerOk = await Task.Run(() =>
-                    _jinwo.TryDetectMarkers(imagePath, out markers, out markerErr)).ConfigureAwait(true);
+                bool markerOk = false;
+                int maxMarkerAttempts = GetAlgorithmRecognizeMaxAttempts();
+                int markerDelayMs = GetAlgorithmRecognizeRetryDelayMs();
+                for (int attempt = 1; attempt <= maxMarkerAttempts; attempt++)
+                {
+                    if (attempt > 1)
+                    {
+                        TEXT($"[金沃] 黑圆检测第{attempt}/{maxMarkerAttempts}次重试…");
+                        if (ShouldUseHikCamera() && _hikCameraConnected)
+                        {
+                            await TryHikvisionCaptureAsync().ConfigureAwait(true);
+                            imagePath = _jinwo.ResolveCaptureImagePath();
+                            _jinwo.TryPrepareAlgorithmImage(imagePath, out previewBasePath, out _);
+                        }
+                        else if (markerDelayMs > 0)
+                            await Task.Delay(markerDelayMs).ConfigureAwait(true);
+                    }
+                    markerOk = await Task.Run(() =>
+                        _jinwo.TryDetectMarkers(imagePath, out markers, out markerErr)).ConfigureAwait(true);
+                    if (markerOk) break;
+                    if (attempt < maxMarkerAttempts)
+                        ProcessPipelineLog.Write($"[算法识别] 黑圆检测 第{attempt}次失败: {markerErr}");
+                }
 
                 if (!markerOk)
                 {
-                    TEXT("[金沃] 黑圆检测失败: " + (markerErr ?? "未检测到黑圆标记，请调整木箱位置/光照或先「确认参数」"));
+                    TEXT("[金沃] 黑圆检测失败: " + (markerErr ?? "未检测到黑圆标记，请调整木箱位置/光照或先「确认参数」")
+                        + (maxMarkerAttempts > 1 ? $"（已重试{maxMarkerAttempts}次）" : ""));
                     ShowOfflinePreviewImage(previewBasePath);
                     LogNextPlacementSummary("[金沃]", st, null);
                     return false;
@@ -933,7 +1091,27 @@ namespace 码料机
                 dlg.ShowDialog(this);
         }
 
-        public void TEXT(string mm) => listBox1.Items.Insert(0, mm);
+        private void toolStripLabelAlgoTest_Click(object sender, EventArgs e)
+        {
+            using (var dlg = new AlgorithmTestForm(this))
+                dlg.ShowDialog(this);
+        }
+
+        private void toolStripLabelManualPlace_Click(object sender, EventArgs e)
+        {
+            using (var dlg = new ManualPlaceSelectForm(this))
+                dlg.ShowDialog(this);
+        }
+
+        public void TEXT(string mm)
+        {
+            if (string.IsNullOrEmpty(mm)) return;
+            SafeInvoke(() =>
+            {
+                if (listBox1 == null || listBox1.IsDisposed) return;
+                listBox1.Items.Insert(0, mm);
+            });
+        }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
@@ -1043,10 +1221,18 @@ namespace 码料机
                     0, 0, 0,
                     gridFromAlgorithmOnly: true);
                 var tray = s.JinwoTray;
-                if (!_jinwo.TryGetEffectiveGrid(ref tray, out int effRows, out int effCols, out int capacity)
+                int effRows = 0, effCols = 0, capacity = 0;
+                if (!_jinwo.TryGetEffectiveGrid(ref tray, out effRows, out effCols, out capacity)
                     || effRows < 1 || effCols < 1)
                 {
                     TEXT("[金沃] " + s.Name + " 算法未返回有效网格，请检查箱体/产品与金沃算法参数");
+                    return false;
+                }
+
+                if (!_jinwo.TryFinalizeTrayGrid(ref tray, ref effRows, ref effCols, ref capacity,
+                        s.BoxHeight, s.SingleProductHeight, out int maxLayers))
+                {
+                    TEXT("[金沃] " + s.Name + " 托盘层数校正失败，请检查箱体高度与每层Z间距");
                     return false;
                 }
 
@@ -1054,10 +1240,7 @@ namespace 码料机
                 s.HasJinwoTrayConfig = true;
                 s.MaxRows = effRows;
                 s.MaxCols = effCols;
-                int layers = s.JinwoTray.Layers;
-                if (layers < 1 && capacity > 0)
-                    layers = capacity / Math.Max(1, effRows * effCols);
-                s.MaxLayers = Math.Max(1, layers);
+                s.MaxLayers = maxLayers;
                 if (logEffectiveGrid)
                     TEXT($"[金沃] 有效网格 {effRows} 行 x {effCols} 列 x {s.MaxLayers} 层，容量 {capacity}");
                 return true;
@@ -1097,31 +1280,31 @@ namespace 码料机
             TEXT(s.HasJinwoTrayConfig
                 ? $"最大可放（算法）：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，总计{totalCap}个产品"
                 : $"最大可放：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，总计{totalCap}个产品");
+            TEXT($"竖直取放档：{ZStackPlacement.FormatBatchPattern(s.MaxLayers)}（产品高度共{s.MaxLayers}层，{ZStackPlacement.GetZTierCount(s.MaxLayers)}档取放）");
             s.IsFull = false;
             s.Layer = s.Row = s.Col = 0;
             s.PickCenterX = s.PickCenterY = 0;
             s.PlaceOffsetLocalX = s.PlaceOffsetLocalY = 0;
-            ApplyPickPlaceQtyFromTextBoxes(s, tbP, tbQ);
-            TEXT($"{s.Name}取料数量={s.PickQty}，放料数量={s.PlaceQty}（已与产品参数一并确认）");
+            SyncPickPlaceQtyFromZTier(s, tbP, tbQ);
+            TEXT($"{s.Name}取料数量={s.PickQty}，放料数量={s.PlaceQty}（当前竖直档）");
             UpdateProductSpecDetailDisplay(left);
             if (currentStation == s) UpdateStationUI();
             UpdateProgressDisplay();
+            s.PlcAwaitingBoxChangeAfterFull = false;
             ClearBoxPlacementState(s);
             ResetPlcPlaceBoxCycle(s);
             PushPlcParamsAfterConfirm(s, left);
             PersistStationUiSelection(left);
         }
 
-        private static int ClampPickPlaceQty(int value) => value < 1 ? 1 : (value > 5 ? 5 : value);
-        private static int ParsePickPlaceQtyText(string text) => int.TryParse(text?.Trim(), out int v) ? ClampPickPlaceQty(v) : 1;
-
-        private static void ApplyPickPlaceQtyFromTextBoxes(StationData station, TextBox pickBox, TextBox placeBox)
+        private static void SyncPickPlaceQtyFromZTier(StationData station, TextBox pickBox, TextBox placeBox)
         {
-            int pick = ParsePickPlaceQtyText(pickBox.Text), place = ParsePickPlaceQtyText(placeBox.Text);
-            station.PickQty = pick;
-            station.PlaceQty = place;
-            pickBox.Text = pick.ToString();
-            placeBox.Text = place.ToString();
+            int qty = station != null && station.MaxLayers > 0
+                ? ZStackPlacement.GetPickPlaceQty(Math.Max(0, station.Layer), station.MaxLayers)
+                : ZStackPlacement.DefaultBatchSize;
+            station.PickQty = station.PlaceQty = qty;
+            if (pickBox != null) pickBox.Text = qty.ToString();
+            if (placeBox != null) placeBox.Text = qty.ToString();
         }
 
         #endregion
@@ -1190,6 +1373,10 @@ namespace 码料机
                 string suffix = currentStation.IsFull
                     ? " | 等待换箱"
                     : (currentStation.LastIssuedPlanIndex >= 0 ? " | 待确认上一件" : "");
+                if (_runtimeOp.HasManualPlaceMode || _runtimeOp.HasManualSlotSelectMode)
+                    suffix += " | " + DescribeManualPlaceMode();
+                if (currentStation.ManualSlotSelectEnabled && currentStation.ManualPendingSlotIndex >= 0)
+                    suffix += $" | 待放位{currentStation.ManualPendingSlotIndex + 1}";
                 toolStripLabel18.Text = $"当前：{currentStation.Name} 已放{n}/{cap}{suffix}";
                 toolStripLabel18.ForeColor = currentStation.IsFull
                     ? Color.FromArgb(197, 48, 48)
@@ -1197,16 +1384,27 @@ namespace 码料机
             }
         }
 
+        /// <summary>界面「层数」：竖直取放档（如总高 9 → 档 1~4 对应 2-2-2-3）。</summary>
+        private static string FormatZTierProgress(StationData st)
+        {
+            if (st == null || st.MaxLayers < 1) return "—";
+            int stackHeight = Math.Max(0, st.Layer);
+            int tier = ZStackPlacement.GetZTierFromStackHeight(stackHeight, st.MaxLayers);
+            int tierCount = ZStackPlacement.GetZTierCount(st.MaxLayers);
+            int qty = ZStackPlacement.GetPickPlaceQty(stackHeight, st.MaxLayers);
+            return $"{tier + 1}/{tierCount} (放{qty})";
+        }
+
         /// <summary>将左右工位的层/行/列（1 基显示）同步到对应 Label。</summary>
         private void UpdateProgressDisplay()
         {
-            // 工位一：层/行/列 → label8、label7、label6
-            if (label8 != null) label8.Text = $"{leftStation.Layer + 1} / {leftStation.MaxLayers}";
+            // 工位一：竖直取放档 / 行 / 列
+            if (label8 != null) label8.Text = FormatZTierProgress(leftStation);
             if (label7 != null) label7.Text = $"{leftStation.Row + 1} / {leftStation.MaxRows}";
             if (label6 != null) label6.Text = $"{leftStation.Col + 1} / {leftStation.MaxCols}";
 
-            // 工位二：层/行/列 → label19、label20、label21（与界面「层数/行数/列数」对齐）
-            if (label19 != null) label19.Text = $"{rightStation.Layer + 1} / {rightStation.MaxLayers}";
+            // 工位二
+            if (label19 != null) label19.Text = FormatZTierProgress(rightStation);
             if (label20 != null) label20.Text = $"{rightStation.Row + 1} / {rightStation.MaxRows}";
             if (label21 != null) label21.Text = $"{rightStation.Col + 1} / {rightStation.MaxCols}";
         }
@@ -1217,10 +1415,9 @@ namespace 码料机
         /// </summary>
         private async void Mliao(object sender, EventArgs e)
         {
-            if (currentStation.PickQty < 1 || currentStation.PlaceQty < 1 ||
-                currentStation.PickQty > 5 || currentStation.PlaceQty > 5)
+            if (currentStation.PickQty < 1 || currentStation.PlaceQty < 1)
             {
-                TEXT("请先在当前工作的左/右机台点击「确定产品与数量」，完成产品参数与取/放料数量（各 1~5）。");
+                TEXT("请先在当前工作的左/右机台点击「确定产品与数量」，完成产品参数。");
                 return;
             }
 
@@ -1245,22 +1442,30 @@ namespace 码料机
             SyncMachineStateToPlc();
 
             TEXT("=== 开始自动码放（视觉在 VM 内，应用只负责网格/PLC）===");
+            if (_runtimeOp.HasManualPlaceMode || _runtimeOp.HasManualSlotSelectMode)
+                TEXT("[放料] " + DescribeManualPlaceMode());
             UpdateStationUI();
             UpdateProgressDisplay();
             try
             {
                 PollPlcFieldInterruptSignals("自动码放引导前");
                 if (!await WaitWhileMachinePausedAsync("自动码放引导前")) return;
-                if (!await RunVisionPickAndPlaceIntroAsync(currentStation))
+                if (!ShouldSkipVisionIntroForStation(currentStation)
+                    && !currentStation.ManualSlotSelectEnabled)
                 {
-                    if (!_machine.IsFault)
+                    if (!await RunVisionPickAndPlaceIntroAsync(currentStation))
                     {
-                        _machine.EnterFault("INTRO_ABORT", "取料或放料对箱阶段失败（PLC/参数）。视觉请在 VM 流程图内运行。");
-                        SyncMachineStateToPlc();
+                        if (!_machine.IsFault)
+                        {
+                            _machine.EnterFault("INTRO_ABORT", "取料或放料对箱阶段失败（PLC/参数）。视觉请在 VM 流程图内运行。");
+                            SyncMachineStateToPlc();
+                        }
+                        TEXT("[故障] 引导序列异常中止。若状态栏为「故障」，排除后请单击该处复位。");
+                        return;
                     }
-                    TEXT("[故障] 引导序列异常中止。若状态栏为「故障」，排除后请单击该处复位。");
-                    return;
                 }
+                else
+                    TEXT($"[放料] {currentStation.Name} 使用手动设定放料位，跳过识箱引导。");
 
                 while (true)
                 {
@@ -1401,13 +1606,6 @@ namespace 码料机
         #region 界面排版
 
         private bool _modernUiApplied;
-        private Button _btnFieldPause;
-        private Button _btnFieldResume;
-        private Button _btnFieldRephotoBox;
-        private Button _btnFieldWorkerConfirm;
-        private Button _btnFieldFallen;
-        private Button _btnFieldChangeBox;
-        private ToolTip _fieldActionToolTip;
 
         private sealed class BoxSpecDetailUi
         {
@@ -1423,6 +1621,9 @@ namespace 码料机
         private BoxSpecDetailUi _rightBoxSpecUi;
         private ProductSpecDetailUi _leftProductSpecUi;
         private ProductSpecDetailUi _rightProductSpecUi;
+
+        private FrameChangeUi _leftFrameUi;
+        private FrameChangeUi _rightFrameUi;
 
         private static readonly Color UiName = Color.FromArgb(100, 116, 139);
         private static readonly Color UiValue = Color.FromArgb(15, 23, 42);
@@ -1468,10 +1669,10 @@ namespace 码料机
 
             MountOperatorPanel(groupBox3, comboBox1, comboBox2, comboBox3,
                 labelLeftPickQty, textBoxLeftPickQty, labelLeftPlaceQty, textBoxLeftPlaceQty, button3,
-                out _leftBoxSpecUi, out _leftProductSpecUi);
+                out _leftBoxSpecUi, out _leftProductSpecUi, out _leftFrameUi, isLeft: true);
             MountOperatorPanel(groupBox4, comboBox6, comboBox5, comboBox4,
                 labelRightPickQty, textBoxRightPickQty, labelRightPlaceQty, textBoxRightPlaceQty, button1,
-                out _rightBoxSpecUi, out _rightProductSpecUi);
+                out _rightBoxSpecUi, out _rightProductSpecUi, out _rightFrameUi, isLeft: false);
             WireOperatorDetailEvents();
             UpdateBoxSpecDetailDisplay(true);
             UpdateBoxSpecDetailDisplay(false);
@@ -1480,6 +1681,7 @@ namespace 码料机
 
             MountMiddleChrome();
             StyleAllComboBoxes();
+            RefreshFrameChangeControlsEnabled();
         }
 
         private static void SetDoubleBuffered(Control c)
@@ -1829,13 +2031,22 @@ namespace 码料机
             return card;
         }
 
-        private static void MountOperatorPanel(GroupBox gb, ComboBox cBox, ComboBox cMode, ComboBox cBoxType,
+        private void MountOperatorPanel(GroupBox gb, ComboBox cBox, ComboBox cMode, ComboBox cBoxType,
             Label pickCap, TextBox pickVal, Label placeCap, TextBox placeVal, Button okBtn,
-            out BoxSpecDetailUi boxDetailUi, out ProductSpecDetailUi productDetailUi)
+            out BoxSpecDetailUi boxDetailUi, out ProductSpecDetailUi productDetailUi,
+            out FrameChangeUi frameUi, bool isLeft)
         {
             boxDetailUi = null;
             productDetailUi = null;
+            frameUi = null;
             if (gb == null) return;
+            var scroll = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Color.Transparent,
+            };
+            SetDoubleBuffered(scroll);
             if (okBtn != null && okBtn.Parent != null)
                 okBtn.Parent.Controls.Remove(okBtn);
             foreach (Control c in gb.Controls.Cast<Control>().ToArray())
@@ -1847,13 +2058,15 @@ namespace 码料机
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 1,
-                RowCount = 8,
+                RowCount = 10,
                 Padding = UiLayoutHelper.StationTablePadding,
             };
             SetDoubleBuffered(t);
             for (int i = 0; i < 5; i++)
                 t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             t.RowStyles.Add(new RowStyle(SizeType.Absolute, 24f));
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            t.RowStyles.Add(new RowStyle(SizeType.Absolute, UiLayoutHelper.FrameChangeBlockRowHeight));
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -1891,7 +2104,7 @@ namespace 码料机
 
             var qtyTitle = new Label
             {
-                Text = "取放数量（每件 1~5）",
+                Text = "取放数量（竖直档 2-2-…-3，如总高9层→2+2+2+3）",
                 AutoSize = true,
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.BottomLeft,
@@ -1956,6 +2169,11 @@ namespace 码料机
 
             t.Controls.Add(qtyBlock, 0, 6);
 
+            frameUi = BuildFrameChangeBlock(isLeft);
+            t.Controls.Add(frameUi.RootPanel, 0, 7);
+
+            t.Controls.Add(BuildStationDebugOptionsPanel(isLeft), 0, 8);
+
             if (okBtn != null)
             {
                 okBtn.Dock = DockStyle.Fill;
@@ -1963,10 +2181,220 @@ namespace 码料机
                 okBtn.MinimumSize = new Size(0, 48);
                 okBtn.Font = UiLayoutHelper.BodyBold;
                 okBtn.Padding = new Padding(0, 4, 0, 4);
-                t.Controls.Add(okBtn, 0, 7);
+                t.Controls.Add(okBtn, 0, 9);
             }
 
-            gb.Controls.Add(t);
+            scroll.Controls.Add(t);
+            gb.Controls.Add(scroll);
+        }
+
+        private Panel BuildStationDebugOptionsPanel(bool isLeft)
+        {
+            string side = isLeft ? "左" : "右";
+            var host = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                Margin = new Padding(0, 10, 0, 4),
+                Padding = Padding.Empty,
+            };
+            SetDoubleBuffered(host);
+
+            var chk = new CheckBox
+            {
+                Text = $"{side}机台放料用手动设定位置（不用识箱算位）",
+                AutoSize = true,
+                Font = UiLayoutHelper.Body,
+                Margin = Padding.Empty,
+            };
+            if (isLeft)
+            {
+                _chkLeftUseConfiguredPlace = chk;
+                chk.Checked = _runtimeOp.LeftUseConfiguredPlace;
+            }
+            else
+            {
+                _chkRightUseConfiguredPlace = chk;
+                chk.Checked = _runtimeOp.RightUseConfiguredPlace;
+            }
+            chk.CheckedChanged += OnManualPlaceOptionChanged;
+            host.Controls.Add(chk);
+
+            var chkSlot = new CheckBox
+            {
+                Text = $"{side}机台手动指定放料位（算法识位，界面选下一发）",
+                AutoSize = true,
+                Font = UiLayoutHelper.Body,
+                Margin = new Padding(0, 6, 0, 0),
+            };
+            if (isLeft)
+            {
+                _chkLeftUseManualSlotSelect = chkSlot;
+                chkSlot.Checked = _runtimeOp.LeftUseManualSlotSelect;
+            }
+            else
+            {
+                _chkRightUseManualSlotSelect = chkSlot;
+                chkSlot.Checked = _runtimeOp.RightUseManualSlotSelect;
+            }
+            chkSlot.CheckedChanged += OnManualSlotSelectOptionChanged;
+            host.Controls.Add(chkSlot);
+            return host;
+        }
+
+        private void OnManualPlaceOptionChanged(object sender, EventArgs e)
+        {
+            if (_chkLeftUseConfiguredPlace == null || _chkRightUseConfiguredPlace == null) return;
+            _runtimeOp.LeftUseConfiguredPlace = _chkLeftUseConfiguredPlace.Checked;
+            _runtimeOp.RightUseConfiguredPlace = _chkRightUseConfiguredPlace.Checked;
+            if (_runtimeOp.LeftUseConfiguredPlace)
+                _runtimeOp.LeftUseManualSlotSelect = false;
+            if (_runtimeOp.RightUseConfiguredPlace)
+                _runtimeOp.RightUseManualSlotSelect = false;
+            _runtimeOp.Save();
+            SyncManualSlotSelectFlagsFromConfig();
+            if (_chkLeftUseManualSlotSelect != null)
+                _chkLeftUseManualSlotSelect.Checked = _runtimeOp.LeftUseManualSlotSelect;
+            if (_chkRightUseManualSlotSelect != null)
+                _chkRightUseManualSlotSelect.Checked = _runtimeOp.RightUseManualSlotSelect;
+            TEXT("[放料] " + DescribeManualPlaceMode());
+            UpdateStationUI();
+        }
+
+        private void OnManualSlotSelectOptionChanged(object sender, EventArgs e)
+        {
+            if (_chkLeftUseManualSlotSelect == null || _chkRightUseManualSlotSelect == null) return;
+            _runtimeOp.LeftUseManualSlotSelect = _chkLeftUseManualSlotSelect.Checked;
+            _runtimeOp.RightUseManualSlotSelect = _chkRightUseManualSlotSelect.Checked;
+            if (_runtimeOp.LeftUseManualSlotSelect)
+                _runtimeOp.LeftUseConfiguredPlace = false;
+            if (_runtimeOp.RightUseManualSlotSelect)
+                _runtimeOp.RightUseConfiguredPlace = false;
+            _runtimeOp.Save();
+            SyncManualSlotSelectFlagsFromConfig();
+            if (_chkLeftUseConfiguredPlace != null)
+                _chkLeftUseConfiguredPlace.Checked = _runtimeOp.LeftUseConfiguredPlace;
+            if (_chkRightUseConfiguredPlace != null)
+                _chkRightUseConfiguredPlace.Checked = _runtimeOp.RightUseConfiguredPlace;
+            TEXT("[放料] " + DescribeManualPlaceMode());
+            UpdateStationUI();
+        }
+
+        private bool ShouldSkipVisionIntroForStation(StationData st) =>
+            st != null && _runtimeOp.UseConfiguredPlace(IsLeftStation(st));
+
+        private string DescribeManualPlaceMode()
+        {
+            var parts = new List<string>();
+            if (_runtimeOp.LeftUseConfiguredPlace)
+                parts.Add("左=设定放料位");
+            if (_runtimeOp.RightUseConfiguredPlace)
+                parts.Add("右=设定放料位");
+            string slot = DescribeManualSlotSelectMode();
+            if (!string.IsNullOrEmpty(slot))
+                parts.Add(slot);
+            if (parts.Count == 0)
+                return "放料均使用识箱/算法顺序算位";
+            if (_runtimeOp.LeftUseConfiguredPlace || _runtimeOp.RightUseConfiguredPlace)
+                return string.Join("；", parts) + "（设定坐标见「位置设定」）";
+            return string.Join("；", parts);
+        }
+
+        private sealed class FrameChangeUi
+        {
+            public TableLayoutPanel RootPanel;
+            public Button BtnChange;
+            public Button BtnComplete;
+            public Label IndicatorLabel;
+        }
+
+        private FrameChangeUi BuildFrameChangeBlock(bool isLeft)
+        {
+            int bitChange = isLeft ? PlcFrameChangeBits.A换框按钮 : PlcFrameChangeBits.B换框按钮;
+            int bitComplete = isLeft ? PlcFrameChangeBits.A换框完成按钮 : PlcFrameChangeBits.B换框完成按钮;
+
+            var block = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = false,
+                ColumnCount = 2,
+                RowCount = 3,
+                Margin = new Padding(0, 8, 0, 4),
+            };
+            block.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            block.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            block.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            block.RowStyles.Add(new RowStyle(SizeType.Absolute, UiLayoutHelper.FrameActionButtonRowHeight));
+            block.RowStyles.Add(new RowStyle(SizeType.Absolute, UiLayoutHelper.FrameIndicatorRowHeight));
+            block.MinimumSize = new Size(0, (int)(UiLayoutHelper.FrameActionButtonRowHeight + UiLayoutHelper.FrameIndicatorRowHeight + 32));
+            SetDoubleBuffered(block);
+
+            var title = new Label
+            {
+                Text = "换框操作",
+                AutoSize = true,
+                Dock = DockStyle.Fill,
+                ForeColor = UiSection,
+                Font = UiLayoutHelper.Section,
+                Margin = new Padding(0, 0, 0, 6),
+            };
+            block.Controls.Add(title, 0, 0);
+            block.SetColumnSpan(title, 2);
+
+            var btnChange = MakeFrameActionButton("换框", bitChange);
+            var btnComplete = MakeFrameActionButton("换框完成", bitComplete);
+            block.Controls.Add(btnChange, 0, 1);
+            block.Controls.Add(btnComplete, 1, 1);
+
+            var indicator = new Label
+            {
+                Text = "禁止取框",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = UiLayoutHelper.BodyBold,
+                Margin = new Padding(0, 6, 0, 0),
+                BackColor = Color.FromArgb(148, 163, 184),
+                ForeColor = Color.White,
+            };
+            int indH = (int)UiLayoutHelper.FrameIndicatorRowHeight;
+            indicator.MinimumSize = new Size(0, indH);
+            indicator.MaximumSize = new Size(8000, indH);
+            block.Controls.Add(indicator, 0, 2);
+            block.SetColumnSpan(indicator, 2);
+
+            return new FrameChangeUi
+            {
+                RootPanel = block,
+                BtnChange = btnChange,
+                BtnComplete = btnComplete,
+                IndicatorLabel = indicator,
+            };
+        }
+
+        private Button MakeFrameActionButton(string text, int plcBitIndex)
+        {
+            int btnH = (int)UiLayoutHelper.FrameActionButtonRowHeight;
+            var btn = new Button
+            {
+                Text = text,
+                Tag = plcBitIndex,
+                Dock = DockStyle.Fill,
+                MinimumSize = new Size(0, btnH),
+                MaximumSize = new Size(8000, btnH),
+                Margin = new Padding(0, 0, 4, 0),
+                FlatStyle = FlatStyle.Flat,
+                Font = UiLayoutHelper.Body,
+                Cursor = Cursors.Hand,
+                UseVisualStyleBackColor = false,
+                TextAlign = ContentAlignment.MiddleCenter,
+            };
+            btn.FlatAppearance.BorderSize = 0;
+            StyleFrameActionButton(btn, false);
+            btn.Click += OnFrameChangeButtonClick;
+            return btn;
         }
 
         private static void StyleOperatorCombo(ComboBox cb)
@@ -1987,48 +2415,90 @@ namespace 码料机
                 StyleOperatorCombo(cb);
         }
 
+        private void EnsurePreviewToolbarHost()
+        {
+            if (_previewToolbarHost != null || panelVmPreviewHost == null) return;
+            _previewToolbarHost = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Padding = Padding.Empty,
+                Margin = new Padding(8),
+            };
+            panelVmPreviewHost.Controls.Add(_previewToolbarHost);
+            panelVmPreviewHost.Resize += (s, e) => LayoutPreviewToolbar();
+        }
+
+        private static void StylePreviewToolbarButton(Button btn)
+        {
+            btn.AutoSize = false;
+            btn.Font = UiLayoutHelper.Body;
+            btn.FlatStyle = FlatStyle.Flat;
+            btn.FlatAppearance.BorderSize = 0;
+            btn.Padding = new Padding(8, 6, 8, 6);
+            btn.TextAlign = ContentAlignment.MiddleCenter;
+            btn.Margin = new Padding(4, 0, 0, 0);
+        }
+
+        private void SyncPreviewToolbarButtonSizes()
+        {
+            if (_previewToolbarHost == null) return;
+            var buttons = _previewToolbarHost.Controls.OfType<Button>().ToList();
+            if (buttons.Count == 0) return;
+            int h = UiLayoutHelper.PreviewToolbarButtonHeight;
+            int maxW = 0;
+            foreach (var b in buttons)
+            {
+                var textSize = TextRenderer.MeasureText(b.Text, b.Font, Size.Empty, TextFormatFlags.SingleLine);
+                maxW = Math.Max(maxW, textSize.Width + b.Padding.Horizontal + 20);
+            }
+            maxW = Math.Max(maxW, 96);
+            var size = new Size(maxW, h);
+            foreach (var b in buttons)
+            {
+                b.Size = size;
+                b.MinimumSize = size;
+                b.MaximumSize = size;
+            }
+            _previewToolbarHost.PerformLayout();
+        }
+
         private void EnsurePreviewToolbar()
         {
             if (_btnLoadTestImage != null || panelVmPreviewHost == null) return;
+            EnsurePreviewToolbarHost();
 
             _btnLoadTestImage = new Button
             {
-                Text = "加载测试图片",
-                AutoSize = true,
+                Text = "加载离线图片",
                 BackColor = Color.FromArgb(51, 65, 85),
                 ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = UiLayoutHelper.Body,
                 Cursor = Cursors.Hand,
                 TabStop = false,
             };
-            _btnLoadTestImage.FlatAppearance.BorderSize = 0;
-            _btnLoadTestImage.Padding = new Padding(10, 4, 10, 4);
+            StylePreviewToolbarButton(_btnLoadTestImage);
             _btnLoadTestImage.Click += BtnLoadTestImage_Click;
-            panelVmPreviewHost.Controls.Add(_btnLoadTestImage);
-            panelVmPreviewHost.Resize += (s, e) => LayoutPreviewToolbar();
+            _previewToolbarHost.Controls.Add(_btnLoadTestImage);
+            SyncPreviewToolbarButtonSizes();
             LayoutPreviewToolbar();
         }
 
         private void LayoutPreviewToolbar()
         {
             if (panelVmPreviewHost == null) return;
-            int x = Math.Max(8, panelVmPreviewHost.ClientSize.Width - 8);
-            if (_btnLoadTestImage != null)
+            SyncPreviewToolbarButtonSizes();
+            if (_previewToolbarHost != null)
             {
-                _btnLoadTestImage.Location = new Point(
-                    x - _btnLoadTestImage.Width,
+                _previewToolbarHost.Location = new Point(
+                    Math.Max(8, panelVmPreviewHost.ClientSize.Width - _previewToolbarHost.Width - 8),
                     8);
-                x = _btnLoadTestImage.Location.X - 8;
-                _btnLoadTestImage.BringToFront();
+                _previewToolbarHost.BringToFront();
             }
-            if (_btnHikGrab != null)
-            {
-                _btnHikGrab.Location = new Point(
-                    x - _btnHikGrab.Width,
-                    8);
-                _btnHikGrab.BringToFront();
-            }
+            _btnLoadTestImage?.BringToFront();
+            _btnHikGrab?.BringToFront();
         }
 
         private async void BtnLoadTestImage_Click(object sender, EventArgs e)
@@ -2116,29 +2586,16 @@ namespace 码料机
             MountLogAndFieldActions();
         }
 
-        private const float FieldActionBarHeight = 108f;
-
         private void MountLogAndFieldActions()
         {
             if (splitContainer2?.Panel2 == null || listBox1 == null) return;
 
             splitContainer2.Panel2.Controls.Clear();
 
-            var root = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 2,
-                BackColor = Color.FromArgb(237, 242, 247),
-            };
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, FieldActionBarHeight));
-            SetDoubleBuffered(root);
-
             var logPad = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(10, 6, 10, 4),
+                Padding = new Padding(10, 6, 10, 8),
                 BackColor = Color.FromArgb(248, 250, 252),
             };
             SetDoubleBuffered(logPad);
@@ -2147,87 +2604,7 @@ namespace 码料机
             listBox1.Margin = Padding.Empty;
             listBox1.BackColor = Color.White;
             logPad.Controls.Add(listBox1);
-
-            var actionPad = new Panel
-            {
-                Dock = DockStyle.Fill,
-                Padding = new Padding(10, 4, 10, 8),
-                BackColor = Color.FromArgb(248, 250, 252),
-            };
-            SetDoubleBuffered(actionPad);
-
-            var actionGrid = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 3,
-                RowCount = 2,
-            };
-            SetDoubleBuffered(actionGrid);
-            _fieldActionToolTip = new ToolTip { AutoPopDelay = 8000, InitialDelay = 400, ReshowDelay = 200, ShowAlways = true };
-            for (int c = 0; c < 3; c++)
-                actionGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
-            actionGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
-            actionGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
-
-            _btnFieldPause = MakeFieldActionButton("现场暂停",
-                Color.FromArgb(217, 119, 6),
-                "现场临停：保留当前箱姿与码放进度，暂停处理 PLC 取/放料请求",
-                toolStripLabelPause_Click);
-            _btnFieldResume = MakeFieldActionButton("继续运行",
-                Color.FromArgb(22, 163, 74),
-                "现场确认安全后，从暂停状态恢复 PLC 握手或自动码放",
-                toolStripLabelResume_Click);
-            _btnFieldRephotoBox = MakeFieldActionButton("本箱重拍",
-                Color.FromArgb(37, 99, 235),
-                "当前工位下次放料请求重新拍照识箱，保留已放层/行/列进度",
-                toolStripLabelRephotoBox_Click);
-            _btnFieldWorkerConfirm = MakeFieldActionButton("放料确认",
-                Color.FromArgb(5, 150, 105),
-                "确认上一件是否已放入、未放入重放、回退件数",
-                toolStripLabelWorkerConfirm_Click);
-            _btnFieldFallen = MakeFieldActionButton("有料倒了",
-                Color.FromArgb(220, 38, 38),
-                "先暂停，再扶正或拿走后回退/换箱",
-                toolStripLabelFallen_Click);
-            _btnFieldChangeBox = MakeFieldActionButton("换箱重来",
-                Color.FromArgb(59, 130, 246),
-                "清空本箱进度与规划，换空箱后点「确定产品与数量」",
-                toolStripLabelChangeBox_Click);
-
-            actionGrid.Controls.Add(_btnFieldPause, 0, 0);
-            actionGrid.Controls.Add(_btnFieldResume, 1, 0);
-            actionGrid.Controls.Add(_btnFieldRephotoBox, 2, 0);
-            actionGrid.Controls.Add(_btnFieldWorkerConfirm, 0, 1);
-            actionGrid.Controls.Add(_btnFieldFallen, 1, 1);
-            actionGrid.Controls.Add(_btnFieldChangeBox, 2, 1);
-
-            actionPad.Controls.Add(actionGrid);
-            root.Controls.Add(logPad, 0, 0);
-            root.Controls.Add(actionPad, 0, 1);
-            splitContainer2.Panel2.Controls.Add(root);
-        }
-
-        private Button MakeFieldActionButton(string text, Color backColor, string toolTip, EventHandler click)
-        {
-            var btn = new Button
-            {
-                Text = text,
-                Dock = DockStyle.Fill,
-                Margin = new Padding(4, 3, 4, 3),
-                BackColor = backColor,
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = UiLayoutHelper.DialogButton,
-                Cursor = Cursors.Hand,
-                UseVisualStyleBackColor = false,
-            };
-            btn.FlatAppearance.BorderSize = 0;
-            btn.FlatAppearance.MouseOverBackColor = ControlPaint.Light(backColor, 0.12f);
-            btn.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(backColor, 0.08f);
-            if (!string.IsNullOrEmpty(toolTip))
-                _fieldActionToolTip?.SetToolTip(btn, toolTip);
-            btn.Click += click;
-            return btn;
+            splitContainer2.Panel2.Controls.Add(logPad);
         }
 
         #endregion

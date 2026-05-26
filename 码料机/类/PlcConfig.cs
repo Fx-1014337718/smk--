@@ -61,21 +61,40 @@ namespace 码料机
     /// <summary>REAL 双字字节序（汇川/Inovance Modbus 常用 CDAB，与 C# float 内存字序一致）。</summary>
     public enum PlcFloatWordOrder { ABCD, CDAB, BADC, DCBA }
 
+    /// <summary>D4003 换框相关 BOOL 位索引（与 PLC 标签表 PC_*换框* / 允许取框 一致）。</summary>
+    internal static class PlcFrameChangeBits
+    {
+        public const int A换框按钮 = 0, B换框按钮 = 1, A换框完成按钮 = 2, B换框完成按钮 = 3, A允许取框指示 = 4, B允许取框指示 = 5;
+    }
+
     /// <summary>
-    /// 汇川握手 D 表（Modbus 保持寄存器，地址 = D − 基址）：
-    /// D4018/4020 取料请求拍照(1/0)，D4022/4024 放料请求拍照(1/0)；
-    /// D4026~4032 取/放料个数；D4200 取料坐标，D4232 放料目标坐标，D4216 放料拍照位(含箱高Z)。
+    /// 汇川握手 D 表（Modbus 保持寄存器，地址 = D − 基址；INT/REAL 各占连续 2 字）：
+    /// D4000 上位机启动、D4001 心跳、D4002 位功能(INT)；D4003.0~5 换框 BOOL；
+    /// D4010/D4012 A/B 满料标志；D4014/D4016 A/B 换料标志(预留)；
+    /// D4018/4020 取料请求、D4022/4024 放料请求拍照（PLC 脉冲 1，上位机应答后写 0）；
+    /// D4026~4032 取/放料个数；
+    /// D4200~D4246 取料/放料拍照/放料目标坐标（各工位 X/Y/Z/RZ 共 4×REAL）。
     /// </summary>
     public sealed class PlcHandshakeSettings
     {
         public bool HandshakeEnabled = true, 自动码放仍写旧版寄存器;
         public int D减基址得到保持寄存器号;
         public int D_PC上位机自动 = 4000, D_PC心跳 = 4001;
+        /// <summary>D4002：PC_位功能地址（INT，如蜂鸣消音等位功能，0/1 取反保持）。</summary>
+        public int D_PC位功能地址 = 4002;
+        public int D_PC_A工位满料 = 4010, D_PC_B工位满料 = 4012;
+        public int D_PC_A工位换料标志 = 4014, D_PC_B工位换料标志 = 4016;
         public int D_PC运行状态 = -1, D_PC故障码 = -1, D_PC恢复允许脉冲 = -1;
         public int D_PLC现场中断请求 = -1, D_PLC故障复位确认 = -1, D_PLC继续请求 = -1;
         public int D_PC_A取料请求拍照 = 4018, D_PC_B取料请求拍照 = 4020, D_PC_A放料请求拍照 = 4022, D_PC_B放料请求拍照 = 4024;
         public int D_PC_A工位取料个数 = 4026, D_PC_B工位取料个数 = 4028, D_PC_A工位放料个数 = 4030, D_PC_B工位放料个数 = 4032;
+        /// <summary>D4003：A/B 换框按钮、换框完成、允许取框指示（位 0～5）。</summary>
+        public int D_PC换框操作 = 4003;
         public int D_A取料坐标X = 4200, D_B取料坐标X = 4208, D_A放料拍照位X = 4216, D_B放料拍照位X = 4224, D_A放料目标坐标X = 4232, D_B放料目标坐标X = 4240;
+        /// <summary>D 报警字（如 D0），位 0～10 为 PLC→PC 报警，位 11 为上位机写「有料」。</summary>
+        public int D_PLC报警字 = 0;
+        public int D_PC有料信号位 = 11;
+        public bool PlcAlarmPollEnabled = true;
         public float 左放料拍照_基准X, 左放料拍照_基准Y, 左放料拍照_基准Z, 左放料拍照_箱高系数 = 1f, 左放料拍照_基准RZ;
         public float 右放料拍照_基准X, 右放料拍照_基准Y, 右放料拍照_基准Z, 右放料拍照_箱高系数 = 1f, 右放料拍照_基准RZ;
 
@@ -96,13 +115,21 @@ namespace 码料机
         {
             var h = new PlcHandshakeSettings();
             if (string.IsNullOrWhiteSpace(ini) || !File.Exists(ini)) return h;
-            const string s = "握手", z = "放料拍照位";
+            const string s = "握手", z = "放料拍照位", alarm = "PLC报警";
             h.HandshakeEnabled = PlcIniReader.ReadBool(ini, s, "握手启用", "Handshake", "HandshakeEnabled", true);
+            h.PlcAlarmPollEnabled = PlcIniReader.ReadBool(ini, alarm, "报警轮询启用", alarm, "AlarmPollEnabled", h.PlcAlarmPollEnabled);
+            h.D_PLC报警字 = Ini(alarm, "D_PLC报警字", Ini(s, "D_PLC报警字", h.D_PLC报警字, ini), ini);
+            h.D_PC有料信号位 = Ini(alarm, "D_PC有料信号位", h.D_PC有料信号位, ini);
             h.自动码放仍写旧版寄存器 = Ini(s, "自动码放仍写旧版寄存器", 0, ini) != 0;
             h.D减基址得到保持寄存器号 = Ini(s, "D减基址得到保持寄存器号", 0, ini);
             void d(string k, ref int f) => f = Ini(s, k, f, ini);
             d("D_PC上位机自动", ref h.D_PC上位机自动);
             d("D_PC心跳", ref h.D_PC心跳);
+            h.D_PC位功能地址 = Ini(s, "D_PC位功能地址", Ini(s, "D_PC蜂鸣消音", h.D_PC位功能地址, ini), ini);
+            d("D_PC_A工位满料", ref h.D_PC_A工位满料);
+            d("D_PC_B工位满料", ref h.D_PC_B工位满料);
+            d("D_PC_A工位换料标志", ref h.D_PC_A工位换料标志);
+            d("D_PC_B工位换料标志", ref h.D_PC_B工位换料标志);
             d("D_PC运行状态", ref h.D_PC运行状态);
             d("D_PC故障码", ref h.D_PC故障码);
             d("D_PC恢复允许脉冲", ref h.D_PC恢复允许脉冲);
@@ -117,6 +144,7 @@ namespace 码料机
             d("D_PC_B工位取料个数", ref h.D_PC_B工位取料个数);
             d("D_PC_A工位放料个数", ref h.D_PC_A工位放料个数);
             d("D_PC_B工位放料个数", ref h.D_PC_B工位放料个数);
+            h.D_PC换框操作 = Ini(s, "D_PC换框操作", Ini(s, "D_PC换柜操作", h.D_PC换框操作, ini), ini);
             d("D_A取料坐标X", ref h.D_A取料坐标X);
             d("D_B取料坐标X", ref h.D_B取料坐标X);
             d("D_A放料拍照位X", ref h.D_A放料拍照位X);

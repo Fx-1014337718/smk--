@@ -24,6 +24,7 @@ namespace 码料机
         private bool _sdkInitialized;
         private bool _previewEnabled;
         private bool _saveEachFrame;
+        private volatile bool _saveNextFrame;
         private string _savePath;
         private int _previewIntervalMs = 200;
         private DateTime _lastPreviewUtc = DateTime.MinValue;
@@ -209,6 +210,12 @@ namespace 码料机
             _savePath = string.IsNullOrWhiteSpace(savePath) ? null : savePath;
         }
 
+        /// <summary>下一帧回调时落盘一次（软触发采图；「每帧保存采图」=0 时使用）。</summary>
+        public void ArmSingleFrameSave()
+        {
+            _saveNextFrame = true;
+        }
+
         public void Disconnect()
         {
             lock (_sync)
@@ -274,13 +281,15 @@ namespace 码料机
                 int h = (int)image.Height;
                 var pixelType = image.PixelType;
 
-                if (_saveEachFrame && !string.IsNullOrWhiteSpace(_savePath))
+                bool shouldSave = (_saveEachFrame || _saveNextFrame) && !string.IsNullOrWhiteSpace(_savePath);
+                if (shouldSave)
                 {
                     string path = _savePath;
                     string dir = Path.GetDirectoryName(path);
                     if (!string.IsNullOrEmpty(dir))
                         Directory.CreateDirectory(dir);
                     TrySaveBitmap(path, copy, w, h, pixelType);
+                    _saveNextFrame = false;
                     FrameSaved?.Invoke(path, frameNo);
                 }
 

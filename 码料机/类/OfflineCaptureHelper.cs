@@ -9,6 +9,28 @@ namespace 码料机
     public static class OfflineCaptureHelper
     {
         public const string DefaultOfflineFeedFileName = "Feed.bmp";
+        public const string CaptureArchiveFolderName = "采图存档";
+
+        /// <summary>将采图复制到 exe\采图存档\，文件名带时间戳，避免覆盖历史。</summary>
+        public static string ArchiveCaptureImage(string sourcePath)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                return null;
+
+            string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, CaptureArchiveFolderName);
+            Directory.CreateDirectory(dir);
+            string ext = Path.GetExtension(sourcePath);
+            if (string.IsNullOrEmpty(ext))
+                ext = ".bmp";
+            string stem = Path.GetFileNameWithoutExtension(sourcePath) ?? "capture";
+            foreach (char c in Path.GetInvalidFileNameChars())
+                stem = stem.Replace(c, '_');
+            if (stem.Length > 40)
+                stem = stem.Substring(0, 40);
+            string dest = Path.Combine(dir, $"{stem}_{DateTime.Now:yyyyMMdd_HHmmss_fff}{ext}");
+            File.Copy(sourcePath, dest, true);
+            return Path.GetFullPath(dest);
+        }
 
         public static string StageOfflineCaptureImage(string sourcePath)
         {

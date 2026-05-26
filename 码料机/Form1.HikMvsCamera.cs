@@ -175,13 +175,20 @@ namespace 码料机
         }
 
         /// <summary>海康 MVS 软触发/连续采图并落盘，供金沃 DLL 使用。</summary>
-        private async Task<bool> TryHikvisionCaptureAsync()
+        /// <param name="archiveCopy">为 true 时另存一份至「采图存档」目录（手动拍照按钮使用）。</param>
+        private async Task<bool> TryHikvisionCaptureAsync(bool archiveCopy = false)
         {
             if (!_hikCameraConnected || _hikCamera == null)
                 return false;
 
+            string path = _jinwo.ResolveHikCaptureSavePath();
             string mode = _jinwo.HikTriggerMode ?? "";
-            if (!mode.Equals("Continuous", StringComparison.OrdinalIgnoreCase))
+            bool isContinuous = mode.Equals("Continuous", StringComparison.OrdinalIgnoreCase);
+
+            if (!_jinwo.HikSaveEveryFrame)
+                _hikCamera.ArmSingleFrameSave();
+
+            if (!isContinuous)
             {
                 if (!_hikCamera.TriggerSoftware())
                 {
@@ -191,15 +198,34 @@ namespace 码料机
                 await Task.Delay(120).ConfigureAwait(false);
             }
 
-            string path = _jinwo.ResolveHikCaptureSavePath();
-            for (int i = 0; i < 25 && !File.Exists(path); i++)
+            DateTime waitStart = DateTime.UtcNow;
+            while ((DateTime.UtcNow - waitStart).TotalMilliseconds < 2000)
+            {
+                if (File.Exists(path))
+                {
+                    try
+                    {
+                        if (new FileInfo(path).Length > 0)
+                            break;
+                    }
+                    catch { }
+                }
                 await Task.Delay(40).ConfigureAwait(false);
+            }
 
             if (!File.Exists(path))
                 return false;
 
             _offlineTestImagePath = path;
             _jinwo.SetCaptureImageOverride(path);
+
+            if (archiveCopy)
+            {
+                string archived = OfflineCaptureHelper.ArchiveCaptureImage(path);
+                if (!string.IsNullOrEmpty(archived))
+                    SafeInvoke(() => TEXT("[海康] 已自动保存: " + archived));
+            }
+
             ProcessPipelineLog.ImageLoaded("[海康→金沃]", path, path, "MVS 采图");
             return true;
         }
@@ -213,9 +239,9 @@ namespace 码料机
                 return;
             }
 
-            if (!await TryHikvisionCaptureAsync().ConfigureAwait(true))
+            if (!await TryHikvisionCaptureAsync(archiveCopy: true).ConfigureAwait(true))
             {
-                TEXT("[海康] 采图失败或未落盘（请确认「每帧保存采图」=1）");
+                TEXT("[海康] 采图失败或未落盘（请检查相机连接与采图路径）");
                 return;
             }
 
@@ -223,7 +249,7 @@ namespace 码料机
             SafeInvoke(() => ShowOfflinePreviewAfterUndistort(path));
 
             if (runJinwoAfterSave && _jinwo.IsEnabled && _jinwo.IsLoaded)
-                await RunJinwoOnCaptureAsync("海康拍照").ConfigureAwait(true);
+                await RunJinwoOnCaptureAsync("拍照").ConfigureAwait(true);
         }
 
         /// <summary>对当前采图（优先海康落盘路径）运行金沃 DLL。</summary>
@@ -245,19 +271,17 @@ namespace 码料机
             if (_btnHikGrab != null || panelVmPreviewHost == null || !ShouldUseHikCamera())
                 return;
 
+            EnsurePreviewToolbarHost();
+
             _btnHikGrab = new Button
             {
-                Text = "海康拍照",
-                AutoSize = true,
+                Text = "拍照",
                 BackColor = Color.FromArgb(15, 118, 110),
                 ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular),
                 Cursor = Cursors.Hand,
                 TabStop = false,
             };
-            _btnHikGrab.FlatAppearance.BorderSize = 0;
-            _btnHikGrab.Padding = new Padding(10, 4, 10, 4);
+            StylePreviewToolbarButton(_btnHikGrab);
             _btnHikGrab.Click += async (s, e) =>
             {
                 try
@@ -269,8 +293,7 @@ namespace 码料机
                     TEXT("[海康] 拍照异常: " + ex.Message);
                 }
             };
-            panelVmPreviewHost.Controls.Add(_btnHikGrab);
-            panelVmPreviewHost.Resize += (s, e) => LayoutPreviewToolbar();
+            _previewToolbarHost.Controls.Add(_btnHikGrab);
             LayoutPreviewToolbar();
         }
     }

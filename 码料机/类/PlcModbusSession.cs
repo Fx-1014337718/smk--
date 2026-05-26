@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Threading;
@@ -11,14 +12,41 @@ namespace 码料机
     public sealed class PlcModbusSession : IDisposable
     {
         private readonly object _sync = new object();
+        private readonly object _readLogSync = new object();
+        private readonly Dictionary<ushort, ushort> _lastReadByAddr = new Dictionary<ushort, ushort>();
         private TcpClient _tcp;
         private IModbusMaster _master;
 
         public PlcConfig Config { get; }
-        public bool IsConnected { get { lock (_sync) return _master != null && _tcp?.Connected == true; } }
+        public bool IsConnected
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    if (_master == null || _tcp == null) return false;
+                    Socket socket = _tcp.Client;
+                    if (socket == null || !socket.Connected) return false;
+                    try
+                    {
+                        // 对端关闭连接时 Poll 可读但无数据
+                        if (socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0)
+                            return false;
+                        return true;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
 
         /// <summary>每次向 PLC 写入时回调（由主界面绑定到 TEXT 等）。</summary>
         public static Action<string> OnSendLog;
+
+        /// <summary>PLC 侧寄存器读值变化时回调（由主界面绑定到接收日志）。</summary>
+        public static Action<string> OnReceiveLog;
 
         public PlcModbusSession(PlcConfig config) => Config = config ?? throw new ArgumentNullException(nameof(config));
 
@@ -36,6 +64,41 @@ namespace 码料机
             catch { }
         }
 
+        static void LogReceive(string detail)
+        {
+            string line = "[PLC←] " + detail;
+            try { OnReceiveLog?.Invoke(line); } catch { }
+            try
+            {
+                string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "PlcReceive.log"),
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " + line + Environment.NewLine);
+            }
+            catch { }
+        }
+
+        void ClearReadChangeCache()
+        {
+            lock (_readLogSync) _lastReadByAddr.Clear();
+        }
+
+        void LogReadChangeIfNeeded(ushort addr, ushort value)
+        {
+            string detail;
+            lock (_readLogSync)
+            {
+                if (_lastReadByAddr.TryGetValue(addr, out ushort last) && last == value)
+                    return;
+                bool had = _lastReadByAddr.ContainsKey(addr);
+                _lastReadByAddr[addr] = value;
+                detail = had
+                    ? $"ReadUInt16 站{Config.SlaveId} 地址={addr} {last}→{value}"
+                    : $"ReadUInt16 站{Config.SlaveId} 地址={addr} 值={value}";
+            }
+            LogReceive(detail);
+        }
+
         public void Connect()
         {
             Disconnect();
@@ -43,6 +106,7 @@ namespace 码料机
             var tcp = new TcpClient { NoDelay = true };
             tcp.Connect(Config.Ip, Config.Port);
             lock (_sync) { _tcp = tcp; _master = new ModbusFactory().CreateMaster(tcp); }
+            ClearReadChangeCache();
         }
 
         public void Disconnect()
@@ -54,12 +118,36 @@ namespace 码料机
                 _master = null;
                 _tcp = null;
             }
+            ClearReadChangeCache();
         }
 
         public void Dispose() => Disconnect();
 
-        public ushort ReadUInt16(ushort addr) =>
-            Run(m => m.ReadHoldingRegisters(Config.SlaveId, addr, 1)[0]);
+        public ushort ReadUInt16(ushort addr, bool logReceiveOnChange = true)
+        {
+            ushort value = Run(m => m.ReadHoldingRegisters(Config.SlaveId, addr, 1)[0]);
+            if (logReceiveOnChange)
+                LogReadChangeIfNeeded(addr, value);
+            return value;
+        }
+
+        /// <summary>读写字中某位（0～15）。</summary>
+        public bool ReadBit(ushort wordAddr, int bitIndex)
+        {
+            if (bitIndex < 0 || bitIndex > 15) throw new ArgumentOutOfRangeException(nameof(bitIndex));
+            ushort word = ReadUInt16(wordAddr);
+            return (word & (1 << bitIndex)) != 0;
+        }
+
+        public void WriteBit(ushort wordAddr, int bitIndex, bool value, bool logSend = true)
+        {
+            if (bitIndex < 0 || bitIndex > 15) throw new ArgumentOutOfRangeException(nameof(bitIndex));
+            ushort word = ReadUInt16(wordAddr);
+            ushort mask = (ushort)(1 << bitIndex);
+            ushort next = value ? (ushort)(word | mask) : (ushort)(word & ~mask);
+            if (next == word) return;
+            WriteUInt16(wordAddr, next, logSend);
+        }
 
         public void WriteUInt16(ushort addr, ushort value, bool logSend = true)
         {

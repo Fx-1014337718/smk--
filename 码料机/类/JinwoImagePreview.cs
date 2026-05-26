@@ -21,15 +21,21 @@ namespace 码料机
         }
 
         public static string DrawMarkersOverlay(string sourceImagePath, JinwoNative.JinwoMarkerResult markers, string outputDir)
+            => DrawMarkersOverlay(sourceImagePath, markers, outputDir, null);
+
+        /// <param name="outputFilePath">非空时直接保存到该路径（用于算法测试独立渲染图）。</param>
+        public static string DrawMarkersOverlay(string sourceImagePath, JinwoNative.JinwoMarkerResult markers,
+            string outputDir, string outputFilePath)
         {
             if (string.IsNullOrWhiteSpace(sourceImagePath) || !File.Exists(sourceImagePath))
                 return null;
             if (markers.MarkerPixels == null || markers.MarkerPixels.Length == 0)
                 return null;
 
-            Directory.CreateDirectory(outputDir);
-            string outPath = Path.Combine(outputDir,
-                "markers_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".bmp");
+            string outPath = string.IsNullOrWhiteSpace(outputFilePath)
+                ? Path.Combine(outputDir, "markers_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".bmp")
+                : outputFilePath;
+            Directory.CreateDirectory(Path.GetDirectoryName(outPath) ?? outputDir);
 
             using (var bmp = LoadDrawableBitmap(sourceImagePath))
             using (var g = Graphics.FromImage(bmp))

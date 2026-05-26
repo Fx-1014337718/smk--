@@ -46,6 +46,10 @@ namespace 码料机
             this.toolStripLabelJinwo = new System.Windows.Forms.ToolStripLabel();
             this.toolStripSeparatorNinePoint = new System.Windows.Forms.ToolStripSeparator();
             this.toolStripLabelNinePoint = new System.Windows.Forms.ToolStripLabel();
+            this.toolStripSeparatorAlgoTest = new System.Windows.Forms.ToolStripSeparator();
+            this.toolStripLabelAlgoTest = new System.Windows.Forms.ToolStripLabel();
+            this.toolStripSeparatorManualPlace = new System.Windows.Forms.ToolStripSeparator();
+            this.toolStripLabelManualPlace = new System.Windows.Forms.ToolStripLabel();
             this.statusStripBottom = new System.Windows.Forms.StatusStrip();
             this.toolStripLabel4 = new System.Windows.Forms.ToolStripLabel();
             this.toolStripSeparator4 = new System.Windows.Forms.ToolStripSeparator();
@@ -62,6 +66,8 @@ namespace 码料机
             this.toolStripSeparator6 = new System.Windows.Forms.ToolStripSeparator();
             this.toolStripLabel9 = new System.Windows.Forms.ToolStripLabel();
             this.toolStripLabel10 = new System.Windows.Forms.ToolStripLabel();
+            this.toolStripSeparatorBuzzerMute = new System.Windows.Forms.ToolStripSeparator();
+            this.toolStripLabelBuzzerMute = new System.Windows.Forms.ToolStripLabel();
             this.toolStripSeparator7 = new System.Windows.Forms.ToolStripSeparator();
             this.toolStripSeparator8 = new System.Windows.Forms.ToolStripSeparator();
             this.toolStripLabel12 = new System.Windows.Forms.ToolStripLabel();
@@ -214,7 +220,11 @@ namespace 码料机
             this.toolStripSeparatorJinwo,
             this.toolStripLabelJinwo,
             this.toolStripSeparatorNinePoint,
-            this.toolStripLabelNinePoint});
+            this.toolStripLabelNinePoint,
+            this.toolStripSeparatorAlgoTest,
+            this.toolStripLabelAlgoTest,
+            this.toolStripSeparatorManualPlace,
+            this.toolStripLabelManualPlace});
             this.toolStrip1.Location = new System.Drawing.Point(0, 0);
             this.toolStrip1.Name = "toolStrip1";
             this.toolStrip1.Padding = new System.Windows.Forms.Padding(6, 4, 6, 4);
@@ -318,6 +328,32 @@ namespace 码料机
             this.toolStripLabelNinePoint.Size = new System.Drawing.Size(106, 24);
             this.toolStripLabelNinePoint.Text = "九点标定工具";
             this.toolStripLabelNinePoint.Click += new System.EventHandler(this.toolStripLabelNinePoint_Click);
+            // 
+            // toolStripSeparatorAlgoTest
+            // 
+            this.toolStripSeparatorAlgoTest.Name = "toolStripSeparatorAlgoTest";
+            this.toolStripSeparatorAlgoTest.Size = new System.Drawing.Size(6, 29);
+            // 
+            // toolStripLabelAlgoTest
+            // 
+            this.toolStripLabelAlgoTest.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelAlgoTest.Name = "toolStripLabelAlgoTest";
+            this.toolStripLabelAlgoTest.Size = new System.Drawing.Size(94, 24);
+            this.toolStripLabelAlgoTest.Text = "算法测试";
+            this.toolStripLabelAlgoTest.Click += new System.EventHandler(this.toolStripLabelAlgoTest_Click);
+            // 
+            // toolStripSeparatorManualPlace
+            // 
+            this.toolStripSeparatorManualPlace.Name = "toolStripSeparatorManualPlace";
+            this.toolStripSeparatorManualPlace.Size = new System.Drawing.Size(6, 29);
+            // 
+            // toolStripLabelManualPlace
+            // 
+            this.toolStripLabelManualPlace.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelManualPlace.Name = "toolStripLabelManualPlace";
+            this.toolStripLabelManualPlace.Size = new System.Drawing.Size(130, 24);
+            this.toolStripLabelManualPlace.Text = "手动指定放料";
+            this.toolStripLabelManualPlace.Click += new System.EventHandler(this.toolStripLabelManualPlace_Click);
             // --- 底部状态栏 statusStripBottom：.Location.Y 与窗体 .ClientSize 决定中间内容区高度；.Padding 为栏内左右留白 ---
             // 
             // statusStripBottom
@@ -341,6 +377,8 @@ namespace 码料机
             this.toolStripSeparator6,
             this.toolStripLabel9,
             this.toolStripLabel10,
+            this.toolStripSeparatorBuzzerMute,
+            this.toolStripLabelBuzzerMute,
             this.toolStripSeparator7,
             this.toolStripSeparator8,
             this.toolStripLabel12,
@@ -455,6 +493,21 @@ namespace 码料机
             this.toolStripLabel10.Name = "toolStripLabel10";
             this.toolStripLabel10.Size = new System.Drawing.Size(66, 25);
             this.toolStripLabel10.Text = "未连接";
+            // 
+            // toolStripSeparatorBuzzerMute
+            // 
+            this.toolStripSeparatorBuzzerMute.Name = "toolStripSeparatorBuzzerMute";
+            this.toolStripSeparatorBuzzerMute.Size = new System.Drawing.Size(6, 28);
+            // 
+            // toolStripLabelBuzzerMute
+            // 
+            this.toolStripLabelBuzzerMute.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Underline);
+            this.toolStripLabelBuzzerMute.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(64)))), ((int)(((byte)(175)))));
+            this.toolStripLabelBuzzerMute.Name = "toolStripLabelBuzzerMute";
+            this.toolStripLabelBuzzerMute.Size = new System.Drawing.Size(82, 25);
+            this.toolStripLabelBuzzerMute.Text = "蜂鸣消音";
+            this.toolStripLabelBuzzerMute.ToolTipText = "切换 PC_位功能地址 D4002（INT，读取当前值后 0/1 取反写入并保持，常用于蜂鸣消音）";
+            this.toolStripLabelBuzzerMute.Click += new System.EventHandler(this.toolStripLabelBuzzerMute_Click);
             // 
             // toolStripSeparator7
             // 
@@ -1098,7 +1151,8 @@ namespace 码料机
             this.textBoxRightPlaceQty.Name = "textBoxRightPlaceQty";
             this.textBoxRightPlaceQty.Size = new System.Drawing.Size(50, 34);
             this.textBoxRightPlaceQty.TabIndex = 17;
-            this.textBoxRightPlaceQty.Text = "1";
+            this.textBoxRightPlaceQty.ReadOnly = true;
+            this.textBoxRightPlaceQty.Text = "2";
             // 
             // labelRightPlaceQty
             // 
@@ -1117,7 +1171,8 @@ namespace 码料机
             this.textBoxRightPickQty.Name = "textBoxRightPickQty";
             this.textBoxRightPickQty.Size = new System.Drawing.Size(50, 34);
             this.textBoxRightPickQty.TabIndex = 15;
-            this.textBoxRightPickQty.Text = "1";
+            this.textBoxRightPickQty.ReadOnly = true;
+            this.textBoxRightPickQty.Text = "2";
             // 
             // labelRightPickQty
             // 
@@ -1240,7 +1295,8 @@ namespace 码料机
             this.textBoxLeftPlaceQty.Name = "textBoxLeftPlaceQty";
             this.textBoxLeftPlaceQty.Size = new System.Drawing.Size(50, 34);
             this.textBoxLeftPlaceQty.TabIndex = 8;
-            this.textBoxLeftPlaceQty.Text = "1";
+            this.textBoxLeftPlaceQty.ReadOnly = true;
+            this.textBoxLeftPlaceQty.Text = "2";
             // 
             // labelLeftPlaceQty
             // 
@@ -1259,7 +1315,8 @@ namespace 码料机
             this.textBoxLeftPickQty.Name = "textBoxLeftPickQty";
             this.textBoxLeftPickQty.Size = new System.Drawing.Size(50, 34);
             this.textBoxLeftPickQty.TabIndex = 6;
-            this.textBoxLeftPickQty.Text = "1";
+            this.textBoxLeftPickQty.ReadOnly = true;
+            this.textBoxLeftPickQty.Text = "2";
             // 
             // labelLeftPickQty
             // 
@@ -1517,6 +1574,8 @@ namespace 码料机
         private System.Windows.Forms.ToolStripSeparator toolStripSeparator6;
         private System.Windows.Forms.ToolStripLabel toolStripLabel9;
         private System.Windows.Forms.ToolStripLabel toolStripLabel10;
+        private System.Windows.Forms.ToolStripSeparator toolStripSeparatorBuzzerMute;
+        private System.Windows.Forms.ToolStripLabel toolStripLabelBuzzerMute;
         private System.Windows.Forms.ToolStripLabel toolStripLabel11;
         private System.Windows.Forms.ToolStripLabel toolStripLabel15;
         private System.Windows.Forms.ToolStripLabel toolStripLabel16;
@@ -1558,6 +1617,10 @@ namespace 码料机
         private System.Windows.Forms.ToolStripLabel toolStripLabelJinwo;
         private System.Windows.Forms.ToolStripSeparator toolStripSeparatorNinePoint;
         private System.Windows.Forms.ToolStripLabel toolStripLabelNinePoint;
+        private System.Windows.Forms.ToolStripSeparator toolStripSeparatorAlgoTest;
+        private System.Windows.Forms.ToolStripLabel toolStripLabelAlgoTest;
+        private System.Windows.Forms.ToolStripSeparator toolStripSeparatorManualPlace;
+        private System.Windows.Forms.ToolStripLabel toolStripLabelManualPlace;
         private System.Windows.Forms.ComboBox comboBox3;
         private System.Windows.Forms.Button button3;
         private System.Windows.Forms.ToolStripSeparator toolStripSeparator9;
