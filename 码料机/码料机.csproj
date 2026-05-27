@@ -176,8 +176,12 @@
     <Compile Include="ManualPlaceSelectForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="PlacementSlotCanvas.cs" />
-    <Compile Include="PlacementGridSchematic.cs" />
+    <Compile Include="PlacementSlotCanvas.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="PlacementGridSchematic.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="类\CameraUndistortion.cs" />
     <Compile Include="NinePointCalibForm.cs">
       <SubType>Form</SubType>

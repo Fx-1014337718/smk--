@@ -133,9 +133,7 @@ namespace 码料机
             {
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Vertical,
-                SplitterWidth = 10,
-                Panel1MinSize = 200,
-                Panel2MinSize = 280
+                SplitterWidth = 10
             };
 
             ui.Canvas = new PlacementSlotCanvas { Dock = DockStyle.Fill };
@@ -154,7 +152,8 @@ namespace 码料机
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 5,
-                Padding = new Padding(10, 0, 0, 0)
+                Padding = new Padding(10, 0, 0, 0),
+                AutoScroll = true
             };
             side.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             side.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -165,28 +164,25 @@ namespace 码料机
             var lblHelp = new Label
             {
                 Text = "操作：\r\n• 先选「层数」再看图上圆点\r\n• 单击选中，双击设为下次放料\r\n• 绿=待下发 橙=已下发 灰=已放入",
-                AutoSize = false,
-                Height = 110,
+                AutoSize = true,
                 Font = FormFont,
                 ForeColor = Color.FromArgb(100, 116, 139),
-                Dock = DockStyle.Top
+                Margin = new Padding(0, 0, 0, 10)
             };
 
             ui.LblPending = new Label
             {
-                AutoSize = false,
-                Height = 52,
-                Dock = DockStyle.Top,
+                AutoSize = true,
                 Font = TitleFont,
-                ForeColor = Color.FromArgb(180, 83, 9)
+                ForeColor = Color.FromArgb(180, 83, 9),
+                Margin = new Padding(0, 0, 0, 10)
             };
 
             var layerRow = new TableLayoutPanel
             {
-                Dock = DockStyle.Top,
                 AutoSize = true,
                 ColumnCount = 2,
-                Margin = new Padding(0, 6, 0, 6)
+                Margin = new Padding(0, 4, 0, 8)
             };
             layerRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             layerRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
@@ -212,11 +208,10 @@ namespace 码料机
 
             ui.LblLayerInfo = new Label
             {
-                AutoSize = false,
-                Height = 32,
-                Dock = DockStyle.Top,
+                AutoSize = true,
                 Font = FormFont,
-                ForeColor = Color.FromArgb(71, 85, 105)
+                ForeColor = Color.FromArgb(71, 85, 105),
+                Margin = new Padding(0, 0, 0, 8)
             };
 
             ui.LblDetail = new Label
@@ -224,8 +219,19 @@ namespace 码料机
                 Dock = DockStyle.Fill,
                 Font = DetailFont,
                 ForeColor = Color.FromArgb(51, 65, 85),
-                Text = "未选择放料位"
+                Text = "未选择放料位",
+                AutoEllipsis = false
             };
+
+            void SyncSideLabelWrapWidth()
+            {
+                int w = Math.Max(180, side.ClientSize.Width - side.Padding.Horizontal);
+                lblHelp.MaximumSize = new Size(w, 0);
+                ui.LblPending.MaximumSize = new Size(w, 0);
+                ui.LblLayerInfo.MaximumSize = new Size(w, 0);
+            }
+            side.Resize += (_, __) => SyncSideLabelWrapWidth();
+            SyncSideLabelWrapWidth();
 
             side.Controls.Add(lblHelp, 0, 0);
             side.Controls.Add(ui.LblPending, 0, 1);
@@ -330,14 +336,35 @@ namespace 码料机
             };
         }
 
+        /// <summary>窗体完成布局后设置分割比例（预览区约 78%）。须在控件已有 Width 后调用。</summary>
         private void ApplySplitRatio()
         {
+            const int desiredP1Min = 200;
+            const int desiredP2Min = 320;
+
             foreach (var ui in new[] { _leftUi, _rightUi })
             {
                 var split = ui.VisualHost?.Parent as SplitContainer;
-                if (split == null || split.Width < 200) continue;
-                int dist = (int)((split.Width - split.SplitterWidth) * 0.78);
-                try { split.SplitterDistance = Math.Max(split.Panel1MinSize, dist); } catch { }
+                if (split == null || split.IsDisposed) continue;
+
+                int w = split.Width;
+                if (w < 200) continue;
+
+                int total = w - split.SplitterWidth;
+                if (total < desiredP1Min + desiredP2Min + 20) continue;
+
+                int p2Min = Math.Min(desiredP2Min, Math.Max(80, total / 4));
+                int p1Min = Math.Min(desiredP1Min, Math.Max(80, total - p2Min - 20));
+                split.Panel2MinSize = p2Min;
+                split.Panel1MinSize = p1Min;
+
+                int maxDist = total - split.Panel2MinSize;
+                if (maxDist < split.Panel1MinSize) continue;
+
+                int dist = (int)(total * 0.72);
+                dist = Math.Max(split.Panel1MinSize, Math.Min(dist, maxDist));
+                try { split.SplitterDistance = dist; }
+                catch (InvalidOperationException) { }
             }
         }
 
