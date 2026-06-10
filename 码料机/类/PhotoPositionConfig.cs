@@ -32,6 +32,9 @@ namespace 码料机
         public double PlacePhotoZ { get; set; }
         public double PlacePhotoRz { get; set; }
 
+        /// <summary>放料中心点 RZ（°）；X/Y/Z 由算法规划自动计算，下发目标位前写入 D4248/D4256 等。</summary>
+        public double PlaceCenterRz { get; set; }
+
         public static string SectionName(bool isLeft) => isLeft ? SectionLeft : SectionRight;
 
         public static PhotoPositionConfig Load(bool isLeft, string iniPath = null)
@@ -67,6 +70,7 @@ namespace 码料机
             PlacePhotoY = IniAPI.GetPrivateProfileDouble(section, "放料拍照Y", 0, path),
             PlacePhotoZ = IniAPI.GetPrivateProfileDouble(section, "放料拍照Z", 0, path),
             PlacePhotoRz = IniAPI.GetPrivateProfileDouble(section, "放料拍照RZ", 0, path),
+            PlaceCenterRz = IniAPI.GetPrivateProfileDouble(section, "放料中心点RZ", 0, path),
         };
 
         private static double ReadCoord(string section, string path, string key, string legacyKey)
@@ -93,7 +97,8 @@ namespace 码料机
                 & IniAPI.INIWriteValue(path, section, "放料拍照X", PlacePhotoX.ToString())
                 & IniAPI.INIWriteValue(path, section, "放料拍照Y", PlacePhotoY.ToString())
                 & IniAPI.INIWriteValue(path, section, "放料拍照Z", PlacePhotoZ.ToString())
-                & IniAPI.INIWriteValue(path, section, "放料拍照RZ", PlacePhotoRz.ToString());
+                & IniAPI.INIWriteValue(path, section, "放料拍照RZ", PlacePhotoRz.ToString())
+                & IniAPI.INIWriteValue(path, section, "放料中心点RZ", PlaceCenterRz.ToString());
         }
 
         public static bool SaveBoth(PhotoPositionConfig left, PhotoPositionConfig right, string iniPath = null)

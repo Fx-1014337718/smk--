@@ -50,6 +50,8 @@ namespace 码料机
             this.toolStripLabelAlgoTest = new System.Windows.Forms.ToolStripLabel();
             this.toolStripSeparatorManualPlace = new System.Windows.Forms.ToolStripSeparator();
             this.toolStripLabelManualPlace = new System.Windows.Forms.ToolStripLabel();
+            this.toolStripSeparatorStartPiece = new System.Windows.Forms.ToolStripSeparator();
+            this.toolStripLabelStartPiece = new System.Windows.Forms.ToolStripLabel();
             this.statusStripBottom = new System.Windows.Forms.StatusStrip();
             this.toolStripLabel4 = new System.Windows.Forms.ToolStripLabel();
             this.toolStripSeparator4 = new System.Windows.Forms.ToolStripSeparator();
@@ -208,7 +210,9 @@ namespace 码料机
             this.toolStripSeparatorAlgoTest,
             this.toolStripLabelAlgoTest,
             this.toolStripSeparatorManualPlace,
-            this.toolStripLabelManualPlace});
+            this.toolStripLabelManualPlace,
+            this.toolStripSeparatorStartPiece,
+            this.toolStripLabelStartPiece});
             this.toolStrip1.Location = new System.Drawing.Point(0, 0);
             this.toolStrip1.Name = "toolStrip1";
             this.toolStrip1.Padding = new System.Windows.Forms.Padding(6, 4, 6, 4);
@@ -340,6 +344,20 @@ namespace 码料机
             this.toolStripLabelManualPlace.Size = new System.Drawing.Size(118, 24);
             this.toolStripLabelManualPlace.Text = "手动指定放料";
             this.toolStripLabelManualPlace.Click += new System.EventHandler(this.toolStripLabelManualPlace_Click);
+            // 
+            // toolStripSeparatorStartPiece
+            // 
+            this.toolStripSeparatorStartPiece.Name = "toolStripSeparatorStartPiece";
+            this.toolStripSeparatorStartPiece.Size = new System.Drawing.Size(6, 29);
+            // 
+            // toolStripLabelStartPiece
+            // 
+            this.toolStripLabelStartPiece.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelStartPiece.Name = "toolStripLabelStartPiece";
+            this.toolStripLabelStartPiece.Size = new System.Drawing.Size(118, 24);
+            this.toolStripLabelStartPiece.Text = "指定开始件";
+            this.toolStripLabelStartPiece.ToolTipText = "空箱离线规划+指定起始件；首次放料请求现场拍照算位，之后与正常流程相同";
+            this.toolStripLabelStartPiece.Click += new System.EventHandler(this.toolStripLabelStartPiece_Click);
             // 
             // statusStripBottom
             // 
@@ -1619,6 +1637,8 @@ namespace 码料机
         private System.Windows.Forms.ToolStripLabel toolStripLabelAlgoTest;
         private System.Windows.Forms.ToolStripSeparator toolStripSeparatorManualPlace;
         private System.Windows.Forms.ToolStripLabel toolStripLabelManualPlace;
+        private System.Windows.Forms.ToolStripSeparator toolStripSeparatorStartPiece;
+        private System.Windows.Forms.ToolStripLabel toolStripLabelStartPiece;
         private System.Windows.Forms.ComboBox comboBox3;
         private System.Windows.Forms.Button button3;
         private System.Windows.Forms.ToolStripSeparator toolStripSeparator9;

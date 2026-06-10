@@ -59,6 +59,8 @@ namespace 码料机
             public List<PointF> FramePositions; // 木框模式：每槽圆心箱内局部坐标列表
             /// <summary>当前箱放料视觉是否已完成：false=下次放料请求需拍照识箱；true=仅下发下一放料目标。换箱/确认参数时清零。</summary>
             public bool PlcPlaceBoxVisionDone;
+            /// <summary>指定开始件：空箱已离线规划，待首次放料请求至拍照位现场采图并按已放件数对齐坐标。</summary>
+            public bool StartPieceAwaitingLivePlacePhoto;
             /// <summary>已向 PLC 发满料=1，等待人工换箱后 PLC 将该位清 0；清 0 后下次放料请求重新拍照。</summary>
             public bool PlcAwaitingBoxChangeAfterFull;
             /// <summary>金沃 DLL 托盘配置（由工位箱体/产品与 金沃算法.ini 托盘节合成；确认参数或自动恢复后有效）。</summary>
@@ -96,7 +98,7 @@ namespace 码料机
                 var p = GetNextPosition();
                 if (p.IsEmpty) return default;
                 float lx = p.X + PlaceOffsetLocalX, ly = p.Y + PlaceOffsetLocalY;
-                float z = Layout == LayoutType.Frame ? 0f : (float)(Layer * SingleProductHeight);
+                float z = Layout == LayoutType.Frame ? 0f : (float)ZStackPlacement.ComputePlaceZForHorizontalLayer(0, Layer, MaxLayers, SingleProductHeight);
                 StackingPlacement.LocalBoxToWorld(VisionBoxPose, lx, ly, out float wx, out float wy, out float ang);
                 return NextPlacement.Create(lx, ly, z, wx, wy, ang);
             }
@@ -525,6 +527,80 @@ namespace 码料机
             ApplyWorkerAssistAction(st, WorkerAssistAction.ReplannEmptyBox, 0);
             UpdateStationUI();
             RefreshMachineStateUi();
+        }
+
+        private async void toolStripLabelStartPiece_Click(object sender, EventArgs e)
+        {
+            StationData st = currentStation ?? leftStation;
+            if (st == null) return;
+            bool isLeft = IsLeftStation(st);
+            if (st.ManualSlotSelectEnabled)
+            {
+                DialogPrompts.ShowWarning("手动指定放料模式请使用「手动指定放料」界面。", "指定开始件");
+                return;
+            }
+            if (ShouldUseConfiguredPlace(st, isLeft))
+            {
+                DialogPrompts.ShowWarning("设定放料位模式不支持指定开始件。", "指定开始件");
+                return;
+            }
+            if (st.MaxCols < 1 || st.MaxRows < 1 || st.MaxLayers < 1)
+            {
+                DialogPrompts.ShowWarning("请先「确定产品与数量」。", "指定开始件");
+                return;
+            }
+
+            int placed = GetPlacedCount(st);
+            int cap = GetBoxPlanTotal(st);
+            int suggest = Math.Min(cap, Math.Max(1, placed + 1));
+            if (!StartPlaceFromPieceDialog.TryGetStartPiece(this, st.Name, cap, placed, suggest,
+                    out int startPiece, out string imagePath))
+                return;
+
+            if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+            {
+                DialogPrompts.ShowWarning("请先海康采图、选择或浏览空箱图像。", "指定开始件");
+                return;
+            }
+
+            int skip = startPiece - 1;
+            if (skip > placed)
+            {
+                if (MessageBox.Show(
+                        $"{st.Name}：将先空箱拍照规划，再把已确认件数设为 {skip}，下一发第 {startPiece} 件。\n\n" +
+                        "请确认箱内前 " + skip + " 个位置已有料；图像须为空箱（算法仅支持空箱图规划）。",
+                        "确认指定开始件",
+                        MessageBoxButtons.OKCancel,
+                        MessageBoxIcon.Warning) != DialogResult.OK)
+                    return;
+            }
+
+            Enabled = false;
+            try
+            {
+                string planErr = null;
+                bool planned = await Task.Run(() =>
+                    TryBuildStartPiecePlanFromImage(isLeft, imagePath, out planErr)).ConfigureAwait(true);
+                if (!planned)
+                {
+                    DialogPrompts.ShowWarning(planErr ?? "空箱拍照规划失败", "指定开始件");
+                    return;
+                }
+
+                cap = GetBoxPlanTotal(st);
+                if (startPiece > cap)
+                {
+                    DialogPrompts.ShowWarning($"规划表共 {cap} 件，不能从第 {startPiece} 件开始。", "指定开始件");
+                    return;
+                }
+
+                if (!TrySetSequentialStartPiece(st, isLeft, startPiece, out string err))
+                    DialogPrompts.ShowWarning(err ?? "无法设定", "指定开始件");
+            }
+            finally
+            {
+                Enabled = true;
+            }
         }
 
         #region 图像预览
@@ -1137,6 +1213,7 @@ namespace 码料机
             X(() => (timer as IDisposable)?.Dispose());
             StopPlcHandshakeTimer();
             TryPcRun(0);
+
             X(() => { try { _plcSession?.Dispose(); } catch { } _plcSession = null; });
             DisposeOfflinePreviewImage();
             X(() => _jinwo.Dispose());
@@ -1378,6 +1455,9 @@ namespace 码料机
                 string suffix = currentStation.IsFull
                     ? " | 等待换箱"
                     : (currentStation.LastIssuedPlanIndex >= 0 ? " | 待确认上一件" : "");
+                if (!currentStation.IsFull && currentStation.LastIssuedPlanIndex < 0
+                    && !currentStation.ManualSlotSelectEnabled)
+                    suffix += $" | 下一发第{n + 1}件";
                 if (_runtimeOp.HasManualPlaceMode || _runtimeOp.HasManualSlotSelectMode)
                     suffix += " | " + DescribeManualPlaceMode();
                 if (currentStation.ManualSlotSelectEnabled && currentStation.ManualPendingSlotIndex >= 0)
@@ -2289,7 +2369,9 @@ namespace 码料机
         }
 
         private bool ShouldSkipVisionIntroForStation(StationData st) =>
-            st != null && _runtimeOp.UseConfiguredPlace(IsLeftStation(st));
+            st != null && (_runtimeOp.UseConfiguredPlace(IsLeftStation(st))
+                || (st.PlcPlaceBoxVisionDone && !st.StartPieceAwaitingLivePlacePhoto
+                    && st.BoxPlan?.IsValid == true && GetPlacedCount(st) > 0));
 
         private string DescribeManualPlaceMode()
         {

@@ -71,9 +71,9 @@ namespace 码料机
     /// 汇川握手 D 表（Modbus 保持寄存器，地址 = D − 基址；INT/REAL 各占连续 2 字）：
     /// D4000 上位机启动、D4001 心跳、D4002 位功能(INT)；D4003.0~5 换框 BOOL；
     /// D4010/D4012 A/B 满料标志；D4014/D4016 A/B 换料标志(预留)；
-    /// D4018/4020 取料请求、D4022/4024 放料请求拍照（PLC 脉冲 1，上位机应答后写 0）；
+    /// D4018/4020 取料请求（读到 1 处理，写取料个数后清 0）、D4022/4024 放料请求（0→1 上升沿，应答后写 0）；
     /// D4026~4032 取/放料个数；
-    /// D4200~D4246 取料/放料拍照/放料目标坐标（各工位 X/Y/Z/RZ 共 4×REAL）。
+    /// D4200~D4262 取料/放料拍照/放料目标/工位中心点坐标（各工位 X/Y/Z/RZ 共 4×REAL）。
     /// </summary>
     public sealed class PlcHandshakeSettings
     {
@@ -91,6 +91,7 @@ namespace 码料机
         /// <summary>D4003：A/B 换框按钮、换框完成、允许取框指示（位 0～5）。</summary>
         public int D_PC换框操作 = 4003;
         public int D_A取料坐标X = 4200, D_B取料坐标X = 4208, D_A放料拍照位X = 4216, D_B放料拍照位X = 4224, D_A放料目标坐标X = 4232, D_B放料目标坐标X = 4240;
+        public int D_A工位中心点X = 4248, D_B工位中心点X = 4256;
         /// <summary>D 报警字（如 D0），位 0～10 为 PLC→PC 报警，位 11 为上位机写「有料」。</summary>
         public int D_PLC报警字 = 0;
         public int D_PC有料信号位 = 11;
@@ -151,6 +152,8 @@ namespace 码料机
             d("D_B放料拍照位X", ref h.D_B放料拍照位X);
             d("D_A放料目标坐标X", ref h.D_A放料目标坐标X);
             d("D_B放料目标坐标X", ref h.D_B放料目标坐标X);
+            d("D_A工位中心点X", ref h.D_A工位中心点X);
+            d("D_B工位中心点X", ref h.D_B工位中心点X);
             h.左放料拍照_基准X = (float)Dbl(z, "左_基准X", h.左放料拍照_基准X, ini);
             h.左放料拍照_基准Y = (float)Dbl(z, "左_基准Y", h.左放料拍照_基准Y, ini);
             h.左放料拍照_基准Z = (float)Dbl(z, "左_基准Z", h.左放料拍照_基准Z, ini);

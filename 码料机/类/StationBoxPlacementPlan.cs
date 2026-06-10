@@ -23,8 +23,24 @@ namespace 码料机
         public string ImagePath;
         public DateTime CreatedLocalTime;
         public int Capacity;
+        /// <summary>本箱全部规划位的几何中心（世界坐标 mm），用于放料前先移至工位中心点。</summary>
+        public float CenterWorldX, CenterWorldY;
 
         public bool IsValid => Slots != null && Slots.Count > 0;
+
+        public static void ComputeCenterFromSlots(IList<BoxPlanSlot> slots, out float cx, out float cy)
+        {
+            cx = cy = 0f;
+            if (slots == null || slots.Count < 1) return;
+            double sumX = 0, sumY = 0;
+            foreach (var s in slots)
+            {
+                sumX += s.WorldX;
+                sumY += s.WorldY;
+            }
+            cx = (float)(sumX / slots.Count);
+            cy = (float)(sumY / slots.Count);
+        }
 
         public bool TryGetSlot(int index, out BoxPlanSlot slot)
         {

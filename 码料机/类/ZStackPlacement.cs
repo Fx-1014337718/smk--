@@ -48,6 +48,23 @@ namespace 码料机
         public static double ComputePlaceZ(double baseZ, int stackHeight, double productHeight)
             => baseZ + Math.Max(0, stackHeight) * productHeight;
 
+        /// <summary>
+        /// 按平面层（Layer）计算放料 Z：每向上一层，累加该层所在竖直档的取/放个数 × 层高（取2放2 则每层 +2×层高）。
+        /// </summary>
+        public static double ComputePlaceZForHorizontalLayer(double baseZ, int horizontalLayer, int maxLayers, double layerPitch)
+        {
+            if (horizontalLayer <= 0) return baseZ;
+            double z = baseZ;
+            for (int l = 0; l < horizontalLayer; l++)
+            {
+                int pitchLayers = maxLayers > 0
+                    ? Math.Max(1, GetPickPlaceQty(l, maxLayers))
+                    : DefaultBatchSize;
+                z += pitchLayers * layerPitch;
+            }
+            return z;
+        }
+
         public static int GetStackHeightFromPlacedCount(int placedCount, int maxRows, int maxCols)
         {
             int perLayer = Math.Max(1, maxRows * maxCols);

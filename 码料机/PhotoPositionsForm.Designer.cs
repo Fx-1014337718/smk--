@@ -65,7 +65,7 @@ namespace 码料机
             this.labelHint.Name = "labelHint";
             this.labelHint.Size = new System.Drawing.Size(510, 34);
             this.labelHint.TabIndex = 0;
-            this.labelHint.Text = "左/右机台：取料/放料/放料拍照位置(mm)与 RZ(°)。RZ 留空为 0；未在 ini 中配置时放料/拍照 RZ 沿用 PLC配置.ini 基准。未填 X/Y 可从识别带入。";
+            this.labelHint.Text = "左/右机台：取料/放料/放料拍照位置(mm)与 RZ(°)。放料中心点 X/Y/Z 由算法规划自动计算，仅 RZ 在此手动设定。RZ 留空为 0；未填 X/Y 可从识别带入。";
             // 
             // tabControl
             // 

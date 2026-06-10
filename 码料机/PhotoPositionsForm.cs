@@ -349,6 +349,8 @@ namespace 码料机
 
             private readonly TextBox _placePhotoRz = new TextBox();
 
+            private readonly TextBox _placeCenterRz = new TextBox();
+
 
 
             public event EventHandler Changed;
@@ -373,9 +375,11 @@ namespace 码料机
 
                     ColumnCount = 1,
 
-                    RowCount = 3,
+                    RowCount = 4,
 
                 };
+
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
                 layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -389,11 +393,13 @@ namespace 码料机
 
                 layout.Controls.Add(BuildXyzRzGroup("放料拍照位置", _placePhotoX, _placePhotoY, _placePhotoZ, _placePhotoRz), 0, 2);
 
+                layout.Controls.Add(BuildPlaceCenterRzGroup(_placeCenterRz), 0, 3);
+
                 Controls.Add(layout);
 
 
 
-                foreach (var tb in new[] { _pickX, _pickY, _pickZ, _pickRz, _placeX, _placeY, _placeZ, _placeRz, _placePhotoX, _placePhotoY, _placePhotoZ, _placePhotoRz })
+                foreach (var tb in new[] { _pickX, _pickY, _pickZ, _pickRz, _placeX, _placeY, _placeZ, _placeRz, _placePhotoX, _placePhotoY, _placePhotoZ, _placePhotoRz, _placeCenterRz })
 
                     tb.TextChanged += (_, __) => Changed?.Invoke(this, EventArgs.Empty);
 
@@ -455,6 +461,54 @@ namespace 码料机
 
 
 
+            private static GroupBox BuildPlaceCenterRzGroup(TextBox rz)
+
+            {
+
+                var g = new GroupBox
+
+                {
+
+                    Text = "放料中心点（X/Y/Z 自动计算）",
+
+                    Dock = DockStyle.Top,
+
+                    MinimumSize = new Size(0, 72),
+
+                    Padding = new Padding(10, 6, 10, 10),
+
+                    Font = UiLayoutHelper.Body,
+
+                    Margin = new Padding(0, 0, 0, 8),
+
+                };
+
+                var t = new TableLayoutPanel
+
+                {
+
+                    Dock = DockStyle.Fill,
+
+                    ColumnCount = 2,
+
+                    RowCount = 1,
+
+                };
+
+                t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+                t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
+                AddXyzCell(t, 0, "RZ:", rz);
+
+                g.Controls.Add(t);
+
+                return g;
+
+            }
+
+
+
             private static void AddXyzCell(TableLayoutPanel t, int col, string label, TextBox box)
 
             {
@@ -501,6 +555,8 @@ namespace 码料机
 
                 _placePhotoRz.Text = Format(c.PlacePhotoRz);
 
+                _placeCenterRz.Text = Format(c.PlaceCenterRz);
+
             }
 
 
@@ -535,6 +591,8 @@ namespace 码料机
 
                 if (!TryParseOptional(_placePhotoRz, $"{stationName} 放料拍照位置 RZ", out double photoRz)) return false;
 
+                if (!TryParseOptional(_placeCenterRz, $"{stationName} 放料中心点 RZ", out double centerRz)) return false;
+
                 c.PickX = pickX;
 
                 c.PickY = pickY;
@@ -558,6 +616,8 @@ namespace 码料机
                 c.PlacePhotoZ = photoZ;
 
                 c.PlacePhotoRz = photoRz;
+
+                c.PlaceCenterRz = centerRz;
 
                 return true;
 
