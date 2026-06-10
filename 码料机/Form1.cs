@@ -105,7 +105,11 @@ namespace 码料机
             {
                 if (Layout == LayoutType.Matrix)
                 {
-                    if (++Col >= MaxCols) { Col = 0; if (++Row >= MaxRows) { Row = 0; Layer++; } }
+                    if (JinwoPlacementOrder.PreferColumnMajor(MaxRows, MaxCols))
+                    {
+                        if (++Row >= MaxRows) { Row = 0; if (++Col >= MaxCols) { Col = 0; Layer++; } }
+                    }
+                    else if (++Col >= MaxCols) { Col = 0; if (++Row >= MaxRows) { Row = 0; Layer++; } }
                 }
                 else if (++Col >= MaxCols) IsFull = true;
             }
@@ -1229,10 +1233,10 @@ namespace 码料机
                     return false;
                 }
 
-                if (!_jinwo.TryFinalizeTrayGrid(ref tray, ref effRows, ref effCols, ref capacity,
+                if (!_jinwo.TryQueryTrayGridInfo(ref tray, ref effRows, ref effCols, ref capacity,
                         s.BoxHeight, s.SingleProductHeight, out int maxLayers))
                 {
-                    TEXT("[金沃] " + s.Name + " 托盘层数校正失败，请检查箱体高度与每层Z间距");
+                    TEXT("[金沃] " + s.Name + " 托盘网格查询失败，请检查箱体/产品与金沃算法参数");
                     return false;
                 }
 
@@ -1242,7 +1246,7 @@ namespace 码料机
                 s.MaxCols = effCols;
                 s.MaxLayers = maxLayers;
                 if (logEffectiveGrid)
-                    TEXT($"[金沃] 有效网格 {effRows} 行 x {effCols} 列 x {s.MaxLayers} 层，容量 {capacity}");
+                    TEXT($"[金沃] GetEffectiveGrid 参考 {effRows} 行 x {effCols} 列 x {maxLayers} 层，{JinwoPlacementOrder.DescribeTraversal(effRows, effCols)}（算位以 DLL 内部网格为准）");
                 return true;
             }
             catch (Exception ex)
@@ -1277,9 +1281,10 @@ namespace 码料机
                 return;
             TEXT($"{s.Name}参数加载成功：箱体({s.BoxLength}x{s.BoxWidth}x{s.BoxHeight})，产品外径{s.OuterDiam}，产品高度{s.SingleProductHeight}，摆放{layoutStr}，排料{(s.StackMode == StackMode.Cross ? "交叉" : "平行")}");
             int totalCap = s.MaxCols * s.MaxRows * s.MaxLayers;
+            string traversal = JinwoPlacementOrder.DescribeTraversal(s.MaxRows, s.MaxCols);
             TEXT(s.HasJinwoTrayConfig
-                ? $"最大可放（算法）：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，总计{totalCap}个产品"
-                : $"最大可放：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，总计{totalCap}个产品");
+                ? $"最大可放（算法）：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，{traversal}，总计{totalCap}个产品"
+                : $"最大可放：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，{traversal}，总计{totalCap}个产品");
             TEXT($"竖直取放档：{ZStackPlacement.FormatBatchPattern(s.MaxLayers)}（产品高度共{s.MaxLayers}层，{ZStackPlacement.GetZTierCount(s.MaxLayers)}档取放）");
             s.IsFull = false;
             s.Layer = s.Row = s.Col = 0;

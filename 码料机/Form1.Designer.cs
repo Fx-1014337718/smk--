@@ -265,6 +265,7 @@ namespace 码料机
             // 
             this.toolStripSeparatorZAxis.Name = "toolStripSeparatorZAxis";
             this.toolStripSeparatorZAxis.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparatorZAxis.Visible = false;
             // 
             // toolStripLabelZAxis
             // 
@@ -272,6 +273,7 @@ namespace 码料机
             this.toolStripLabelZAxis.Name = "toolStripLabelZAxis";
             this.toolStripLabelZAxis.Size = new System.Drawing.Size(111, 24);
             this.toolStripLabelZAxis.Text = "Z轴参数设定";
+            this.toolStripLabelZAxis.Visible = false;
             this.toolStripLabelZAxis.Click += new System.EventHandler(this.toolStripLabelZAxis_Click);
             // 
             // toolStripSeparatorPhotoPos

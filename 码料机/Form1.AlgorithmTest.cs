@@ -241,13 +241,9 @@ namespace 码料机
                 }
                 outcome.PreparedImagePath = prepared;
 
-                ResolveJinwoPlaceZAndRz(st, out double baseZ, out double layerPitchZ, out double rz);
-                double productHeight = st.SingleProductHeight > 1e-3
-                    ? st.SingleProductHeight
-                    : layerPitchZ;
                 var cfg = st.JinwoTray;
-                var pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, out string effectPath,
-                    baseZ, rz, productHeight, st.MaxRows, st.MaxCols, forceSaveEffectImage: true);
+                var pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, out string effectPath, forceSaveEffectImage: true);
+                ApplyConfiguredJinwoZAndRz(st, ref pose);
                 outcome.Pose = pose;
                 string dllEffect = ResolveJinwoDllEffectPath(effectPath);
                 outcome.RenderImagePath = AlgorithmTestRenderPaths.Publish(
@@ -303,6 +299,7 @@ namespace 码料机
                 var cfg = st.JinwoTray;
                 var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, 0, out string effectPath, forceSaveEffectImage: true);
                 _jinwo.TryGetEffectiveGrid(ref cfg, out int effRows, out int effCols, out int capacity);
+                JinwoPlacementOrder.SortCenters(centers, effRows > 0 ? effRows : st.MaxRows, effCols > 0 ? effCols : st.MaxCols);
                 outcome.CenterCount = centers?.Length ?? 0;
                 outcome.EffectiveRows = effRows;
                 outcome.EffectiveCols = effCols;
@@ -326,7 +323,7 @@ namespace 码料机
                 {
                     var c = centers[i];
                     sb.AppendLine($"  [{c.Count}] 像素({c.PixelX:F1},{c.PixelY:F1})" +
-                        (c.HasRobot != 0 ? $" 机械({c.RobotX:F2},{c.RobotY:F2})" : ""));
+                        (c.HasRobot != 0 ? $" 机械({c.RobotX:F2},{c.RobotY:F2},{c.RobotZ:F2},Rz={c.RobotRz:F2})" : ""));
                 }
                 if (centers.Length > show)
                     sb.AppendLine($"  … 另有 {centers.Length - show} 个点");

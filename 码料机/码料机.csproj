@@ -147,6 +147,7 @@
     <Compile Include="类\OfflineCaptureHelper.cs" />
     <Compile Include="类\JinwoNative.cs" />
     <Compile Include="类\JinwoAlgorithmConfig.cs" />
+    <Compile Include="类\JinwoPlacementOrder.cs" />
     <Compile Include="类\JinwoPlacementService.cs" />
     <Compile Include="类\PlcAlarmDefinitions.cs" />
     <Compile Include="类\BearingPresenceNative.cs" />
@@ -234,6 +235,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="配置文件\JinwoRobotArm.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="配置文件\opencv_world451.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="配置文件\判断有无轴承.dll">

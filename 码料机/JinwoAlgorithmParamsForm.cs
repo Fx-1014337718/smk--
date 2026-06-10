@@ -290,7 +290,7 @@ namespace 码料机
         {
             var ed = new JinwoParamsEditor();
             ed.Changed += MarkDirty;
-            ed.AddHint("标定与托盘几何参数，单位一般为 mm。启用「输出机械坐标」时黑圆机器人坐标由 yml 提供，可留 0。");
+            ed.AddHint("标定与托盘几何参数，单位一般为 mm。机械坐标由 DLL 自动读取 camera_calib.yml 与 robot_calib.yml 计算，黑圆机器人坐标项可留 0。");
             ed.AddDouble("相机距离", "相机距离 (mm):");
             ed.AddDouble("木箱深度", "木箱深度 (mm):");
             ed.AddDouble("放料平面高度补偿", "放料平面高度补偿 (mm):");

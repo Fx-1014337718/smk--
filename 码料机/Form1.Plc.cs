@@ -99,21 +99,17 @@ namespace 码料机
             {
                 try
                 {
-                    ResolveJinwoPlaceZAndRz(st, out double baseZ, out double layerPitchZ, out double rz);
-                    double productHeight = st.SingleProductHeight > 1e-3
-                        ? st.SingleProductHeight
-                        : layerPitchZ;
                     var cfg = st.JinwoTray;
                     var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, 0, out string effectPath);
                     st.JinwoTray = cfg;
-                    Array.Sort(centers, (a, b) => a.Count.CompareTo(b.Count));
+                    SyncStationGridFromCenters(st, centers);
+                    JinwoPlacementOrder.SortCenters(centers, st.MaxRows, st.MaxCols);
                     int effRows = 0, effCols = 0, capacity = 0;
                     _jinwo.TryGetEffectiveGrid(ref cfg, out effRows, out effCols, out capacity);
                     for (int i = 0; i < centers.Length; i++)
                     {
                         var pose = JinwoNative.ToPoseResult(centers[i], effRows, effCols, capacity);
-                        JinwoPlacementService.ApplyManualPlaceCoordinates(
-                            ref pose, baseZ, productHeight, rz, i, effRows, effCols);
+                        ApplyConfiguredJinwoZAndRz(st, ref pose);
                         slots.Add(new BoxPlanSlot
                         {
                             Index = slots.Count,
@@ -131,7 +127,7 @@ namespace 码料机
                     }
                     SafeInvoke(() =>
                     {
-                        TEXT($"[规划] {st.Name} 空箱一次性规划 {slots.Count} 个放料位（金沃）");
+                        TEXT($"[规划] {st.Name} 空箱一次性规划 {slots.Count} 个放料位（金沃，{JinwoPlacementOrder.DescribeTraversal(st.MaxRows, st.MaxCols)}）");
                         if (!string.IsNullOrEmpty(effectPath))
                             TryDisplayJinwoEffectImage(effectPath, GetJinwoFallbackPreviewPath(imagePath));
                     });
@@ -1971,16 +1967,12 @@ D_PC有料信号位=11
                 return st.ManualCompletedOrder?.Count ?? 0;
             if (st.Layout == LayoutType.Frame)
                 return st.Row * st.MaxCols + st.Col;
-            return st.Layer * st.MaxRows * st.MaxCols + st.Row * st.MaxCols + st.Col;
+            return JinwoPlacementOrder.ToSequenceIndex(st.Layer, st.Row, st.Col, st.MaxRows, st.MaxCols);
         }
 
         private static void SyncStationProgressFromCount(StationData st, int count)
         {
-            int perLayer = Math.Max(1, st.MaxCols * st.MaxRows);
-            st.Layer = count / perLayer;
-            int rem = count % perLayer;
-            st.Row = rem / Math.Max(1, st.MaxCols);
-            st.Col = rem % Math.Max(1, st.MaxCols);
+            JinwoPlacementOrder.FromSequenceIndex(count, st.MaxRows, st.MaxCols, out st.Layer, out st.Row, out st.Col);
         }
 
         private async Task<bool> RunCaptureIfConfiguredAsync(string step)
@@ -2087,6 +2079,15 @@ D_PC有料信号位=11
             rz = ResolveRzDeg(configuredRz, plcRz);
         }
 
+        /// <summary>XY 用 DLL 识箱结果；Z/Rz 用位置设定 → 金沃算法.ini → Z 轴/PLC 默认（含层高叠层）。</summary>
+        private void ApplyConfiguredJinwoZAndRz(StationData st, ref JinwoPoseResult pose)
+        {
+            ResolveJinwoPlaceZAndRz(st, out double baseZ, out double layerPitchZ, out double rz);
+            int layer = Math.Max(0, pose.Layer);
+            pose.Z = baseZ + layer * layerPitchZ;
+            pose.Rz = rz;
+        }
+
         private bool TryJinwoCalculatePose(StationData st, int placedCount, out JinwoPoseResult pose, out string effectPath, out string error)
         {
             pose = CreateEmptyPoseResult();
@@ -2094,22 +2095,23 @@ D_PC有料信号位=11
             error = null;
             try
             {
-                ResolveJinwoPlaceZAndRz(st, out double baseZ, out double layerPitchZ, out double rz);
-                double productHeight = st.SingleProductHeight > 1e-3
-                    ? st.SingleProductHeight
-                    : layerPitchZ;
                 string imagePath = _jinwo.ResolveCaptureImagePath();
                 var cfg = st.JinwoTray;
-                pose = _jinwo.CalculatePose(
-                    ref cfg, imagePath, placedCount, out effectPath,
-                    baseZ, rz, productHeight, st.MaxRows, st.MaxCols);
+                pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, out effectPath);
                 st.JinwoTray = cfg;
+                ApplyConfiguredJinwoZAndRz(st, ref pose);
                 NotifyRecognizedPlacePhotoXY(st, pose.X, pose.Y);
                 st.Layer = Math.Max(0, pose.Layer);
                 st.Row = Math.Max(0, pose.Row);
                 st.Col = Math.Max(0, pose.Col);
                 if (pose.EffectiveRows > 0) st.MaxRows = pose.EffectiveRows;
                 if (pose.EffectiveCols > 0) st.MaxCols = pose.EffectiveCols;
+                if (pose.Capacity > 0 && pose.EffectiveRows > 0 && pose.EffectiveCols > 0)
+                {
+                    int perLayer = pose.EffectiveRows * pose.EffectiveCols;
+                    if (perLayer > 0)
+                        st.MaxLayers = Math.Max(1, (pose.Capacity + perLayer - 1) / perLayer);
+                }
                 return true;
             }
             catch (Exception ex)
@@ -2185,6 +2187,21 @@ D_PC有料信号位=11
                 LogPlan("无下一格（可能已满）");
             else
                 LogPlan($"下一目标 箱内圆心({np.LocalX:F2},{np.LocalY:F2},{np.ZBottom:F2})mm | 世界({np.WorldX:F2},{np.WorldY:F2})mm Rz={np.AngleDeg:F2}°");
+        }
+
+        static void SyncStationGridFromCenters(StationData st, JinwoNative.JinwoBearingCenterResult[] centers)
+        {
+            if (st == null || centers == null || centers.Length == 0) return;
+            int maxRow = 0, maxCol = 0, maxLayer = 0;
+            foreach (var c in centers)
+            {
+                if (c.Row > maxRow) maxRow = c.Row;
+                if (c.Col > maxCol) maxCol = c.Col;
+                if (c.Layer > maxLayer) maxLayer = c.Layer;
+            }
+            st.MaxRows = maxRow + 1;
+            st.MaxCols = maxCol + 1;
+            st.MaxLayers = maxLayer + 1;
         }
 
         #endregion
