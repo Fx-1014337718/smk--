@@ -2177,6 +2177,8 @@ D_PC有料信号位=11
                 var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out string effectPath);
                 st.JinwoTray = cfg;
                 SyncStationGridFromCenters(st, centers);
+                // 现场识箱可能改变 MaxRows/MaxCols，须按已放件数重算 Layer/Row/Col，否则 GetPlacedCount 会回到第 1 件。
+                SyncStationProgressFromCount(st, placedCount);
                 JinwoPlacementOrder.SortCenters(centers, st.MaxRows, st.MaxCols);
                 int effRows = 0, effCols = 0, capacity = 0;
                 _jinwo.TryGetEffectiveGrid(ref cfg, out effRows, out effCols, out capacity);
@@ -2188,9 +2190,11 @@ D_PC有料信号位=11
                 }
 
                 int slotCount = st.BoxPlan.Slots.Count;
-                int updateCount = Math.Min(slotCount, centers.Length);
-                for (int i = 0; i < updateCount; i++)
+                int alignFrom = placedCount;
+                int updateCount = Math.Min(slotCount - alignFrom, centers.Length - alignFrom);
+                for (int k = 0; k < updateCount; k++)
                 {
+                    int i = alignFrom + k;
                     var pose = JinwoNative.ToPoseResult(centers[i], effRows, effCols, capacity);
                     ApplyConfiguredJinwoZAndRz(st, ref pose);
                     var slot = st.BoxPlan.Slots[i];
@@ -2216,12 +2220,13 @@ D_PC有料信号位=11
                 string stationName = st.Name;
                 int logNext = nextPiece;
                 int logPlaced = placedCount;
+                int logAligned = updateCount;
                 float logCx = centerX, logCy = centerY;
                 string logEffect = effectPath;
                 SafeInvoke(() =>
                 {
-                    TEXT($"[指定开始件] {stationName} 现场放料拍照完成：已按已放 {logPlaced} 件对齐 {updateCount} 个规划位，下一发第 {logNext} 件");
-                    TEXT($"[规划] {stationName} 工位中心点 X={logCx:F2} Y={logCy:F2}（{updateCount} 位均值）");
+                    TEXT($"[指定开始件] {stationName} 现场放料拍照完成：已按已放 {logPlaced} 件对齐 {logAligned} 个规划位，下一发第 {logNext} 件");
+                    TEXT($"[规划] {stationName} 工位中心点 X={logCx:F2} Y={logCy:F2}（{slotCount} 位均值）");
                     if (!string.IsNullOrEmpty(logEffect))
                         TryDisplayJinwoEffectImage(logEffect, GetJinwoFallbackPreviewPath(imagePath));
                 });
@@ -2438,11 +2443,16 @@ D_PC有料信号位=11
         {
             try
             {
+                // 指定开始件：后续 TryRealignStartPieceBoxPlanFromLiveImage 会按已放件数对齐；此处若用 0 算位会覆盖已跳过进度。
+                if (st.StartPieceAwaitingLivePlacePhoto)
+                    return;
+
                 string imagePath = _jinwo.ResolveCaptureImagePath();
                 string previewPath = GetJinwoFallbackPreviewPath(imagePath);
                 if (st.HasJinwoTrayConfig)
                 {
-                    if (TryJinwoCalculatePose(st, 0, out JinwoPoseResult pose, out string effectPath, out string poseErr))
+                    int placedCount = GetPlacedCount(st);
+                    if (TryJinwoCalculatePose(st, placedCount, out JinwoPoseResult pose, out string effectPath, out string poseErr))
                     {
                         SafeInvoke(() =>
                         {
