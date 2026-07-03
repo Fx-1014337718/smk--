@@ -37,10 +37,13 @@ namespace 码料机
     {
         private PlcConfig _plcConfig = new PlcConfig(); // 从 PLC配置.ini 加载的运行时配置
         private PlcModbusSession _plcSession; // Modbus TCP 会话（连接后非 null）
-        private Timer _plcHandshakeTimer; // 周期性轮询 PLC 请求字并写坐标
+        private System.Windows.Forms.Timer _plcHandshakeTimer; // 周期性轮询 PLC 请求字并写坐标
         private volatile bool _plcHandshakeBusy; // 防止 Tick 重入
         private readonly object _plcDisconnectLock = new object();
         private bool _plcDisconnectNotified; // 断线后只处理一次，避免日志刷屏
+        private volatile bool _plcReconnectBusy;
+        private DateTime _plcNextReconnectUtc = DateTime.MinValue;
+        private const int PlcReconnectIntervalMsMin = 1000;
         private ushort _plcHeartbeatValue; // D_PC心跳：0/1 交替写入
         private ushort _lastPlcInterruptRequestValue; // PLC 中断请求上次值，用于避免刷屏
         private ushort _lastPlcContinueRequestValue; // PLC 继续请求上次值，用于避免刷屏
@@ -48,6 +51,12 @@ namespace 码料机
         private readonly HashSet<int> _activePlcAlarmBits = new HashSet<int>(); // 当前置位的 PLC 报警位索引
         /// <summary>放料请求拍照 D 地址 → 上次读值，用于 0→非0 上升沿检测（取料请求为电平 1，不在此表判沿）。</summary>
         private readonly Dictionary<int, ushort> _lastPlcPhotoRequestValue = new Dictionary<int, ushort>();
+        private bool _positionLimitAlarmActive;
+        private bool _visionRecognizeFailAlarmActive;
+        private bool _foreignObjectAlarmActive;
+        private bool _hasLastRobotPosSample;
+        private float _lastRobotPosX, _lastRobotPosY, _lastRobotPosZ;
+        private const float RobotMovingDeltaMm = 0.05f;
         /// <summary>取料坐标下发完成后，拍照请求字写回 0 前的延时（ms）。</summary>
         private const int PlcPickAckDelayMs = 10;
         /// <summary>默认每周期取/放料个数（界面固定，不可改）。</summary>
@@ -100,9 +109,13 @@ namespace 码料机
                 try
                 {
                     var cfg = st.JinwoTray;
-                    var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, 0, out string effectPath);
+                    int placedCount = GetPlacedCount(st);
+                    var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out string effectPath);
                     st.JinwoTray = cfg;
+                    int layerFloor = GetTrayLayerCountFloor(st);
                     SyncStationGridFromCenters(st, centers);
+                    ApplyTrayLayerCountFloor(st, layerFloor);
+                    SyncStationProgressFromCount(st, placedCount);
                     JinwoPlacementOrder.SortCenters(centers, st.MaxRows, st.MaxCols);
                     int effRows = 0, effCols = 0, capacity = 0;
                     _jinwo.TryGetEffectiveGrid(ref cfg, out effRows, out effCols, out capacity);
@@ -226,7 +239,9 @@ namespace 码料机
                 int newCount = st.ManualCompletedOrder.Count;
                 SafeInvoke(() =>
                 {
+                    RefreshStationPickPlaceQtyUi(st);
                     UpdateProgressDisplay();
+                    if (currentStation == st) UpdateStationUI();
                     TEXT($"[确认] {st.Name} 规划位第 {slotIndex + 1} 件已计入（已确认 {newCount}/{GetBoxPlanTotal(st)}）");
                     if (st.IsFull) PromptBoxChangeRequired(st);
                 });
@@ -238,7 +253,9 @@ namespace 码料机
             st.RequireWorkerConfirmForLastIssue = false;
             SafeInvoke(() =>
             {
+                RefreshStationPickPlaceQtyUi(st);
                 UpdateProgressDisplay();
+                if (currentStation == st) UpdateStationUI();
                 TEXT($"[确认] {st.Name} 第 {newCountSeq} 件已计入本箱进度（已确认 {newCountSeq}/{GetBoxPlanTotal(st)}）");
                 if (st.IsFull) PromptBoxChangeRequired(st);
             });
@@ -291,6 +308,7 @@ namespace 码料机
                         ? $"[确认] {st.Name} 已回退，已确认 {n} 件（请重新在「手动指定放料」选下一发位）。"
                         : $"[确认] {st.Name} 已回退到第 {n} 件（下一发第 {n + 1} 件）。");
                     UpdateProgressDisplay();
+                    if (currentStation == st) UpdateStationUI();
                     return true;
                 case WorkerAssistAction.ReplannEmptyBox:
                     ClearBoxPlacementState(st);
@@ -299,6 +317,7 @@ namespace 码料机
                     st.PlcAwaitingBoxChangeAfterFull = false;
                     st.ManualPendingSlotIndex = -1;
                     st.Layer = st.Row = st.Col = 0;
+                    st.ConfirmedPlacedCount = 0;
                     st.PickCenterX = st.PickCenterY = 0;
                     st.PlaceOffsetLocalX = st.PlaceOffsetLocalY = 0;
                     UpdateProgressDisplay();
@@ -370,6 +389,8 @@ Port=502
 SlaveId=1
 FloatWordOrder=CDAB
 WriteSpacingMs=20
+AutoReconnectEnabled=1
+ReconnectIntervalMs=3000
 [Handshake]
 HandshakeEnabled=1
 [连接]
@@ -379,6 +400,8 @@ IP=192.168.5.65
 站号=1
 浮点字序=CDAB
 写入间隔毫秒=20
+自动重连启用=1
+重连间隔毫秒=3000
 [寄存器]
 取料圆心X=-1
 取料圆心Y=-1
@@ -432,10 +455,18 @@ D_A放料目标坐标X=4232
 D_B放料目标坐标X=4240
 D_A工位中心点X=4248
 D_B工位中心点X=4256
+D_PC_A工位生产总数=4400
+D_PC_B工位生产总数=4402
+D_PC_A工位料道缓存个数=4410
+D_PC_B工位料道缓存个数=4412
 [PLC报警]
 报警轮询启用=1
 D_PLC报警字=0
 D_PC有料信号位=11
+D_PC位置超限报警位=12
+D_PC算法识别失败报警位=13
+D_机器人当前坐标X=4264
+D_机器人运动中=-1
 [放料拍照位]
 左_基准X=0
 左_基准Y=0
@@ -463,8 +494,16 @@ D_PC有料信号位=11
 
         private void InitPlcSession()
         {
+            _plcNextReconnectUtc = DateTime.MinValue;
+            if (!TryConnectPlcSession(isStartup: true))
+                SchedulePlcAutoReconnect();
+        }
+
+        /// <summary>建立 Modbus 连接并恢复握手；失败时标记断线并安排自动重连。</summary>
+        private bool TryConnectPlcSession(bool isStartup)
+        {
             StopPlcHandshakeTimer();
-            lock (_plcDisconnectLock) { _plcDisconnectNotified = false; }
+            WaitPlcHandshakeIdle();
             EnsurePlcIni(PlcIniPath);
             _plcConfig = PlcConfig.Load(PlcIniPath);
             _plcSession?.Dispose();
@@ -472,50 +511,139 @@ D_PC有料信号位=11
             PlcModbusSession.OnSendLog = msg => SafeInvoke(() => TEXT(msg));
             PlcModbusSession.OnReceiveLog = msg => SafeInvoke(() => TEXT(msg));
             ProcessPipelineLog.OnUiLog = msg => SafeInvoke(() => TEXT(msg));
-            TEXT($"[PLC] 配置: {PlcIniPath}");
-            TEXT("[PLC] 发送日志: 界面列表 + log\\PlcSend.log");
-            TEXT("[PLC] 接收日志: 界面列表 + log\\PlcReceive.log（PLC 寄存器变化 + 请求拍照等）");
-            TEXT("[流水线] 采图处理日志: 界面列表 + log\\ImageProcess.log");
-            TEXT($"[PLC] 启用={_plcConfig.Enabled} 握手={_plcConfig.Handshake.HandshakeEnabled} REAL字序={_plcConfig.FloatWordOrder} → {_plcConfig.Ip}:{_plcConfig.Port} 站{_plcConfig.SlaveId}");
+
+            if (isStartup)
+            {
+                TEXT($"[PLC] 配置: {PlcIniPath}");
+                TEXT("[PLC] 发送日志: 界面列表 + log\\PlcSend.log");
+                TEXT("[PLC] 接收日志: 界面列表 + log\\PlcReceive.log（PLC 寄存器变化 + 请求拍照等）");
+                TEXT("[流水线] 采图处理日志: 界面列表 + log\\ImageProcess.log");
+                TEXT($"[PLC] 启用={_plcConfig.Enabled} 握手={_plcConfig.Handshake.HandshakeEnabled} " +
+                     $"自动重连={_plcConfig.AutoReconnectEnabled} 间隔={_plcConfig.ReconnectIntervalMs}ms " +
+                     $"REAL字序={_plcConfig.FloatWordOrder} → {_plcConfig.Ip}:{_plcConfig.Port} 站{_plcConfig.SlaveId}");
+            }
+
             if (!_plcConfig.Enabled)
             {
                 RefreshPlcUi(false, "已禁用");
-                TEXT("[PLC] 未连接（配置为禁用；请检查 ini 中 Connection/Enabled 或 连接/启用）");
-                return;
+                if (isStartup)
+                    TEXT("[PLC] 未连接（配置为禁用；请检查 ini 中 Connection/Enabled 或 连接/启用）");
+                return false;
             }
+
             try
             {
                 _plcSession.Connect();
+                lock (_plcDisconnectLock) { _plcDisconnectNotified = false; }
+                _plcNextReconnectUtc = DateTime.MinValue;
                 RefreshPlcUi(true, $"{_plcConfig.Ip}:{_plcConfig.Port}");
-                TEXT($"[PLC] 已连接 {_plcConfig.Ip}:{_plcConfig.Port} 站{_plcConfig.SlaveId}");
-                if (_plcConfig.Handshake.HandshakeEnabled)
-                {
-                    _plcHeartbeatValue = 0;
-                    TryPcRun(1);
-                    SyncMachineStateToPlc();
-                    PlcHeartbeatTick();
-                    PushConfiguredPositionsToPlc();
-                    if (Hs.PlcAlarmPollEnabled && IsConfiguredPlcD(Hs.D_PLC报警字))
-                        WritePcForeignObjectAlarmBit(false);
-                    SafeInvoke(() => RefreshPlcAlarmStatusUi(_lastPlcAlarmWord));
-                    RestartPlcHandshakeTimer();
-                }
+                TEXT($"[PLC] 已连接 {_plcConfig.Ip}:{_plcConfig.Port} 站{_plcConfig.SlaveId}" +
+                     (isStartup ? "" : "（自动重连）"));
+                ApplyPlcSessionAfterConnect(isStartup);
+                return true;
             }
             catch (Exception ex)
             {
                 StopPlcHandshakeTimer();
-                RefreshPlcUi(false, "未连接");
-                TEXT("[PLC] 连接失败: " + ex.Message);
+                lock (_plcDisconnectLock) { _plcDisconnectNotified = true; }
+                RefreshPlcUi(false, _plcConfig.AutoReconnectEnabled ? "重连中…" : "未连接");
+                TEXT(isStartup
+                    ? "[PLC] 连接失败: " + ex.Message
+                    : $"[PLC] 自动重连失败: {ex.Message}（{EffectivePlcReconnectIntervalMs()}ms 后重试）");
+                return false;
             }
+        }
+
+        private int EffectivePlcReconnectIntervalMs() =>
+            Math.Max(PlcReconnectIntervalMsMin, _plcConfig?.ReconnectIntervalMs ?? 3000);
+
+        private void ApplyPlcSessionAfterConnect(bool isStartup)
+        {
+            if (_plcConfig.Handshake.HandshakeEnabled)
+            {
+                _plcHeartbeatValue = 0;
+                TryPcRun(1);
+                SyncMachineStateToPlc();
+                PlcHeartbeatTick();
+                PushConfiguredPositionsToPlc();
+                PushTrackBufferCountsToPlc();
+                if (Hs.PlcAlarmPollEnabled && IsConfiguredPlcD(Hs.D_PLC报警字))
+                {
+                    try
+                    {
+                        _lastPlcAlarmWord = _plcSession.ReadUInt16(Hs.Holding(Hs.D_PLC报警字));
+                        SyncPcWrittenAlarmBitsFromPlc(_lastPlcAlarmWord);
+                    }
+                    catch { }
+                }
+                SafeInvoke(() =>
+                {
+                    RefreshPlcAlarmStatusUi(_lastPlcAlarmWord);
+                    RestartPlcHandshakeTimerCore();
+                });
+            }
+            if (!isStartup)
+            {
+                TryAutoClearFaultWhenPlcReconnected();
+                SafeInvoke(() => TEXT("[PLC] 自动重连成功，握手已恢复"));
+            }
+        }
+
+        private void WaitPlcHandshakeIdle(int maxMs = 2000)
+        {
+            for (int elapsed = 0; elapsed < maxMs && _plcHandshakeBusy; elapsed += 50)
+                System.Threading.Thread.Sleep(50);
+        }
+
+        private void SchedulePlcAutoReconnect()
+        {
+            if (_plcConfig == null || !_plcConfig.Enabled || !_plcConfig.AutoReconnectEnabled) return;
+            _plcNextReconnectUtc = DateTime.UtcNow.AddMilliseconds(EffectivePlcReconnectIntervalMs());
+        }
+
+        /// <summary>主界面 timer 每秒调用：断线后按间隔后台尝试重连。</summary>
+        private void PlcTryAutoReconnectTick()
+        {
+            if (_plcConfig == null || !_plcConfig.Enabled || !_plcConfig.AutoReconnectEnabled) return;
+            if (_plcSession?.IsConnected == true) return;
+            if (_plcReconnectBusy) return;
+            if (DateTime.UtcNow < _plcNextReconnectUtc) return;
+
+            _plcReconnectBusy = true;
+            _plcNextReconnectUtc = DateTime.UtcNow.AddMilliseconds(EffectivePlcReconnectIntervalMs());
+            Task.Run(() =>
+            {
+                try { TryConnectPlcSession(isStartup: false); }
+                finally { _plcReconnectBusy = false; }
+            });
+        }
+
+        /// <summary>PLC 通信恢复后，自动清除由通信中断触发的故障。</summary>
+        private void TryAutoClearFaultWhenPlcReconnected()
+        {
+            if (!_machine.IsFault) return;
+            if (!string.Equals(_machine.LastFaultCode, "PLC_DISCONNECT", StringComparison.Ordinal)) return;
+            if (!_machine.TryClearFault()) return;
+            PulsePcRecoverAllowedToPlc();
+            SyncMachineStateToPlc();
+            SafeInvoke(() =>
+            {
+                TEXT("[状态] PLC 已重连，通信故障已自动恢复");
+                RefreshMachineStateUi();
+            });
         }
 
         private void RefreshPlcUi(bool ok, string t)
         {
-            if (toolStripLabel6 == null) return;
-            toolStripLabel6.Text = t;
-            toolStripLabel6.ForeColor = ok ? Color.DarkGreen : (!_plcConfig.Enabled ? Color.DimGray : Color.FromArgb(197, 48, 48));
-            SafeInvoke(RefreshFrameChangeControlsEnabled);
-            SafeInvoke(RefreshBuzzerMuteControlEnabled);
+            SafeInvoke(() =>
+            {
+                if (toolStripLabel6 == null) return;
+                toolStripLabel6.Text = t;
+                toolStripLabel6.ForeColor = ok ? Color.DarkGreen : (!_plcConfig.Enabled ? Color.DimGray : Color.FromArgb(197, 48, 48));
+                RefreshFrameChangeControlsEnabled();
+                RefreshBuzzerMuteControlEnabled();
+                RefreshCountResetControlEnabled();
+            });
         }
 
         private static bool IsPlcCommunicationFailure(Exception ex)
@@ -560,6 +688,13 @@ D_PC有料信号位=11
                 }
                 _activePlcAlarmBits.Clear();
                 _lastPlcAlarmWord = 0;
+                _positionLimitAlarmActive = false;
+                _visionRecognizeFailAlarmActive = false;
+                _foreignObjectAlarmActive = false;
+                _hasLastRobotPosSample = false;
+                _lastPlcAProductionTotal = null;
+                _lastPlcBProductionTotal = null;
+                ApplyProductionTotalToUi(null, null);
 
                 if ((_machine.IsAutoRunning || _machine.IsPaused) && !_machine.IsFault)
                 {
@@ -568,7 +703,10 @@ D_PC有料信号位=11
                 }
 
                 TEXT("[PLC] 连接断开: " + detail);
+                if (_plcConfig.AutoReconnectEnabled)
+                    TEXT($"[PLC] 已启用自动重连，{EffectivePlcReconnectIntervalMs()}ms 后尝试恢复连接…");
             });
+            SchedulePlcAutoReconnect();
         }
 
         private void RefreshBuzzerMuteControlEnabled()
@@ -584,6 +722,53 @@ D_PC有料信号位=11
         private void toolStripLabelBuzzerMute_Click(object sender, EventArgs e)
         {
             TogglePlcBuzzerMute();
+        }
+
+        private void RefreshCountResetControlEnabled()
+        {
+            if (toolStripLabelCountReset == null) return;
+            bool en = _plcConfig.Enabled && _plcSession?.IsConnected == true && IsConfiguredPlcD(Hs.D_PC换框操作);
+            toolStripLabelCountReset.Enabled = en;
+            toolStripLabelCountReset.ForeColor = en
+                ? Color.FromArgb(30, 64, 175)
+                : Color.FromArgb(148, 163, 184);
+        }
+
+        private void toolStripLabelCountReset_Click(object sender, EventArgs e)
+        {
+            WritePlcCountReset();
+        }
+
+        /// <summary>整体计数清零：向 D4003.6 写入 1（单次保持，由 PLC 侧处理）。</summary>
+        private void WritePlcCountReset()
+        {
+            const string name = "计数清零";
+            if (!_plcConfig.Enabled || !IsConfiguredPlcD(Hs.D_PC换框操作))
+            {
+                TEXT("[计数清零] 未配置 D" + Hs.D_PC换框操作);
+                return;
+            }
+            if (_plcSession?.IsConnected != true)
+            {
+                TEXT("[计数清零] PLC 未连接，无法写入 " + name);
+                return;
+            }
+            try
+            {
+                ushort addr = Hs.Holding(Hs.D_PC换框操作);
+                int bitIndex = PlcFrameChangeBits.计数清零;
+                _plcSession.WriteBit(addr, bitIndex, true);
+                TEXT($"[计数清零] 已写入 {name}=1（D{Hs.D_PC换框操作}.{bitIndex}）");
+                if (IsConfiguredPlcD(Hs.D_PC_A工位生产总数))
+                    _plcSession.WriteInt32(Hs.Holding(Hs.D_PC_A工位生产总数), 0);
+                if (IsConfiguredPlcD(Hs.D_PC_B工位生产总数))
+                    _plcSession.WriteInt32(Hs.Holding(Hs.D_PC_B工位生产总数), 0);
+                ClearProductionTotalDisplay();
+            }
+            catch (Exception ex)
+            {
+                TEXT("[计数清零] 写入失败 " + name + ": " + ex.Message);
+            }
         }
 
         /// <summary>位功能（蜂鸣消音等）：读 D4002(INT) 当前值，写入 0/1 取反并保持。</summary>
@@ -716,21 +901,38 @@ D_PC有料信号位=11
             }
         }
 
-        private void StopPlcHandshakeTimer()
+        private void StopPlcHandshakeTimer() => InvokeOnUiThread(StopPlcHandshakeTimerCore);
+
+        private void StopPlcHandshakeTimerCore()
         {
             if (_plcHandshakeTimer == null) return;
             try { _plcHandshakeTimer.Stop(); _plcHandshakeTimer.Tick -= PlcHsTick; _plcHandshakeTimer.Dispose(); } catch { }
             _plcHandshakeTimer = null;
         }
 
-        private void RestartPlcHandshakeTimer()
+        private void RestartPlcHandshakeTimer() => InvokeOnUiThread(RestartPlcHandshakeTimerCore);
+
+        private void RestartPlcHandshakeTimerCore()
         {
-            StopPlcHandshakeTimer();
+            StopPlcHandshakeTimerCore();
             if (!_plcConfig.Enabled || !_plcConfig.Handshake.HandshakeEnabled || _plcSession == null || !_plcSession.IsConnected) return;
             SyncPlcPhotoRequestEdgeState();
-            _plcHandshakeTimer = new Timer { Interval = 150 };
+            _plcHandshakeTimer = new System.Windows.Forms.Timer { Interval = 150 };
             _plcHandshakeTimer.Tick += PlcHsTick;
             _plcHandshakeTimer.Start();
+        }
+
+        /// <summary>WinForms 控件/Timer 须在 UI 线程操作；后台重连等路径同步切回。</summary>
+        private void InvokeOnUiThread(Action action)
+        {
+            if (action == null) return;
+            if (!IsHandleCreated || IsDisposed)
+            {
+                action();
+                return;
+            }
+            if (InvokeRequired) Invoke(action);
+            else action();
         }
 
         /// <summary>连接/重启握手时同步取放料请求上次值，避免重连时误触发上升沿。</summary>
@@ -751,7 +953,7 @@ D_PC有料信号位=11
             }
         }
 
-        /// <summary>指定开始件后：放料请求若 PLC 已保持为 1，将上次沿状态置 0，使下一次轮询能触发上升沿。</summary>
+        /// <summary>放料请求若 PLC 已保持为 1，将上次沿状态置 0，使下一次轮询能触发上升沿。</summary>
         private void ArmPlcPlaceRequestEdgeForStation(bool isLeft)
         {
             int dPlace = isLeft ? Hs.D_PC_A放料请求拍照 : Hs.D_PC_B放料请求拍照;
@@ -759,12 +961,12 @@ D_PC有料信号位=11
             _lastPlcPhotoRequestValue[dPlace] = 0;
         }
 
-        /// <summary>指定开始件完成后：检查握手条件、同步沿状态并立即轮询一次。</summary>
-        private void KickPlcHandshakeAfterStartPiece(StationData st, bool isLeft)
+        /// <summary>握手就绪时重臂放料沿并立即轮询一次（手动选位、指定开始件等场景复用）。</summary>
+        private void KickPlcHandshakeAfterPlaceArm(StationData st, bool isLeft, string readyHint)
         {
             if (_plcSession?.IsConnected != true || !_plcConfig.Enabled || !Hs.HandshakeEnabled)
             {
-                TEXT($"[PLC] {st.Name} 未连接或未启用握手；请连接 PLC 后由现场发取料/放料请求。");
+                TEXT($"[PLC] {st.Name} 未连接或未启用握手；{readyHint}");
                 return;
             }
             if (!_machine.CanProcessPlcHandshake)
@@ -772,7 +974,7 @@ D_PC有料信号位=11
                 string stateHint = _machine.IsFault ? "故障停机"
                     : (_machine.IsPaused ? "现场暂停"
                         : (_machine.IsAutoRunning ? "自动码放中（握手仅在空闲态处理）" : "不可握手"));
-                TEXT($"[PLC] 当前「{stateHint}」，无法响应取放料请求；请保持「空闲」并复位故障/暂停。");
+                TEXT($"[PLC] 当前「{stateHint}」，{readyHint}");
                 if (_machine.IsAutoRunning)
                     TEXT("[PLC] 启用握手时请由 PLC 发 D4018→D4022 驱动，勿与「自动码放」并用。");
                 return;
@@ -781,19 +983,15 @@ D_PC有料信号位=11
             RestartPlcHandshakeTimer();
             ArmPlcPlaceRequestEdgeForStation(isLeft);
 
-            int dPick = isLeft ? Hs.D_PC_A取料请求拍照 : Hs.D_PC_B取料请求拍照;
             int dPlace = isLeft ? Hs.D_PC_A放料请求拍照 : Hs.D_PC_B放料请求拍照;
             try
             {
-                ushort pickVal = _plcSession.ReadUInt16(Hs.Holding(dPick));
                 ushort placeVal = _plcSession.ReadUInt16(Hs.Holding(dPlace));
-                TEXT($"[PLC] {st.Name} 握手轮询中：取料 D{dPick}={pickVal}（=1 处理），放料 D{dPlace}={placeVal}（0→1 或已为 1 将处理）");
-                if (pickVal == 0 && placeVal == 0)
-                    TEXT($"[PLC] 等待 PLC 发取料请求 D{dPick} 或放料请求 D{dPlace}…");
+                TEXT($"[PLC] {st.Name} 放料 D{dPlace}={placeVal}（已为 1 时将立即处理）");
             }
             catch (Exception ex)
             {
-                TEXT("[PLC] 读取请求字失败: " + ex.Message);
+                TEXT("[PLC] 读取放料请求字失败: " + ex.Message);
                 return;
             }
 
@@ -803,11 +1001,35 @@ D_PC有料信号位=11
                 catch (Exception ex)
                 {
                     if (IsPlcCommunicationFailure(ex))
-                        HandlePlcConnectionLost("指定开始件后握手", ex);
+                        HandlePlcConnectionLost("放料握手触发", ex);
                     else
                         SafeInvoke(() => TEXT("[握手] " + ex.Message));
                 }
             });
+        }
+
+        /// <summary>指定开始件完成后：检查握手条件、同步沿状态并立即轮询一次。</summary>
+        private void KickPlcHandshakeAfterStartPiece(StationData st, bool isLeft)
+        {
+            int dPick = isLeft ? Hs.D_PC_A取料请求拍照 : Hs.D_PC_B取料请求拍照;
+            int dPlace = isLeft ? Hs.D_PC_A放料请求拍照 : Hs.D_PC_B放料请求拍照;
+            try
+            {
+                if (_plcSession?.IsConnected == true)
+                {
+                    ushort pickVal = _plcSession.ReadUInt16(Hs.Holding(dPick));
+                    ushort placeVal = _plcSession.ReadUInt16(Hs.Holding(dPlace));
+                    TEXT($"[PLC] {st.Name} 握手轮询中：取料 D{dPick}={pickVal}（=1 处理），放料 D{dPlace}={placeVal}（0→1 或已为 1 将处理）");
+                    if (pickVal == 0 && placeVal == 0)
+                        TEXT($"[PLC] 等待 PLC 发取料请求 D{dPick} 或放料请求 D{dPlace}…");
+                }
+            }
+            catch (Exception ex)
+            {
+                TEXT("[PLC] 读取请求字失败: " + ex.Message);
+            }
+
+            KickPlcHandshakeAfterPlaceArm(st, isLeft, "请连接 PLC 后由现场发取料/放料请求。");
         }
 
         private void PlcHsTick(object s, EventArgs e)
@@ -859,12 +1081,17 @@ D_PC有料信号位=11
             return rising;
         }
 
-        /// <summary>放料请求：指定开始件待现场对齐时 D=1 即处理（与取料相同）；否则 0→1 上升沿。</summary>
+        /// <summary>放料请求：指定开始件/手动选位待下发时 D=1 即处理（与取料相同，便于重试）；否则 0→1 上升沿。</summary>
         private bool TryReadPlcPlaceRequest(StationData st, int d, out ushort value)
         {
             value = _plcSession.ReadUInt16(Hs.Holding(d));
-            if (st != null && st.StartPieceAwaitingLivePlacePhoto && value == 1)
-                return true;
+            if (st != null && value == 1)
+            {
+                if (st.StartPieceAwaitingLivePlacePhoto)
+                    return true;
+                if (ShouldUseManualSlotSelect(st, IsLeftStation(st)) && st.ManualPendingSlotIndex >= 0)
+                    return true;
+            }
             return TryReadPlcRequest(d, out value);
         }
 
@@ -889,7 +1116,7 @@ D_PC有料信号位=11
             PlcWriteXyzRz(dCenter, centerX, centerY, centerZ, centerRz);
             string name = st?.Name ?? (isLeft ? "左" : "右");
             float logX = centerX, logY = centerY, logZ = centerZ, logRz = centerRz;
-            SafeInvoke(() => TEXT($"[PLC] {name} 工位中心点 X={logX:F2} Y={logY:F2} Z={logZ:F2}（本批放完Z+夹爪{gripQty}层+1层裕量） RZ={logRz:F2}° → D{dCenter}"));
+            SafeInvoke(() => TEXT($"[PLC] {name} 工位中心点 X={logX:F2} Y={logY:F2} Z={logZ:F2}（本批放完Z+夹爪{gripQty}件×单件高+半层裕量） RZ={logRz:F2}° → D{dCenter}"));
         }
 
         private void TryResolvePlaceCenterXY(StationData st, bool isLeft, float targetWx, float targetWy, out float cx, out float cy)
@@ -969,13 +1196,15 @@ D_PC有料信号位=11
             return true;
         }
 
-        /// <summary>轮询：A/B 取料请求（读到 1）→ A/B 放料请求（0→1 上升沿），处理完写 0。</summary>
+        /// <summary>轮询：A/B 取料请求（读到 1，各工位独立识料）→ A/B 放料请求（0→1 上升沿），处理完写 0。</summary>
         private async Task PlcHsProcessAsync()
         {
             PollPlcAlarmBits("握手轮询");
+            PollRobotPositionLimitAlarm("握手轮询");
             PollPlcFieldInterruptSignals("握手轮询");
             PollPlcFullMaterialCleared();
             PollPlcFrameChangeBits();
+            PollPlcProductionTotals();
             if (!_machine.CanProcessPlcHandshake) return;
             if (await PlcOnPickRequestAsync(leftStation, true).ConfigureAwait(false)) return; // 左：D4018
             if (await PlcOnPickRequestAsync(rightStation, false).ConfigureAwait(false)) return; // 右：D4020
@@ -1005,10 +1234,51 @@ D_PC有料信号位=11
                 wz = (float)photo.PlaceZ;
             else
             {
-                ResolveJinwoPlaceZAndRz(st, out double baseZ, out _, out _);
+                ResolveJinwoPlaceZAndRz(st, out double baseZ, out _, out _, out _);
                 wz = (float)baseZ;
             }
             return true;
+        }
+
+        private int? _lastPlcAProductionTotal;
+        private int? _lastPlcBProductionTotal;
+
+        private void PollPlcProductionTotals()
+        {
+            if (!_plcConfig.Enabled || !Hs.HandshakeEnabled || _plcSession?.IsConnected != true)
+                return;
+            if (!IsConfiguredPlcD(Hs.D_PC_A工位生产总数) || !IsConfiguredPlcD(Hs.D_PC_B工位生产总数))
+                return;
+            try
+            {
+                int a = _plcSession.ReadInt32(Hs.Holding(Hs.D_PC_A工位生产总数));
+                int b = _plcSession.ReadInt32(Hs.Holding(Hs.D_PC_B工位生产总数));
+                if (_lastPlcAProductionTotal == a && _lastPlcBProductionTotal == b)
+                    return;
+                _lastPlcAProductionTotal = a;
+                _lastPlcBProductionTotal = b;
+                SafeInvoke(() => ApplyProductionTotalToUi(a, b));
+            }
+            catch (Exception ex)
+            {
+                if (IsPlcCommunicationFailure(ex))
+                    HandlePlcConnectionLost("生产总数读取失败", ex);
+            }
+        }
+
+        private void ApplyProductionTotalToUi(int? leftTotal, int? rightTotal)
+        {
+            if (_labelLeftProductionTotal != null)
+                _labelLeftProductionTotal.Text = leftTotal.HasValue ? leftTotal.Value.ToString("N0") : "—";
+            if (_labelRightProductionTotal != null)
+                _labelRightProductionTotal.Text = rightTotal.HasValue ? rightTotal.Value.ToString("N0") : "—";
+        }
+
+        private void ClearProductionTotalDisplay()
+        {
+            _lastPlcAProductionTotal = 0;
+            _lastPlcBProductionTotal = 0;
+            SafeInvoke(() => ApplyProductionTotalToUi(0, 0));
         }
 
         private void PollPlcAlarmBits(string phase)
@@ -1053,7 +1323,9 @@ D_PC有料信号位=11
                 _activePlcAlarmBits.Clear();
                 foreach (int b in nowActive)
                     _activePlcAlarmBits.Add(b);
+                SyncPcWrittenAlarmBitsFromPlc(word);
                 SafeInvoke(() => RefreshPlcAlarmStatusUi(word));
+                TryAutoClearFaultWhenPlcAlarmsClear(word);
             }
             catch (Exception ex)
             {
@@ -1062,6 +1334,33 @@ D_PC有料信号位=11
                 else
                     SafeInvoke(() => TEXT("[PLC报警] 读取失败: " + ex.Message));
             }
+        }
+
+        private static bool HasActivePlcToPcAlarmBits(ushort word)
+        {
+            foreach (var bit in PlcAlarmDefinitions.PlcToPcAlarms)
+            {
+                if ((word & (1 << bit.BitIndex)) != 0)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>PLC 报警位（D0.0～D0.10）全部恢复且当前故障为 PLC_ALARM 时，自动回到空闲。</summary>
+        private void TryAutoClearFaultWhenPlcAlarmsClear(ushort alarmWord)
+        {
+            if (!_machine.IsFault) return;
+            if (!string.Equals(_machine.LastFaultCode, "PLC_ALARM", StringComparison.Ordinal)) return;
+            if (HasActivePlcToPcAlarmBits(alarmWord)) return;
+
+            if (!_machine.TryClearFault()) return;
+            PulsePcRecoverAllowedToPlc();
+            SyncMachineStateToPlc();
+            SafeInvoke(() =>
+            {
+                TEXT("[状态] PLC 报警已全部恢复，已自动回到空闲；可继续响应取/放料请求。");
+                RefreshMachineStateUi();
+            });
         }
 
         private void RefreshPlcAlarmStatusUi(ushort alarmWord)
@@ -1078,6 +1377,14 @@ D_PC有料信号位=11
                 && (alarmWord & (1 << Hs.D_PC有料信号位)) != 0;
             if (foreignAlarm)
                 names.Add("异物检测");
+            bool positionLimitAlarm = IsConfiguredPlcD(Hs.D_PC位置超限报警位)
+                && (alarmWord & (1 << Hs.D_PC位置超限报警位)) != 0;
+            if (positionLimitAlarm)
+                names.Add("位置超限");
+            bool visionRecognizeFailAlarm = IsConfiguredPlcD(Hs.D_PC算法识别失败报警位)
+                && (alarmWord & (1 << Hs.D_PC算法识别失败报警位)) != 0;
+            if (visionRecognizeFailAlarm)
+                names.Add("算法识别失败");
             if (names.Count == 0)
             {
                 toolStripLabel10.Text = "正常";
@@ -1097,27 +1404,135 @@ D_PC有料信号位=11
             if (!IsConfiguredPlcD(Hs.D_PLC报警字)) return;
             using (var dlg = new PlcAlarmPanelForm())
             {
-                dlg.Bind(_lastPlcAlarmWord, Hs.D_PC有料信号位);
+                dlg.Bind(_lastPlcAlarmWord, Hs.D_PC有料信号位, Hs.D_PC位置超限报警位, Hs.D_PC算法识别失败报警位);
                 dlg.ShowDialog(this);
             }
         }
 
-        /// <param name="foreignObjectAlarm">true=写 D0.11 异物报警。</param>
+        /// <summary>与 PLC 报警字对齐上位机写过的报警位本地状态（清除由 PLC 侧完成）。</summary>
+        private void SyncPcWrittenAlarmBitsFromPlc(ushort alarmWord)
+        {
+            if (IsConfiguredPlcD(Hs.D_PC位置超限报警位))
+                _positionLimitAlarmActive = (alarmWord & (1 << Hs.D_PC位置超限报警位)) != 0;
+            if (IsConfiguredPlcD(Hs.D_PC算法识别失败报警位))
+                _visionRecognizeFailAlarmActive = (alarmWord & (1 << Hs.D_PC算法识别失败报警位)) != 0;
+            if (IsConfiguredPlcD(Hs.D_PC有料信号位))
+                _foreignObjectAlarmActive = (alarmWord & (1 << Hs.D_PC有料信号位)) != 0;
+        }
+
+        /// <param name="foreignObjectAlarm">true=写 D0.11 异物报警；上位机只置位，不清除。</param>
         private void WritePcForeignObjectAlarmBit(bool foreignObjectAlarm)
         {
+            if (!foreignObjectAlarm) return;
             if (!_plcConfig.Enabled || !Hs.HandshakeEnabled || !IsConfiguredPlcD(Hs.D_PLC报警字)
                 || _plcSession?.IsConnected != true)
                 return;
+            if (_foreignObjectAlarmActive) return;
             ushort addr = Hs.Holding(Hs.D_PLC报警字);
-            _plcSession.WriteBit(addr, Hs.D_PC有料信号位, foreignObjectAlarm);
-            SafeInvoke(() => TEXT($"[异物检测] 写 PLC D{Hs.D_PLC报警字}.{Hs.D_PC有料信号位}={(foreignObjectAlarm ? 1 : 0)}"
-                + (foreignObjectAlarm ? "（异物报警）" : "（箱内正常）")));
+            _plcSession.WriteBit(addr, Hs.D_PC有料信号位, true);
+            _foreignObjectAlarmActive = true;
+            SafeInvoke(() => TEXT($"[异物检测] 写 PLC D{Hs.D_PLC报警字}.{Hs.D_PC有料信号位}=1（异物报警）"));
             try
             {
                 _lastPlcAlarmWord = _plcSession.ReadUInt16(addr);
                 RefreshPlcAlarmStatusUi(_lastPlcAlarmWord);
             }
             catch { }
+        }
+
+        /// <summary>运动中超限写 D0.12=1；上位机只置位，清除由 PLC 侧完成。</summary>
+        private void WritePcPositionLimitAlarmBit(bool positionLimitAlarm)
+        {
+            if (!positionLimitAlarm) return;
+            if (!_plcConfig.Enabled || !Hs.HandshakeEnabled || !IsConfiguredPlcD(Hs.D_PLC报警字)
+                || !IsConfiguredPlcD(Hs.D_PC位置超限报警位) || _plcSession?.IsConnected != true)
+                return;
+            if (_positionLimitAlarmActive) return;
+            ushort addr = Hs.Holding(Hs.D_PLC报警字);
+            _plcSession.WriteBit(addr, Hs.D_PC位置超限报警位, true);
+            _positionLimitAlarmActive = true;
+            SafeInvoke(() => TEXT($"[位置超限] 写 PLC D{Hs.D_PLC报警字}.{Hs.D_PC位置超限报警位}=1（运动中超限报警）"));
+            try
+            {
+                _lastPlcAlarmWord = _plcSession.ReadUInt16(addr);
+                RefreshPlcAlarmStatusUi(_lastPlcAlarmWord);
+            }
+            catch { }
+        }
+
+        /// <param name="visionRecognizeFailAlarm">true=写 D0.13 算法识别失败报警；上位机只置位，不清除。</param>
+        private void WritePcVisionRecognizeFailAlarmBit(bool visionRecognizeFailAlarm)
+        {
+            if (!visionRecognizeFailAlarm) return;
+            if (!_plcConfig.Enabled || !Hs.HandshakeEnabled || !IsConfiguredPlcD(Hs.D_PLC报警字)
+                || !IsConfiguredPlcD(Hs.D_PC算法识别失败报警位) || _plcSession?.IsConnected != true)
+                return;
+            if (_visionRecognizeFailAlarmActive) return;
+            ushort addr = Hs.Holding(Hs.D_PLC报警字);
+            _plcSession.WriteBit(addr, Hs.D_PC算法识别失败报警位, true);
+            _visionRecognizeFailAlarmActive = true;
+            SafeInvoke(() => TEXT($"[算法识别] 写 PLC D{Hs.D_PLC报警字}.{Hs.D_PC算法识别失败报警位}=1（识别失败报警）"));
+            try
+            {
+                _lastPlcAlarmWord = _plcSession.ReadUInt16(addr);
+                RefreshPlcAlarmStatusUi(_lastPlcAlarmWord);
+            }
+            catch { }
+        }
+
+        /// <summary>自动运行（PLC 握手）拍照后算法识别失败时写 D0.13=1。</summary>
+        private void RaiseAutoVisionRecognizeFailAlarm(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason)) reason = "算法识别失败";
+            WritePcVisionRecognizeFailAlarmBit(true);
+            SafeInvoke(() => TEXT($"[算法识别] 已报警 PLC D{Hs.D_PLC报警字}.{Hs.D_PC算法识别失败报警位}=1：{reason}"));
+        }
+
+        /// <summary>握手轮询：运动中读取机器人当前坐标，超出报警位置设定则写 D0.12。</summary>
+        private void PollRobotPositionLimitAlarm(string phase)
+        {
+            var limits = AlarmPositionLimits;
+            if (!_plcConfig.Enabled || !Hs.HandshakeEnabled || limits == null || !limits.Enabled
+                || !limits.HasAnyAxisLimit() || !IsConfiguredPlcD(Hs.D_机器人当前坐标X)
+                || !IsConfiguredPlcD(Hs.D_PLC报警字) || !IsConfiguredPlcD(Hs.D_PC位置超限报警位)
+                || _plcSession?.IsConnected != true)
+                return;
+
+            try
+            {
+                ushort posAddr = Hs.Holding(Hs.D_机器人当前坐标X);
+                _plcSession.ReadFourFloats(posAddr, out float x, out float y, out float z, out _);
+
+                bool moving;
+                if (IsConfiguredPlcD(Hs.D_机器人运动中))
+                    moving = _plcSession.ReadUInt16(Hs.Holding(Hs.D_机器人运动中)) != 0;
+                else if (_hasLastRobotPosSample)
+                {
+                    float dx = Math.Abs(x - _lastRobotPosX);
+                    float dy = Math.Abs(y - _lastRobotPosY);
+                    float dz = Math.Abs(z - _lastRobotPosZ);
+                    moving = dx > RobotMovingDeltaMm || dy > RobotMovingDeltaMm || dz > RobotMovingDeltaMm;
+                }
+                else
+                    moving = false;
+                _lastRobotPosX = x;
+                _lastRobotPosY = y;
+                _lastRobotPosZ = z;
+                _hasLastRobotPosSample = true;
+
+                bool outOfLimit = limits.IsOutOfLimit(x, y, z, out string detail);
+                if (moving && outOfLimit)
+                {
+                    if (!_positionLimitAlarmActive)
+                        SafeInvoke(() => TEXT($"[位置超限] {detail}（{phase}）"));
+                    WritePcPositionLimitAlarmBit(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (IsPlcCommunicationFailure(ex))
+                    HandlePlcConnectionLost("机器人坐标读取失败", ex);
+            }
         }
 
         /// <summary>放料拍照后、输出坐标前：无异物才通过；有异物写 D0.11=1 并失败。</summary>
@@ -1136,10 +1551,7 @@ D_PC有料信号位=11
             string imagePath = cfg.ResolveCaptureImagePath(_jinwo);
             if (!_bearingPresence.TryDetect(imagePath, out bool hasDetected, out int detectCount,
                     out string effectPath, out error))
-            {
-                WritePcForeignObjectAlarmBit(false);
                 return false;
-            }
 
             if (hasDetected)
             {
@@ -1162,7 +1574,6 @@ D_PC有料信号位=11
                 return false;
             }
 
-            WritePcForeignObjectAlarmBit(false);
             SafeInvoke(() => TEXT($"[异物检测] {st?.Name ?? "工位"} 箱内无异物，继续算位/下发坐标"));
             if (!string.IsNullOrEmpty(effectPath))
                 TryDisplayJinwoEffectImage(effectPath, GetJinwoFallbackPreviewPath(imagePath));
@@ -1221,14 +1632,13 @@ D_PC有料信号位=11
                 throw new OperationCanceledException("已进入现场暂停，等待继续运行");
         }
 
-        /// <summary>按当前产品高度层解析本周期取/放个数（竖直档 2,2,…,3，如总高 9→2+2+2+3）。</summary>
+        /// <summary>按规划序号解析本周期取/放个数（如 9 层末档 3 件时，最后一组首件不再误发 2）。</summary>
         private static void GetCyclePickPlaceCounts(StationData st, int planIndex, out int pickQty, out int placeQty)
         {
             pickQty = placeQty = DefaultPickPlaceQty;
             if (st == null || st.MaxLayers < 1 || planIndex < 0) return;
-            int perLayer = Math.Max(1, st.MaxCols * st.MaxRows);
-            int stackHeight = planIndex / perLayer;
-            pickQty = placeQty = ZStackPlacement.GetPickPlaceQty(stackHeight, st.MaxLayers);
+            pickQty = placeQty = ZStackPlacement.GetPickPlaceQtyForPlanIndex(
+                planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
         }
 
         /// <summary>当前规划位所在取料批次的起始序号（同批共用一个 PlaceQty）。</summary>
@@ -1240,10 +1650,10 @@ D_PC有料信号位=11
             return tierBase + (offsetInTier / Math.Max(1, placeQty)) * placeQty;
         }
 
-        /// <summary>工位中心点 Z：高于本批全部放完后的最高 Z，并叠加整批夹爪叠层高 + 1 层安全裕量（取2放2一次动作，不随第几件递减）。</summary>
-        private static float ComputePlaceCenterZ(StationData st, float targetZ, int planIndex, int gripQty)
+        /// <summary>工位中心点 Z：本批最高放料 Z + 夹爪同批叠放（件数×单件高，无间隙）+ 半层避让裕量。</summary>
+        private float ComputePlaceCenterZ(StationData st, float targetZ, int planIndex, int gripQty)
         {
-            float layerH = st != null && st.SingleProductHeight > 1e-3 ? (float)st.SingleProductHeight : 0f;
+            ResolveJinwoPlaceZAndRz(st, out _, out double productHeight, out _, out _);
             GetCyclePickPlaceCounts(st, planIndex, out _, out int placeQty);
             int onGripper = Math.Max(1, gripQty > 0 ? gripQty : placeQty);
             float zAfterBatch = targetZ;
@@ -1257,7 +1667,9 @@ D_PC有料信号位=11
                         zAfterBatch = Math.Max(zAfterBatch, s.Z);
                 }
             }
-            return zAfterBatch + onGripper * layerH + layerH;
+            return zAfterBatch
+                + (float)ZStackPlacement.ComputeGripperStackHeight(onGripper, productHeight)
+                + (float)ZStackPlacement.ComputePlaceCenterClearance(productHeight);
         }
 
         private void WritePlcPickCount(bool isLeft, int pickQty)
@@ -1302,6 +1714,7 @@ D_PC有料信号位=11
             st.PlcAwaitingBoxChangeAfterFull = false;
             st.IsFull = false;
             st.Layer = st.Row = st.Col = 0;
+            st.ConfirmedPlacedCount = 0;
             ClearBoxPlacementState(st);
             ResetPlcPlaceBoxCycle(st);
             ClearLastIssuedPending(st);
@@ -1314,12 +1727,13 @@ D_PC有料信号位=11
             });
         }
 
-        /// <summary>本箱尚未完成首次放料识箱时，取料请求需先拍照（与自动码放引导 ① 一致）。</summary>
+        /// <summary>本箱尚未完成首次放料识箱时，取料请求需先拍照识料（与自动码放引导 ① 一致）；左右工位各自独立。</summary>
         private static bool ShouldRunPickPhotoForStation(StationData st, bool isLeft, bool useConfiguredPlace) =>
             st != null && !st.PlcPlaceBoxVisionDone && !useConfiguredPlace;
 
         /// <summary>
-        /// ② 取料：PLC D4018/D4020 读到 1 → 取料流程（首次放料周期拍照识料）→ 下发取料坐标 → 写取料个数 → 清 0。
+        /// ② 取料：A 请求 D4018 / B 请求 D4020 读到 1 → 对应工位拍照识料（首周期）→ 下发取料坐标 → 写取料个数 → 清 0。
+        /// 左右工位取料请求顺序任意，各用工位独立圆心与 D4200/D4208。
         /// </summary>
         private async Task<bool> PlcOnPickRequestAsync(StationData st, bool isLeft)
         {
@@ -1327,8 +1741,9 @@ D_PC有料信号位=11
             if (!TryReadPlcPickRequest(dReq, out ushort reqVal)) return false;
             bool useConfiguredPlace = ShouldUseConfiguredPlace(st, isLeft);
             bool needPickPhoto = ShouldRunPickPhotoForStation(st, isLeft, useConfiguredPlace);
+            string side = isLeft ? "A/左" : "B/右";
             string phase = needPickPhoto ? "取料拍照+下发" : "取料下发";
-            PlcLogReceive($"收到取料请求 {st.Name} D{dReq}={reqVal} ({phase})");
+            PlcLogReceive($"收到取料请求 {side} {st.Name} D{dReq}={reqVal} ({phase})");
             int pickQty = DefaultPickPlaceQty;
             try
             {
@@ -1348,7 +1763,10 @@ D_PC有料信号位=11
                         st.PlaceOffsetLocalX = st.PlaceOffsetLocalY = 0;
                         ThrowIfMachineInterrupted($"{st.Name} 取料拍照前");
                         if (!await RunPickVisionForPlcRequestAsync(st).ConfigureAwait(false))
+                        {
+                            RaiseAutoVisionRecognizeFailAlarm("取料拍照/识料失败");
                             throw new InvalidOperationException("取料拍照/识料失败");
+                        }
                         ThrowIfMachineInterrupted($"{st.Name} 取料拍照后");
                     }
 
@@ -1358,9 +1776,10 @@ D_PC有料信号位=11
                     float logPx = st.PickCenterX, logPy = st.PickCenterY;
                     bool logPhoto = needPickPhoto;
                     int dPickCnt = isLeft ? Hs.D_PC_A工位取料个数 : Hs.D_PC_B工位取料个数;
+                    int dPickCoord = isLeft ? Hs.D_A取料坐标X : Hs.D_B取料坐标X;
                     SafeInvoke(() => TEXT($"[PLC] {st.Name} 取料流程就绪：取{readyPick}个" +
                         (logPhoto ? $" 已拍照 圆心({logPx:F2},{logPy:F2})" : " 坐标已刷新") +
-                        $" → D{(isLeft ? Hs.D_A取料坐标X : Hs.D_B取料坐标X)}（应答前写 D{dPickCnt}）"));
+                        $" → D{dPickCoord}（应答前写 D{dPickCnt}）"));
                 }).ConfigureAwait(false);
 
                 ThrowIfMachineInterrupted($"{st.Name} 取料请求应答前");
@@ -1369,15 +1788,15 @@ D_PC有料信号位=11
                 ThrowIfMachineInterrupted($"{st.Name} 取料请求清零前");
                 PlcClr0(dReq);
                 int ackPick = pickQty;
-                int dPick = isLeft ? Hs.D_PC_A工位取料个数 : Hs.D_PC_B工位取料个数;
-                SafeInvoke(() => TEXT($"[PLC] {st.Name} 取料请求已应答：D{dPick}={ackPick}，D{dReq}=0"));
+                int dPickCntAck = isLeft ? Hs.D_PC_A工位取料个数 : Hs.D_PC_B工位取料个数;
+                SafeInvoke(() => TEXT($"[PLC] {st.Name} 取料请求已应答：D{dPickCntAck}={ackPick}，D{dReq}=0"));
             }
             catch (OperationCanceledException ex) { SafeInvoke(() => TEXT($"[PLC] {st.Name} 取料已中断：{ex.Message}，D{dReq} 保持等待 PLC 处理。")); }
             catch (Exception ex) { SafeInvoke(() => TEXT($"[PLC] {st.Name} 取料失败: {ex.Message}")); }
             return true;
         }
 
-        /// <summary>取料拍照识圆心（与自动码放引导 ① 相同：海康/离线采图 + 位置设定兜底）。</summary>
+        /// <summary>取料拍照识圆心（与自动码放引导 ① 相同：海康/离线采图 + 位置设定兜底）；按工位写入 PickCenter。</summary>
         private async Task<bool> RunPickVisionForPlcRequestAsync(StationData st)
         {
             if (st == null) return false;
@@ -1386,7 +1805,7 @@ D_PC有料信号位=11
                 SafeInvoke(() => TEXT($"[取料] {st.Name} 金沃未就绪，使用位置设定取料坐标"));
                 return TryApplyPickCenterFallback(st);
             }
-            return await Plc_CaptureAndRecognizePickAsync().ConfigureAwait(false);
+            return await Plc_CaptureAndRecognizePickAsync(st).ConfigureAwait(false);
         }
 
         /// <summary>取料 Z：优先位置设定中的取料 Z，否则 Z 轴入料口高度。</summary>
@@ -1425,19 +1844,19 @@ D_PC有料信号位=11
             return false;
         }
 
-        private async Task<bool> Plc_CaptureAndRecognizePickAsync()
+        private async Task<bool> Plc_CaptureAndRecognizePickAsync(StationData st = null)
         {
-            var st = currentStation;
+            st = st ?? currentStation;
             if (st == null) return false;
 
             if (_jinwo.IsEnabled && _jinwo.IsLoaded)
             {
-                if (!await RunCaptureIfConfiguredAsync("取料拍照").ConfigureAwait(false))
+                if (!await RunCaptureIfConfiguredAsync($"{st.Name} 取料拍照").ConfigureAwait(false))
                     return false;
                 string imagePath = _jinwo.ResolveCaptureImagePath();
                 if (!File.Exists(imagePath))
                     throw new InvalidOperationException("无采图文件，请加载离线测试图或配置金沃「采图路径」");
-                SafeInvoke(() => TEXT($"[取料拍照] 使用图像 {Path.GetFileName(imagePath)}"));
+                SafeInvoke(() => TEXT($"[取料拍照] {st.Name} 使用图像 {Path.GetFileName(imagePath)}"));
             }
 
             return TryApplyPickCenterFallback(st);
@@ -1553,7 +1972,11 @@ D_PC有料信号位=11
                 PlcClr0(dReq);
             }
             catch (OperationCanceledException ex) { SafeInvoke(() => TEXT($"[PLC] {st.Name} 放料已中断：{ex.Message}，D{dReq} 保持等待 PLC 处理。")); }
-            catch (Exception ex) { SafeInvoke(() => TEXT($"[PLC] {st.Name} 放料失败: {ex.Message}")); }
+            catch (Exception ex)
+            {
+                SafeInvoke(() => TEXT($"[PLC] {st.Name} 放料失败: {ex.Message}"));
+                ArmPlcPlaceRequestEdgeForStation(isLeft);
+            }
             return true;
         }
 
@@ -1656,7 +2079,10 @@ D_PC有料信号位=11
             if (_jinwo.IsEnabled && _jinwo.IsLoaded && st.HasJinwoTrayConfig)
             {
                 if (!TryJinwoCalculatePose(st, placedCount, out JinwoPoseResult pose, out string effectPath, out error))
+                {
+                    RaiseAutoVisionRecognizeFailAlarm(error ?? "算位失败");
                     return false;
+                }
                 wx = (float)pose.X; wy = (float)pose.Y; wz = (float)pose.Z; wrz = (float)pose.Rz;
                 TryResolvePlaceCenterXY(st, isLeft, wx, wy, out float cx, out float cy);
                 PlcWritePlaceCenterThenTarget(st, isLeft, dCenter, dTarget, placedCount, cx, cy, wx, wy, wz, wrz);
@@ -1709,9 +2135,10 @@ D_PC有料信号位=11
         private void PlcHeartbeatTick()
         {
             if (!_plcConfig.Enabled) return;
+            PlcTryAutoReconnectTick();
             if (_plcSession == null)
             {
-                if (!_plcDisconnectNotified)
+                if (!_plcDisconnectNotified && !_plcConfig.AutoReconnectEnabled)
                     SafeInvoke(() => RefreshPlcUi(false, "未连接"));
                 return;
             }
@@ -1817,19 +2244,40 @@ D_PC有料信号位=11
             {
                 try
                 {
-                    st.PickQty = st.PlaceQty = DefaultPickPlaceQty;
+                    RefreshStationPickPlaceQtyUi(st);
                     st.PlcAwaitingBoxChangeAfterFull = false;
-                    WritePlcPickPlaceCounts(isLeft, DefaultPickPlaceQty, DefaultPickPlaceQty);
+                    WritePlcPickPlaceCounts(isLeft, st.PickQty, st.PlaceQty);
                     WritePlcFullMaterialFlag(st, isLeft, false);
                     PushPlacePhotoPositionToPlc(isLeft, st);
                     float boxH = (float)st.BoxHeight;
-                    SafeInvoke(() => TEXT($"[PLC] {st.Name} 已下发 取{DefaultPickPlaceQty}/放{DefaultPickPlaceQty} 满料=0 箱高{boxH:F0}mm"));
+                    SafeInvoke(() => TEXT($"[PLC] {st.Name} 已下发 取{st.PickQty}/放{st.PlaceQty} 满料=0 箱高{boxH:F0}mm"));
                 }
                 catch (Exception ex) { SafeInvoke(() => TEXT("[PLC] 参数下发失败: " + ex.Message)); }
             });
         }
 
-        /// <summary>软件启动或位置保存后：下发取料位置（D4200/D4208）与放料拍照位置（D4216/D4224）。</summary>
+        /// <summary>软件启动或料道缓存保存后：下发 A/B 工位料道缓存个数（D4410/D4412）。</summary>
+        public void PushTrackBufferCountsToPlc()
+        {
+            if (!_plcConfig.Enabled || !Hs.HandshakeEnabled) return;
+            if (_plcSession == null || !_plcSession.IsConnected) return;
+            if (!IsConfiguredPlcD(Hs.D_PC_A工位料道缓存个数) || !IsConfiguredPlcD(Hs.D_PC_B工位料道缓存个数))
+                return;
+            int a = _trackBufferCount.LeftCount;
+            int b = _trackBufferCount.RightCount;
+            Task.Run(() =>
+            {
+                try
+                {
+                    _plcSession.WriteInt32(Hs.Holding(Hs.D_PC_A工位料道缓存个数), a);
+                    _plcSession.WriteInt32(Hs.Holding(Hs.D_PC_B工位料道缓存个数), b);
+                    SafeInvoke(() => TEXT($"[PLC] 已下发料道缓存个数 A={a} B={b} → D{Hs.D_PC_A工位料道缓存个数}/D{Hs.D_PC_B工位料道缓存个数}"));
+                }
+                catch (Exception ex) { SafeInvoke(() => TEXT("[PLC] 料道缓存个数下发失败: " + ex.Message)); }
+            });
+        }
+
+        /// <summary>软件启动或位置保存后：预下发取料位置（D4200/D4208）与放料拍照位置（D4216/D4224）；取料请求时仍会再次下发对应机台取料位。</summary>
         public void PushConfiguredPositionsToPlc()
         {
             if (!_plcConfig.Enabled || !Hs.HandshakeEnabled) return;
@@ -1853,7 +2301,7 @@ D_PC有料信号位=11
 
         private void PushPickPositionToPlc(bool isLeft, StationData st) => WritePickTargetToPlc(st, isLeft);
 
-        /// <summary>下发放料请求对应的取料坐标：优先工位圆心（拍照/识别后），否则位置设定。</summary>
+        /// <summary>下发放料请求对应的取料坐标：优先工位圆心（拍照/识别后），否则位置设定；A/左→D4200，B/右→D4208。</summary>
         private void WritePickTargetToPlc(StationData st, bool isLeft)
         {
             int dPick = isLeft ? Hs.D_A取料坐标X : Hs.D_B取料坐标X;
@@ -1866,6 +2314,8 @@ D_PC有料信号位=11
             }
             else
             {
+                if (Math.Abs(cfg.PickX) < 1e-3 && Math.Abs(cfg.PickY) < 1e-3)
+                    throw new InvalidOperationException($"请先在「位置设定」填写{(isLeft ? "左" : "右")}机台取料位置 X/Y");
                 px = (float)cfg.PickX;
                 py = (float)cfg.PickY;
             }
@@ -2114,6 +2564,7 @@ D_PC有料信号位=11
             }
             else
                 currentStation.Advance();
+            RefreshStationPickPlaceQtyUi(currentStation);
             UpdateProgressDisplay();
         }
 
@@ -2176,7 +2627,9 @@ D_PC有料信号位=11
                 var cfg = st.JinwoTray;
                 var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out string effectPath);
                 st.JinwoTray = cfg;
+                int layerFloor = GetTrayLayerCountFloor(st);
                 SyncStationGridFromCenters(st, centers);
+                ApplyTrayLayerCountFloor(st, layerFloor);
                 // 现场识箱可能改变 MaxRows/MaxCols，须按已放件数重算 Layer/Row/Col，否则 GetPlacedCount 会回到第 1 件。
                 SyncStationProgressFromCount(st, placedCount);
                 JinwoPlacementOrder.SortCenters(centers, st.MaxRows, st.MaxCols);
@@ -2289,6 +2742,7 @@ D_PC有料信号位=11
             }
 
             SafeInvoke(() => TEXT($"[算法识别] {st.Name} 自动重试后仍失败: {lastError}"));
+            RaiseAutoVisionRecognizeFailAlarm(lastError ?? "放料识箱失败");
             return await RunPlaceBoxVisionManualRetryLoopAsync(st, lastError).ConfigureAwait(false);
         }
 
@@ -2404,14 +2858,47 @@ D_PC有料信号位=11
             if (st == null) return 0;
             if (st.ManualSlotSelectEnabled)
                 return st.ManualCompletedOrder?.Count ?? 0;
-            if (st.Layout == LayoutType.Frame)
-                return st.Row * st.MaxCols + st.Col;
-            return JinwoPlacementOrder.ToSequenceIndex(st.Layer, st.Row, st.Col, st.MaxRows, st.MaxCols);
+            return Math.Max(0, st.ConfirmedPlacedCount);
         }
 
         private static void SyncStationProgressFromCount(StationData st, int count)
         {
+            count = Math.Max(0, count);
+            st.ConfirmedPlacedCount = count;
+            if (st.Layout == LayoutType.Frame)
+            {
+                st.Row = 0;
+                st.Col = count;
+                st.Layer = 0;
+                return;
+            }
             JinwoPlacementOrder.FromSequenceIndex(count, st.MaxRows, st.MaxCols, out st.Layer, out st.Row, out st.Col);
+        }
+
+        /// <summary>托盘层数下限：界面/INI 已确认层数不被 DLL 有效网格或算位结果压低。</summary>
+        private int GetTrayLayerCountFloor(StationData st)
+        {
+            if (st == null) return 0;
+            int floor = st.MaxLayers;
+            if (_jinwo.TrayLayersFromIni > 0)
+                floor = Math.Max(floor, _jinwo.TrayLayersFromIni);
+            return floor;
+        }
+
+        private void ApplyTrayLayerCountFloor(StationData st, int floorLayers)
+        {
+            if (st == null || floorLayers < 1) return;
+            if (st.MaxLayers < floorLayers)
+                st.MaxLayers = floorLayers;
+        }
+
+        private void RefreshStationPickPlaceQtyUi(StationData st)
+        {
+            if (st == null) return;
+            bool isLeft = st == leftStation;
+            TextBox tbP = isLeft ? textBoxLeftPickQty : textBoxRightPickQty;
+            TextBox tbQ = isLeft ? textBoxLeftPlaceQty : textBoxRightPlaceQty;
+            SyncPickPlaceQtyFromZTier(st, tbP, tbQ);
         }
 
         private async Task<bool> RunCaptureIfConfiguredAsync(string step)
@@ -2490,8 +2977,8 @@ D_PC有料信号位=11
             }
         }
 
-        /// <summary>放料 Z 基准与层高、Rz：优先位置设定，其次金沃 INI，再次 Z 轴/PLC 默认。</summary>
-        private void ResolveJinwoPlaceZAndRz(StationData st, out double baseZ, out double layerPitchZ, out double rz)
+        /// <summary>放料 Z 基准、单件高度、放料抬高间隙、Rz：间隙为放料位总抬高量，只加一次。</summary>
+        private void ResolveJinwoPlaceZAndRz(StationData st, out double baseZ, out double productHeight, out double placeLiftGap, out double rz)
         {
             bool isLeft = IsLeftStation(st);
             var photo = GetPhotoPositions(isLeft);
@@ -2508,28 +2995,31 @@ D_PC有料信号位=11
             else
                 baseZ = 0;
 
-            if (ini.LayerPitchZ > 1e-3)
-                layerPitchZ = ini.LayerPitchZ;
-            else if (st.SingleProductHeight > 1e-3f)
-                layerPitchZ = st.SingleProductHeight;
-            else if (st.HasJinwoTrayConfig && st.JinwoTray.LayerPitchZ > 1e-3)
-                layerPitchZ = st.JinwoTray.LayerPitchZ;
+            if (st.SingleProductHeight > 1e-3f)
+                productHeight = st.SingleProductHeight;
             else if (st.HasJinwoTrayConfig && st.JinwoTray.BearingHeight > 1e-3)
-                layerPitchZ = st.JinwoTray.BearingHeight;
+                productHeight = st.JinwoTray.BearingHeight;
             else
-                layerPitchZ = 0;
+                productHeight = 0;
+
+            if (ini.BearingGap > 1e-3)
+                placeLiftGap = ini.BearingGap;
+            else if (st.HasJinwoTrayConfig && st.JinwoTray.BearingGap > 1e-3)
+                placeLiftGap = st.JinwoTray.BearingGap;
+            else
+                placeLiftGap = 0;
 
             double configuredRz = Math.Abs(photo.PlaceRz) > 1e-6 ? photo.PlaceRz : ini.TargetRz;
             rz = ResolveRzDeg(configuredRz, plcRz);
         }
 
-        /// <summary>XY 用 DLL 识箱结果；Z/Rz 用位置设定 → 金沃算法.ini → Z 轴/PLC 默认（平面每层 Z 按取放个数叠层）。</summary>
+        /// <summary>XY 用 DLL 识箱结果；Z = 基准 + Σ(取放个数×单件高) + 放料抬高间隙。</summary>
         private void ApplyConfiguredJinwoZAndRz(StationData st, ref JinwoPoseResult pose)
         {
-            ResolveJinwoPlaceZAndRz(st, out double baseZ, out double layerPitchZ, out double rz);
+            ResolveJinwoPlaceZAndRz(st, out double baseZ, out double productHeight, out double placeLiftGap, out double rz);
             int layer = Math.Max(0, pose.Layer);
             int maxLayers = st?.MaxLayers > 0 ? st.MaxLayers : 1;
-            pose.Z = ZStackPlacement.ComputePlaceZForHorizontalLayer(baseZ, layer, maxLayers, layerPitchZ);
+            pose.Z = ZStackPlacement.ComputePlaceZForHorizontalLayer(baseZ, layer, maxLayers, productHeight, placeLiftGap);
             pose.Rz = rz;
         }
 
@@ -2538,6 +3028,7 @@ D_PC有料信号位=11
             pose = CreateEmptyPoseResult();
             effectPath = null;
             error = null;
+            int floorLayers = GetTrayLayerCountFloor(st);
             try
             {
                 string imagePath = _jinwo.ResolveCaptureImagePath();
@@ -2546,9 +3037,6 @@ D_PC有料信号位=11
                 st.JinwoTray = cfg;
                 ApplyConfiguredJinwoZAndRz(st, ref pose);
                 NotifyRecognizedPlacePhotoXY(st, pose.X, pose.Y);
-                st.Layer = Math.Max(0, pose.Layer);
-                st.Row = Math.Max(0, pose.Row);
-                st.Col = Math.Max(0, pose.Col);
                 if (pose.EffectiveRows > 0) st.MaxRows = pose.EffectiveRows;
                 if (pose.EffectiveCols > 0) st.MaxCols = pose.EffectiveCols;
                 if (pose.Capacity > 0 && pose.EffectiveRows > 0 && pose.EffectiveCols > 0)
@@ -2557,6 +3045,9 @@ D_PC有料信号位=11
                     if (perLayer > 0)
                         st.MaxLayers = Math.Max(1, (pose.Capacity + perLayer - 1) / perLayer);
                 }
+                ApplyTrayLayerCountFloor(st, floorLayers);
+                // 网格尺寸可能变化，须按已放件数重算 Layer/Row/Col，避免 GetPlacedCount 错位。
+                SyncStationProgressFromCount(st, placedCount);
                 return true;
             }
             catch (Exception ex)
@@ -2637,6 +3128,7 @@ D_PC有料信号位=11
         static void SyncStationGridFromCenters(StationData st, JinwoNative.JinwoBearingCenterResult[] centers)
         {
             if (st == null || centers == null || centers.Length == 0) return;
+            int floorLayers = st.MaxLayers;
             int maxRow = 0, maxCol = 0, maxLayer = 0;
             foreach (var c in centers)
             {
@@ -2647,6 +3139,8 @@ D_PC有料信号位=11
             st.MaxRows = maxRow + 1;
             st.MaxCols = maxCol + 1;
             st.MaxLayers = maxLayer + 1;
+            if (floorLayers > st.MaxLayers)
+                st.MaxLayers = floorLayers;
         }
 
         #endregion

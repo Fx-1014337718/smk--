@@ -70,6 +70,8 @@ namespace 码料机
             this.toolStripLabel10 = new System.Windows.Forms.ToolStripLabel();
             this.toolStripSeparatorBuzzerMute = new System.Windows.Forms.ToolStripSeparator();
             this.toolStripLabelBuzzerMute = new System.Windows.Forms.ToolStripLabel();
+            this.toolStripSeparatorCountReset = new System.Windows.Forms.ToolStripSeparator();
+            this.toolStripLabelCountReset = new System.Windows.Forms.ToolStripLabel();
             this.toolStripSeparator7 = new System.Windows.Forms.ToolStripSeparator();
             this.toolStripSeparator8 = new System.Windows.Forms.ToolStripSeparator();
             this.toolStripLabel12 = new System.Windows.Forms.ToolStripLabel();
@@ -310,6 +312,7 @@ namespace 码料机
             // 
             this.toolStripSeparatorNinePoint.Name = "toolStripSeparatorNinePoint";
             this.toolStripSeparatorNinePoint.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparatorNinePoint.Visible = false;
             // 
             // toolStripLabelNinePoint
             // 
@@ -317,6 +320,7 @@ namespace 码料机
             this.toolStripLabelNinePoint.Name = "toolStripLabelNinePoint";
             this.toolStripLabelNinePoint.Size = new System.Drawing.Size(118, 24);
             this.toolStripLabelNinePoint.Text = "九点标定工具";
+            this.toolStripLabelNinePoint.Visible = false;
             this.toolStripLabelNinePoint.Click += new System.EventHandler(this.toolStripLabelNinePoint_Click);
             // 
             // toolStripSeparatorAlgoTest
@@ -382,6 +386,8 @@ namespace 码料机
             this.toolStripLabel10,
             this.toolStripSeparatorBuzzerMute,
             this.toolStripLabelBuzzerMute,
+            this.toolStripSeparatorCountReset,
+            this.toolStripLabelCountReset,
             this.toolStripSeparator7,
             this.toolStripSeparator8,
             this.toolStripLabel12,
@@ -511,6 +517,21 @@ namespace 码料机
             this.toolStripLabelBuzzerMute.Text = "蜂鸣消音";
             this.toolStripLabelBuzzerMute.ToolTipText = "切换 PC_位功能地址 D4002（INT，读取当前值后 0/1 取反写入并保持，常用于蜂鸣消音）";
             this.toolStripLabelBuzzerMute.Click += new System.EventHandler(this.toolStripLabelBuzzerMute_Click);
+            // 
+            // toolStripSeparatorCountReset
+            // 
+            this.toolStripSeparatorCountReset.Name = "toolStripSeparatorCountReset";
+            this.toolStripSeparatorCountReset.Size = new System.Drawing.Size(6, 33);
+            // 
+            // toolStripLabelCountReset
+            // 
+            this.toolStripLabelCountReset.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Underline);
+            this.toolStripLabelCountReset.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(64)))), ((int)(((byte)(175)))));
+            this.toolStripLabelCountReset.Name = "toolStripLabelCountReset";
+            this.toolStripLabelCountReset.Size = new System.Drawing.Size(101, 30);
+            this.toolStripLabelCountReset.Text = "计数清零";
+            this.toolStripLabelCountReset.ToolTipText = "向 PC_计数清零 D4003.6 写入 1（整体计数清零）";
+            this.toolStripLabelCountReset.Click += new System.EventHandler(this.toolStripLabelCountReset_Click);
             // 
             // toolStripSeparator7
             // 
@@ -1592,6 +1613,8 @@ namespace 码料机
         private System.Windows.Forms.ToolStripLabel toolStripLabel10;
         private System.Windows.Forms.ToolStripSeparator toolStripSeparatorBuzzerMute;
         private System.Windows.Forms.ToolStripLabel toolStripLabelBuzzerMute;
+        private System.Windows.Forms.ToolStripSeparator toolStripSeparatorCountReset;
+        private System.Windows.Forms.ToolStripLabel toolStripLabelCountReset;
         private System.Windows.Forms.ToolStripLabel toolStripLabel11;
         private System.Windows.Forms.ToolStripLabel toolStripLabel15;
         private System.Windows.Forms.ToolStripLabel toolStripLabel16;

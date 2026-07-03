@@ -6,10 +6,16 @@ using System.Windows.Forms;
 
 namespace 码料机
 {
-    /// <summary>独立试跑「有无料」与「金沃位置识别」算法，不经过 PLC 流程。</summary>
+    /// <summary>
+    /// 独立试跑「有无料」与「金沃位置识别」算法，不经过 PLC 流程。
+    /// 所有算法调用委托给 <see cref="Form1"/> 的 AlgorithmTest API，本窗体仅负责 UI 与日志展示。
+    /// </summary>
     public sealed class AlgorithmTestForm : Form
     {
+        #region 字段 — 控件与状态
+
         private readonly Form1 _main;
+
         private readonly TextBox _txtImage = new TextBox { Dock = DockStyle.Fill };
         private readonly PictureBox _picPreview = new PictureBox
         {
@@ -65,8 +71,15 @@ namespace 码料机
             Value = 0,
             Width = 72
         };
+
+        /// <summary>当前预览位图；切换路径前须 Dispose，避免锁定磁盘文件。</summary>
         private Image _previewImage;
         private SplitContainer _previewSplit;
+        private FlowLayoutPanel _previewToolbarHost;
+
+        #endregion
+
+        #region 构造与布局
 
         public AlgorithmTestForm(Form1 main)
         {
@@ -85,10 +98,10 @@ namespace 码料机
                 ColumnCount = 1,
                 RowCount = 4
             };
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 78f));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 22f));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));           // 图像路径
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 78f));       // 预览 + 日志
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 22f));       // 算法选项卡
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));           // 底部栏
             Controls.Add(root);
 
             root.Controls.Add(BuildImagePathRow(), 0, 0);
@@ -102,6 +115,7 @@ namespace 码料机
             var previewPanel = new Panel { Dock = DockStyle.Fill };
             previewPanel.Controls.Add(_lblRenderPath);
             previewPanel.Controls.Add(_picPreview);
+            EnsurePreviewSaveToolbar(previewPanel);
             _previewSplit.Panel1.Controls.Add(previewPanel);
             _previewSplit.Panel2.Controls.Add(_txtLog);
             root.Controls.Add(_previewSplit, 0, 1);
@@ -110,6 +124,7 @@ namespace 码料机
             root.Controls.Add(BuildBottomBar(), 0, 3);
 
             Load += (_, __) => OnFormLoad();
+            // SplitterDistance 依赖实际 Width，须在 Shown 后设置
             Shown += (_, __) => ApplyPreviewSplitRatio();
             FormClosed += (_, __) => DisposePreviewImage();
         }
@@ -231,15 +246,7 @@ namespace 码料机
                 AutoSize = true,
                 WrapContents = false
             };
-            var btnRun = new Button
-            {
-                Text = "运行有无料识别",
-                AutoSize = true,
-                BackColor = Color.FromArgb(37, 99, 235),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Padding = new Padding(12, 6, 12, 6)
-            };
+            var btnRun = MakeRunButton("运行有无料识别", Color.FromArgb(37, 99, 235));
             btnRun.FlatAppearance.BorderSize = 0;
             btnRun.Click += async (_, __) => await RunPresenceAsync();
             row.Controls.Add(btnRun);
@@ -342,6 +349,10 @@ namespace 码料机
             return panel;
         }
 
+        #endregion
+
+        #region 生命周期与 DLL 状态
+
         private void OnFormLoad()
         {
             UseMainImage();
@@ -364,6 +375,10 @@ namespace 码料机
                 $"有无料: {(s.PresenceEnabled ? (s.PresenceLoaded ? "已加载" : "未加载 — " + s.PresenceLoadError) : "未启用")}";
         }
 
+        #endregion
+
+        #region 测试图像来源
+
         private void BrowseImage()
         {
             using (var dlg = new OpenFileDialog())
@@ -384,6 +399,7 @@ namespace 码料机
             }
         }
 
+        /// <summary>载入主界面当前离线图或金沃采图路径。</summary>
         private void UseMainImage()
         {
             string path = _main.GetAlgorithmTestDefaultImagePath();
@@ -416,6 +432,7 @@ namespace 码料机
             AppendLog("[海康] 采图完成，已载入测试路径");
         }
 
+        /// <returns>有效路径；校验失败时写日志并返回 null。</returns>
         private string GetImagePathOrWarn()
         {
             string path = _txtImage.Text?.Trim();
@@ -427,22 +444,41 @@ namespace 码料机
             return path;
         }
 
-        private async Task RunPresenceAsync()
+        #endregion
+
+        #region 算法试跑
+
+        /// <summary>
+        /// 统一的试跑流程：校验图像 → 后台执行 → 日志与渲染图回显。
+        /// 算法在 <see cref="Task.Run"/> 中执行，避免阻塞 UI 线程。
+        /// </summary>
+        /// <param name="clearRenderOnFailure">失败时是否清空预览（金沃三项为 true，有无料为 false）。</param>
+        private async Task RunAlgorithmAsync<T>(
+            string logHeader,
+            Func<string, T> runOnPath,
+            Func<T, bool> isSuccess,
+            Func<T, string> getError,
+            Func<T, string> getSummary,
+            Func<T, string> getRenderPath,
+            bool clearRenderOnFailure)
         {
             string path = GetImagePathOrWarn();
             if (path == null) return;
+
             SetUiEnabled(false);
             try
             {
-                AppendLog("—— 有无料识别 ——");
-                var outcome = await Task.Run(() => _main.TestBearingPresence(path)).ConfigureAwait(true);
-                if (!outcome.AlgorithmOk)
+                AppendLog(logHeader);
+                var outcome = await Task.Run(() => runOnPath(path)).ConfigureAwait(true);
+                if (!isSuccess(outcome))
                 {
-                    AppendLog("[失败] " + (outcome.Error ?? "未知"));
+                    AppendLog("[失败] " + (getError(outcome) ?? "未知"));
+                    if (clearRenderOnFailure)
+                        ShowRenderPreview(null);
                     return;
                 }
-                AppendLog(outcome.Summary);
-                ShowRenderPreview(outcome.RenderImagePath);
+                AppendLog(getSummary(outcome));
+                ShowRenderPreview(getRenderPath(outcome));
             }
             finally
             {
@@ -450,80 +486,55 @@ namespace 码料机
             }
         }
 
-        private async Task RunMarkersAsync()
-        {
-            string path = GetImagePathOrWarn();
-            if (path == null) return;
-            SetUiEnabled(false);
-            try
-            {
-                AppendLog("—— 黑圆检测 ——");
-                var outcome = await Task.Run(() => _main.TestJinwoMarkers(path)).ConfigureAwait(true);
-                if (!outcome.Success)
-                {
-                    AppendLog("[失败] " + (outcome.Error ?? "未知"));
-                    ShowRenderPreview(null);
-                    return;
-                }
-                AppendLog(outcome.Summary);
-                ShowRenderPreview(outcome.RenderImagePath);
-            }
-            finally
-            {
-                SetUiEnabled(true);
-            }
-        }
+        private Task RunPresenceAsync() =>
+            RunAlgorithmAsync(
+                "—— 有无料识别 ——",
+                path => _main.TestBearingPresence(path),
+                o => o.AlgorithmOk,
+                o => o.Error,
+                o => o.Summary,
+                o => o.RenderImagePath,
+                clearRenderOnFailure: false);
 
-        private async Task RunPoseAsync()
+        private Task RunMarkersAsync() =>
+            RunAlgorithmAsync(
+                "—— 黑圆检测 ——",
+                path => _main.TestJinwoMarkers(path),
+                o => o.Success,
+                o => o.Error,
+                o => o.Summary,
+                o => o.RenderImagePath,
+                clearRenderOnFailure: true);
+
+        private Task RunPoseAsync()
         {
-            string path = GetImagePathOrWarn();
-            if (path == null) return;
             int placed = (int)_numPlaced.Value;
-            SetUiEnabled(false);
-            try
-            {
-                AppendLog($"—— 单点算位（已放={placed}）——");
-                var outcome = await Task.Run(() => _main.TestJinwoPose(path, placed)).ConfigureAwait(true);
-                if (!outcome.Success)
-                {
-                    AppendLog("[失败] " + (outcome.Error ?? "未知"));
-                    ShowRenderPreview(null);
-                    return;
-                }
-                AppendLog(outcome.Summary);
-                ShowRenderPreview(outcome.RenderImagePath);
-            }
-            finally
-            {
-                SetUiEnabled(true);
-            }
+            return RunAlgorithmAsync(
+                $"—— 单点算位（已放={placed}）——",
+                path => _main.TestJinwoPose(path, placed),
+                o => o.Success,
+                o => o.Error,
+                o => o.Summary,
+                o => o.RenderImagePath,
+                clearRenderOnFailure: true);
         }
 
-        private async Task RunPlanAsync()
-        {
-            string path = GetImagePathOrWarn();
-            if (path == null) return;
-            SetUiEnabled(false);
-            try
-            {
-                AppendLog("—— 全箱中心规划 ——");
-                var outcome = await Task.Run(() => _main.TestJinwoAllCenters(path)).ConfigureAwait(true);
-                if (!outcome.Success)
-                {
-                    AppendLog("[失败] " + (outcome.Error ?? "未知"));
-                    ShowRenderPreview(null);
-                    return;
-                }
-                AppendLog(outcome.Summary);
-                ShowRenderPreview(outcome.RenderImagePath);
-            }
-            finally
-            {
-                SetUiEnabled(true);
-            }
-        }
+        private Task RunPlanAsync() =>
+            RunAlgorithmAsync(
+                "—— 全箱中心规划 ——",
+                path => _main.TestJinwoAllCenters(path),
+                o => o.Success,
+                o => o.Error,
+                o => o.Summary,
+                o => o.RenderImagePath,
+                clearRenderOnFailure: true);
 
+        /// <summary>试跑期间仅切换等待光标；不禁用控件以免阻塞关闭窗体。</summary>
         private void SetUiEnabled(bool enabled) => UseWaitCursor = !enabled;
+
+        #endregion
+
+        #region 预览与日志
 
         private void ShowRenderPreview(string renderPath)
         {
@@ -564,5 +575,60 @@ namespace 码料机
             _previewImage = null;
         }
 
+        /// <summary>在预览区右上角叠加「保存图片」按钮。</summary>
+        private void EnsurePreviewSaveToolbar(Panel host)
+        {
+            if (_previewToolbarHost != null) return;
+
+            _previewToolbarHost = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            var btnSave = new Button
+            {
+                Text = "保存图片",
+                BackColor = Color.FromArgb(79, 70, 229),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                FlatAppearance = { BorderSize = 0 },
+                Font = UiLayoutHelper.Body,
+                AutoSize = false,
+                Size = new Size(96, UiLayoutHelper.PreviewToolbarButtonHeight),
+                Cursor = Cursors.Hand,
+                TabStop = false
+            };
+            btnSave.Click += (_, __) => SavePreviewImage();
+            _previewToolbarHost.Controls.Add(btnSave);
+            host.Controls.Add(_previewToolbarHost);
+
+            void LayoutToolbar()
+            {
+                _previewToolbarHost.Location = new Point(
+                    Math.Max(8, host.ClientSize.Width - _previewToolbarHost.Width - 8),
+                    8);
+                _previewToolbarHost.BringToFront();
+            }
+            host.Resize += (_, __) => LayoutToolbar();
+            LayoutToolbar();
+        }
+
+        /// <summary>优先保存内存中的预览图；无预览时按路径另存磁盘文件。</summary>
+        private void SavePreviewImage()
+        {
+            if (_previewImage != null)
+            {
+                ImageSaveHelper.TrySaveImage(this, _previewImage, "算法测试");
+                return;
+            }
+            string path = _txtImage.Text?.Trim();
+            ImageSaveHelper.TrySaveImageFromPath(this, path, "算法测试");
+        }
+
+        #endregion
     }
 }

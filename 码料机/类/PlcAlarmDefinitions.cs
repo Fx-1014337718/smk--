@@ -38,5 +38,11 @@ namespace 码料机
 
         /// <summary>上位机写 PLC：1=箱内异物报警（软件报警_空箱异物检测）。</summary>
         public const string PcForeignObjectAlarmBitName = "软件报警_空箱异物检测(D0.11)";
+
+        /// <summary>上位机写 PLC：1=运动中超限报警（软件报警_位置超限）。</summary>
+        public const string PcPositionLimitAlarmBitName = "软件报警_位置超限(D0.12)";
+
+        /// <summary>上位机写 PLC：1=拍照后算法识别失败（软件报警_算法识别失败）。</summary>
+        public const string PcVisionRecognizeFailAlarmBitName = "软件报警_算法识别失败(D0.13)";
     }
 }

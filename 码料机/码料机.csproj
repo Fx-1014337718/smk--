@@ -139,9 +139,13 @@
     <Compile Include="类\PlcModbusSession.cs" />
     <Compile Include="类\ProcessPipelineLog.cs" />
     <Compile Include="类\DialogPrompts.cs" />
+    <Compile Include="类\ImageSaveHelper.cs" />
+    <Compile Include="类\LogExportHelper.cs" />
     <Compile Include="类\IniAPI.cs" />
     <Compile Include="类\ZAxisConfig.cs" />
     <Compile Include="类\PhotoPositionConfig.cs" />
+    <Compile Include="类\TrackBufferCountConfig.cs" />
+    <Compile Include="类\AlarmPositionLimitConfig.cs" />
     <Compile Include="类\StationUiSelectionConfig.cs" />
     <Compile Include="类\RuntimeOperationConfig.cs" />
     <Compile Include="类\UiLayoutHelper.cs" />

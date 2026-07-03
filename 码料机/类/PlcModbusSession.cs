@@ -179,6 +179,35 @@ namespace 码料机
             Run(m => m.WriteMultipleRegisters(Config.SlaveId, start, buf));
         }
 
+        public float ReadFloat(ushort start)
+        {
+            var regs = Run(m => m.ReadHoldingRegisters(Config.SlaveId, start, 2));
+            return DecodeFloat(regs[0], regs[1], Config.FloatWordOrder);
+        }
+
+        /// <summary>读 DINT（连续 2 字），字序与 <see cref="PlcConfig.FloatWordOrder"/> 一致。</summary>
+        public int ReadInt32(ushort start)
+        {
+            var regs = Run(m => m.ReadHoldingRegisters(Config.SlaveId, start, 2));
+            return DecodeInt32(regs[0], regs[1], Config.FloatWordOrder);
+        }
+
+        /// <summary>写 DINT（连续 2 字），字序与 <see cref="PlcConfig.FloatWordOrder"/> 一致。</summary>
+        public void WriteInt32(ushort start, int value)
+        {
+            LogSend($"WriteInt32 站{Config.SlaveId} 地址={start} 值={value}");
+            Run(m => m.WriteMultipleRegisters(Config.SlaveId, start, EncodeInt32(value, Config.FloatWordOrder)));
+        }
+
+        public void ReadFourFloats(ushort start, out float x, out float y, out float z, out float rz)
+        {
+            var regs = Run(m => m.ReadHoldingRegisters(Config.SlaveId, start, 8));
+            x = DecodeFloat(regs[0], regs[1], Config.FloatWordOrder);
+            y = DecodeFloat(regs[2], regs[3], Config.FloatWordOrder);
+            z = DecodeFloat(regs[4], regs[5], Config.FloatWordOrder);
+            rz = DecodeFloat(regs[6], regs[7], Config.FloatWordOrder);
+        }
+
         public Task WritePickAndPlaceAsync(float pickX, float pickY, PlcPlacementTarget place, CancellationToken ct = default)
         {
             if (!Config.Enabled) return Task.CompletedTask;
@@ -264,6 +293,72 @@ namespace 码料机
                 case PlcFloatWordOrder.BADC: return new[] { W(le[2], le[3]), W(le[0], le[1]) };
                 case PlcFloatWordOrder.DCBA: return new[] { W(le[0], le[1]), W(le[2], le[3]) };
                 default: return new[] { ab, cd };
+            }
+        }
+
+        static float DecodeFloat(ushort w0, ushort w1, PlcFloatWordOrder order)
+        {
+            ushort ab, cd;
+            switch (order)
+            {
+                case PlcFloatWordOrder.ABCD: ab = w0; cd = w1; break;
+                case PlcFloatWordOrder.CDAB: cd = w0; ab = w1; break;
+                case PlcFloatWordOrder.BADC:
+                    ab = (ushort)(((w0 & 0xFF) << 8) | (w0 >> 8));
+                    cd = (ushort)(((w1 & 0xFF) << 8) | (w1 >> 8));
+                    break;
+                case PlcFloatWordOrder.DCBA:
+                    ab = (ushort)(((w1 & 0xFF) << 8) | (w1 >> 8));
+                    cd = (ushort)(((w0 & 0xFF) << 8) | (w0 >> 8));
+                    break;
+                default: ab = w0; cd = w1; break;
+            }
+            byte[] le = { (byte)(cd & 0xFF), (byte)(cd >> 8), (byte)(ab & 0xFF), (byte)(ab >> 8) };
+            return BitConverter.ToSingle(le, 0);
+        }
+
+        static int DecodeInt32(ushort w0, ushort w1, PlcFloatWordOrder order)
+        {
+            ushort hi, lo;
+            switch (order)
+            {
+                case PlcFloatWordOrder.ABCD: hi = w0; lo = w1; break;
+                case PlcFloatWordOrder.CDAB: lo = w0; hi = w1; break;
+                case PlcFloatWordOrder.BADC:
+                    hi = (ushort)(((w0 & 0xFF) << 8) | (w0 >> 8));
+                    lo = (ushort)(((w1 & 0xFF) << 8) | (w1 >> 8));
+                    break;
+                case PlcFloatWordOrder.DCBA:
+                    hi = (ushort)(((w1 & 0xFF) << 8) | (w1 >> 8));
+                    lo = (ushort)(((w0 & 0xFF) << 8) | (w0 >> 8));
+                    break;
+                default: hi = w0; lo = w1; break;
+            }
+            return (int)((uint)hi << 16 | lo);
+        }
+
+        static ushort[] EncodeInt32(int value, PlcFloatWordOrder order)
+        {
+            uint u = unchecked((uint)value);
+            ushort hi = (ushort)(u >> 16);
+            ushort lo = (ushort)(u & 0xFFFF);
+            switch (order)
+            {
+                case PlcFloatWordOrder.ABCD: return new[] { hi, lo };
+                case PlcFloatWordOrder.CDAB: return new[] { lo, hi };
+                case PlcFloatWordOrder.BADC:
+                    return new[]
+                    {
+                        (ushort)(((hi & 0xFF) << 8) | (hi >> 8)),
+                        (ushort)(((lo & 0xFF) << 8) | (lo >> 8))
+                    };
+                case PlcFloatWordOrder.DCBA:
+                    return new[]
+                    {
+                        (ushort)(((lo & 0xFF) << 8) | (lo >> 8)),
+                        (ushort)(((hi & 0xFF) << 8) | (hi >> 8))
+                    };
+                default: return new[] { hi, lo };
             }
         }
     }

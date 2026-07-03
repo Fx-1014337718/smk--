@@ -44,7 +44,7 @@ namespace 码料机
             AcceptButton = btnClose;
         }
 
-        public void Bind(ushort alarmWord, int pcMaterialBit)
+        public void Bind(ushort alarmWord, int pcMaterialBit, int pcPositionLimitBit = 12, int pcVisionRecognizeFailBit = 13)
         {
             _list.Items.Clear();
             foreach (var bit in PlcAlarmDefinitions.PlcToPcAlarms)
@@ -63,6 +63,20 @@ namespace 码料机
             pcItem.SubItems.Add(pcOn ? "1(异物)" : "0(正常)");
             pcItem.ForeColor = pcOn ? Color.DarkGreen : Color.DimGray;
             _list.Items.Add(pcItem);
+            bool limitOn = (alarmWord & (1 << pcPositionLimitBit)) != 0;
+            var limitItem = new ListViewItem($"D0.{pcPositionLimitBit}");
+            limitItem.SubItems.Add(PlcAlarmDefinitions.PcPositionLimitAlarmBitName);
+            limitItem.SubItems.Add(limitOn ? "1(超限)" : "0(正常)");
+            limitItem.ForeColor = limitOn ? Color.FromArgb(197, 48, 48) : Color.DimGray;
+            if (limitOn) limitItem.Font = new Font(limitItem.Font, FontStyle.Bold);
+            _list.Items.Add(limitItem);
+            bool visionFailOn = (alarmWord & (1 << pcVisionRecognizeFailBit)) != 0;
+            var visionFailItem = new ListViewItem($"D0.{pcVisionRecognizeFailBit}");
+            visionFailItem.SubItems.Add(PlcAlarmDefinitions.PcVisionRecognizeFailAlarmBitName);
+            visionFailItem.SubItems.Add(visionFailOn ? "1(识别失败)" : "0(正常)");
+            visionFailItem.ForeColor = visionFailOn ? Color.FromArgb(197, 48, 48) : Color.DimGray;
+            if (visionFailOn) visionFailItem.Font = new Font(visionFailItem.Font, FontStyle.Bold);
+            _list.Items.Add(visionFailItem);
         }
     }
 }

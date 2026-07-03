@@ -67,6 +67,7 @@ namespace 码料机
             public PlacementSlotCanvas Canvas;
             public PlacementGridSchematic Grid;
             public Panel VisualHost;
+            public FlowLayoutPanel SaveToolbarHost;
             public Label LblPending;
             public Label LblLayerInfo;
             public Label LblDetail;
@@ -141,6 +142,7 @@ namespace 码料机
             ui.VisualHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(30, 41, 59) };
             ui.VisualHost.Controls.Add(ui.Grid);
             ui.VisualHost.Controls.Add(ui.Canvas);
+            EnsureCanvasSaveToolbar(ui);
 
             ui.Canvas.SlotClicked += (_, idx) => OnSlotSelected(isLeft, idx);
             ui.Canvas.SlotDoubleClicked += (_, idx) => ApplyPendingSlot(isLeft, idx);
@@ -246,6 +248,62 @@ namespace 码料机
             root.Controls.Add(split, 0, 1);
             page.Controls.Add(root);
             return page;
+        }
+
+        private void EnsureCanvasSaveToolbar(StationPageUi ui)
+        {
+            if (ui.SaveToolbarHost != null) return;
+            ui.SaveToolbarHost = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            };
+            var btnSave = MakeOverlayButton("保存图片", Color.FromArgb(79, 70, 229));
+            btnSave.Click += (_, __) => SaveCanvasImage(ui);
+            ui.SaveToolbarHost.Controls.Add(btnSave);
+            ui.VisualHost.Controls.Add(ui.SaveToolbarHost);
+            void LayoutToolbar()
+            {
+                ui.SaveToolbarHost.Location = new Point(
+                    Math.Max(8, ui.VisualHost.ClientSize.Width - ui.SaveToolbarHost.Width - 8),
+                    8);
+                ui.SaveToolbarHost.BringToFront();
+            }
+            ui.VisualHost.Resize += (_, __) => LayoutToolbar();
+            LayoutToolbar();
+        }
+
+        private static Button MakeOverlayButton(string text, Color back) =>
+            new Button
+            {
+                Text = text,
+                AutoSize = false,
+                Size = new Size(96, UiLayoutHelper.PreviewToolbarButtonHeight),
+                Font = new Font(UiLayoutHelper.FontFamily, 12f, FontStyle.Bold),
+                BackColor = back,
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                FlatAppearance = { BorderSize = 0 },
+                Cursor = Cursors.Hand,
+                TabStop = false,
+                Margin = new Padding(4, 0, 0, 0),
+            };
+
+        private void SaveCanvasImage(StationPageUi ui)
+        {
+            using (var bmp = ui.Canvas.CaptureDisplayBitmap())
+            {
+                if (bmp != null)
+                {
+                    ImageSaveHelper.TrySaveImage(this, bmp, "手动放料");
+                    return;
+                }
+            }
+            ImageSaveHelper.TrySaveImageFromPath(this, _txtImage.Text?.Trim(), "手动放料");
         }
 
         private Control BuildImageRow()

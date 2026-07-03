@@ -26,6 +26,8 @@ namespace 码料机
 
         private readonly PhotoStationPanel _rightPanel;
 
+        private readonly AlarmLimitPanel _alarmPanel;
+
 
 
         public PhotoPositionsForm(Form1 main)
@@ -51,17 +53,25 @@ namespace 码料机
 
             _rightPanel = new PhotoStationPanel();
 
+            _alarmPanel = new AlarmLimitPanel();
+
             _leftPanel.Dock = DockStyle.Fill;
 
             _rightPanel.Dock = DockStyle.Fill;
+
+            _alarmPanel.Dock = DockStyle.Fill;
 
             tabPageLeft.Controls.Add(_leftPanel);
 
             tabPageRight.Controls.Add(_rightPanel);
 
+            tabPageAlarm.Controls.Add(_alarmPanel);
+
             _leftPanel.Changed += (_, __) => _dirty = true;
 
             _rightPanel.Changed += (_, __) => _dirty = true;
+
+            _alarmPanel.Changed += (_, __) => _dirty = true;
 
         }
 
@@ -82,6 +92,8 @@ namespace 码料机
             _leftPanel.LoadFrom(left);
 
             _rightPanel.LoadFrom(right);
+
+            _alarmPanel.LoadFrom(AlarmPositionLimitConfig.Load(_iniPath));
 
             ApplyRecognitionToEmptyXY(true);
 
@@ -221,13 +233,23 @@ namespace 码料机
 
         {
 
-            if (!TryBuildConfigs(out var left, out var right)) return;
+            if (!TryBuildConfigs(out var left, out var right, out var alarm)) return;
 
             if (!PhotoPositionConfig.SaveBoth(left, right, _iniPath))
 
             {
 
                 DialogPrompts.ShowError("写入配置文件失败，请检查程序是否有写入权限。");
+
+                return;
+
+            }
+
+            if (!alarm.Save(_iniPath))
+
+            {
+
+                DialogPrompts.ShowError("写入报警位置配置失败，请检查程序是否有写入权限。");
 
                 return;
 
@@ -281,9 +303,11 @@ namespace 码料机
 
                 case DialogPrompts.UnsavedCloseAction.Save:
 
-                    if (!TryBuildConfigs(out var left, out var right)) return false;
+                    if (!TryBuildConfigs(out var left, out var right, out var alarm)) return false;
 
                     if (!PhotoPositionConfig.SaveBoth(left, right, _iniPath)) return false;
+
+                    if (!alarm.Save(_iniPath)) return false;
 
                     MainForm?.ReloadPhotoPositionConfig(pushToPlc: true);
 
@@ -305,15 +329,19 @@ namespace 码料机
 
 
 
-        private bool TryBuildConfigs(out PhotoPositionConfig left, out PhotoPositionConfig right)
+        private bool TryBuildConfigs(out PhotoPositionConfig left, out PhotoPositionConfig right, out AlarmPositionLimitConfig alarm)
 
         {
 
             left = right = null;
 
+            alarm = null;
+
             if (!_leftPanel.TryRead(out left, "左机台")) return false;
 
             if (!_rightPanel.TryRead(out right, "右机台")) return false;
+
+            if (!_alarmPanel.TryRead(out alarm)) return false;
 
             return true;
 
@@ -690,6 +718,236 @@ namespace 码料机
                 {
 
                     DialogPrompts.ShowWarning($"{name} 请输入有效数字（单位：度）。");
+
+                    return false;
+
+                }
+
+                return true;
+
+            }
+
+        }
+
+
+
+        private sealed class AlarmLimitPanel : Panel
+
+        {
+
+            private readonly CheckBox _enabled = new CheckBox { Text = "启用运动超限报警", AutoSize = true };
+
+            private readonly TextBox _minX = new TextBox(), _maxX = new TextBox();
+
+            private readonly TextBox _minY = new TextBox(), _maxY = new TextBox();
+
+            private readonly TextBox _minZ = new TextBox(), _maxZ = new TextBox();
+
+
+
+            public event EventHandler Changed;
+
+
+
+            public AlarmLimitPanel()
+
+            {
+
+                AutoScroll = true;
+
+                var layout = new TableLayoutPanel
+
+                {
+
+                    Dock = DockStyle.Top,
+
+                    AutoSize = true,
+
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+
+                    ColumnCount = 1,
+
+                    Padding = new Padding(4),
+
+                };
+
+                var hint = new Label
+
+                {
+
+                    AutoSize = true,
+
+                    MaximumSize = new Size(480, 0),
+
+                    ForeColor = SystemColors.GrayText,
+
+                    Text = "机器人运动过程中，若 PLC 反馈坐标超出下列范围，上位机写 D0.12=1。\n" +
+
+                           "各轴仅当「最大＞最小」时参与判断；未配置 D_机器人运动中 时由坐标变化推断运动。",
+
+                    Margin = new Padding(0, 0, 0, 8),
+
+                };
+
+                layout.Controls.Add(hint);
+
+                layout.Controls.Add(_enabled);
+
+                layout.Controls.Add(BuildLimitGroup("X 轴 (mm)", _minX, _maxX));
+
+                layout.Controls.Add(BuildLimitGroup("Y 轴 (mm)", _minY, _maxY));
+
+                layout.Controls.Add(BuildLimitGroup("Z 轴 (mm)", _minZ, _maxZ));
+
+                Controls.Add(layout);
+
+                _enabled.CheckedChanged += (_, __) => Changed?.Invoke(this, EventArgs.Empty);
+
+                foreach (var tb in new[] { _minX, _maxX, _minY, _maxY, _minZ, _maxZ })
+
+                    tb.TextChanged += (_, __) => Changed?.Invoke(this, EventArgs.Empty);
+
+            }
+
+
+
+            private static GroupBox BuildLimitGroup(string title, TextBox min, TextBox max)
+
+            {
+
+                var g = new GroupBox
+
+                {
+
+                    Text = title,
+
+                    Dock = DockStyle.Top,
+
+                    MinimumSize = new Size(0, 72),
+
+                    Padding = new Padding(10, 6, 10, 10),
+
+                    Font = UiLayoutHelper.Body,
+
+                    Margin = new Padding(0, 0, 0, 8),
+
+                };
+
+                var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1 };
+
+                for (int i = 0; i < 4; i++)
+
+                    t.ColumnStyles.Add(new ColumnStyle(i % 2 == 0 ? SizeType.AutoSize : SizeType.Percent, i % 2 == 1 ? 50F : 0));
+
+                AddLimitCell(t, 0, "最小:", min);
+
+                AddLimitCell(t, 2, "最大:", max);
+
+                g.Controls.Add(t);
+
+                return g;
+
+            }
+
+
+
+            private static void AddLimitCell(TableLayoutPanel t, int col, string label, TextBox box)
+
+            {
+
+                var lbl = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Right, Margin = new Padding(0, 6, 4, 0) };
+
+                box.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+
+                box.Margin = new Padding(0, 2, 8, 2);
+
+                t.Controls.Add(lbl, col, 0);
+
+                t.Controls.Add(box, col + 1, 0);
+
+            }
+
+
+
+            public void LoadFrom(AlarmPositionLimitConfig c)
+
+            {
+
+                _enabled.Checked = c?.Enabled == true;
+
+                _minX.Text = Format(c?.MinX ?? 0);
+
+                _maxX.Text = Format(c?.MaxX ?? 0);
+
+                _minY.Text = Format(c?.MinY ?? 0);
+
+                _maxY.Text = Format(c?.MaxY ?? 0);
+
+                _minZ.Text = Format(c?.MinZ ?? 0);
+
+                _maxZ.Text = Format(c?.MaxZ ?? 0);
+
+            }
+
+
+
+            public bool TryRead(out AlarmPositionLimitConfig c)
+
+            {
+
+                c = new AlarmPositionLimitConfig { Enabled = _enabled.Checked };
+
+                if (!TryParseOptional(_minX, "报警位置 X 最小", out double minX)) return false;
+
+                if (!TryParseOptional(_maxX, "报警位置 X 最大", out double maxX)) return false;
+
+                if (!TryParseOptional(_minY, "报警位置 Y 最小", out double minY)) return false;
+
+                if (!TryParseOptional(_maxY, "报警位置 Y 最大", out double maxY)) return false;
+
+                if (!TryParseOptional(_minZ, "报警位置 Z 最小", out double minZ)) return false;
+
+                if (!TryParseOptional(_maxZ, "报警位置 Z 最大", out double maxZ)) return false;
+
+                c.MinX = minX; c.MaxX = maxX;
+
+                c.MinY = minY; c.MaxY = maxY;
+
+                c.MinZ = minZ; c.MaxZ = maxZ;
+
+                if (c.Enabled && !c.HasAnyAxisLimit())
+
+                {
+
+                    DialogPrompts.ShowWarning("已启用报警位置，请至少为一根轴填写有效的最小/最大范围（最大须大于最小）。");
+
+                    return false;
+
+                }
+
+                return true;
+
+            }
+
+
+
+            private static string Format(double v) => Math.Abs(v) < 1e-9 ? "" : v.ToString("G");
+
+
+
+            private static bool TryParseOptional(TextBox tb, string name, out double value)
+
+            {
+
+                value = 0;
+
+                if (string.IsNullOrWhiteSpace(tb.Text)) return true;
+
+                if (!double.TryParse(tb.Text.Trim(), out value))
+
+                {
+
+                    DialogPrompts.ShowWarning($"{name} 请输入有效数字。");
 
                     return false;
 

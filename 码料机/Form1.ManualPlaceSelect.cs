@@ -235,6 +235,7 @@ namespace 码料机
             st.ManualPendingSlotIndex = slotIndex;
             var slot = st.BoxPlan.Slots[slotIndex];
             TEXT($"[手动放料] {st.Name} 已指定下次放料：{slot.Label} X={slot.WorldX:F2} Y={slot.WorldY:F2} Z={slot.Z:F2}");
+            KickPlcHandshakeAfterManualSlotPending(st, isLeft);
             return true;
         }
 
@@ -277,6 +278,12 @@ namespace 码料机
             st.ManualPendingSlotIndex = -1;
             SyncStationProgressFromCount(st, st.ManualCompletedOrder.Count);
             st.IsFull = st.ManualCompletedOrder.Count >= GetBoxPlanTotal(st);
+        }
+
+        private void KickPlcHandshakeAfterManualSlotPending(StationData st, bool isLeft)
+        {
+            KickPlcHandshakeAfterPlaceArm(st, isLeft,
+                "选位已保存；连接 PLC 并保持「空闲」后，PLC 发放料请求即可下发。");
         }
 
         private string DescribeManualSlotSelectMode()

@@ -165,6 +165,7 @@ namespace 码料机
                 _offlinePreviewPicture.Image = (Image)bmp.Clone();
                 _offlinePreviewPicture.Visible = true;
                 _btnLoadTestImage?.BringToFront();
+                _btnSavePreviewImage?.BringToFront();
                 _btnHikGrab?.BringToFront();
                 LayoutPreviewToolbar();
             }

@@ -14,7 +14,7 @@ namespace 码料机
         public static readonly string IniDir = Path.Combine(Application.StartupPath, "配置文件");
         public static readonly string IniFile = Path.Combine(IniDir, "拍照位置.ini");
 
-        /// <summary>取料位置（软件启动连接 PLC、位置设定保存后下发，取料请求时不重复写）。</summary>
+        /// <summary>取料位置（A/B 取料请求识料后下发至 D4200/D4208；连接 PLC 或位置保存后也会预下发）。</summary>
         public double PickX { get; set; }
         public double PickY { get; set; }
         public double PickZ { get; set; }

@@ -82,6 +82,16 @@ namespace 码料机
 
         public void DisposeImage() => SetImage(null);
 
+        /// <summary>将当前画布（含放料位标记）渲染为位图，供保存图片使用。</summary>
+        public Bitmap CaptureDisplayBitmap()
+        {
+            if (Width < 1 || Height < 1 || (_image == null && _slots.Count == 0))
+                return null;
+            var bmp = new Bitmap(Width, Height);
+            DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height));
+            return bmp;
+        }
+
         public void SetSlots(IEnumerable<SlotMarker> slots)
         {
             _slots.Clear();

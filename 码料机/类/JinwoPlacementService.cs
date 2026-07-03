@@ -20,6 +20,8 @@ namespace 码料机
 
         public bool IsEnabled => _ini?.Enabled == true;
         public bool IsLoaded => _dll != null;
+        /// <summary>金沃算法.ini [托盘] 层数；&gt;0 时优先于 DLL 推导层数（用于竖直取放档 2-3 等）。</summary>
+        public int TrayLayersFromIni => _ini?.TrayLayers ?? 0;
         public bool UndistortionEnabled => _undistortion != null && _undistortion.IsReady;
         public string LoadError => _loadError;
         public string UndistortionError => _undistortionError;
