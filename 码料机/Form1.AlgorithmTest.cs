@@ -160,6 +160,9 @@ namespace 码料机
                 return outcome;
             }
 
+            var st = currentStation ?? leftStation;
+            bool isLeft = ResolveNinePointCalibIsLeft(st);
+
             try
             {
                 if (!_jinwo.TryPrepareAlgorithmImage(imagePath, out string prepared, out string prepErr))
@@ -170,7 +173,7 @@ namespace 码料机
                 }
                 outcome.PreparedImagePath = prepared;
 
-                if (!_jinwo.TryDetectMarkers(imagePath, out JinwoMarkerResult markers, out string markerErr))
+                if (!_jinwo.TryDetectMarkers(imagePath, isLeft, out JinwoMarkerResult markers, out string markerErr))
                 {
                     outcome.Error = markerErr ?? "黑圆检测失败";
                     outcome.Summary = outcome.Error;
@@ -242,7 +245,7 @@ namespace 码料机
                 outcome.PreparedImagePath = prepared;
 
                 var cfg = st.JinwoTray;
-                var pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, out string effectPath, forceSaveEffectImage: true);
+                var pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, ResolveNinePointCalibIsLeft(st), out string effectPath, forceSaveEffectImage: true);
                 ApplyConfiguredJinwoZAndRz(st, ref pose);
                 outcome.Pose = pose;
                 string dllEffect = ResolveJinwoDllEffectPath(effectPath);
@@ -297,7 +300,7 @@ namespace 码料机
                 outcome.PreparedImagePath = prepared;
 
                 var cfg = st.JinwoTray;
-                var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, 0, out string effectPath, forceSaveEffectImage: true);
+                var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, 0, ResolveNinePointCalibIsLeft(st), out string effectPath, forceSaveEffectImage: true);
                 _jinwo.TryGetEffectiveGrid(ref cfg, out int effRows, out int effCols, out int capacity);
                 JinwoPlacementOrder.SortCenters(centers, effRows > 0 ? effRows : st.MaxRows, effCols > 0 ? effCols : st.MaxCols);
                 outcome.CenterCount = centers?.Length ?? 0;

@@ -43,6 +43,15 @@ namespace 码料机
         public PhotoPositionConfig GetPhotoPositions(bool isLeft) => isLeft ? PhotoPositionsLeft : PhotoPositionsRight;
         private bool IsLeftStation(StationData st) => st == null || ReferenceEquals(st, leftStation);
 
+        /// <summary>九点标定 A/B 侧：优先显式取料请求侧，其次 PLC 正在请求的取料信号，再次工位上次取料应答侧。</summary>
+        private bool ResolveNinePointCalibIsLeft(StationData st, bool? pickRequestIsLeft = null)
+        {
+            if (pickRequestIsLeft.HasValue) return pickRequestIsLeft.Value;
+            if (TryReadActivePlcPickRequestSide(out bool activePick)) return activePick;
+            if (st?.LastPickRequestIsLeft != null) return st.LastPickRequestIsLeft.Value;
+            return IsLeftStation(st);
+        }
+
         private enum LayoutType { Matrix, Frame } // 箱内排布：矩阵满铺或木框周圈
 
         private class StationData
@@ -59,6 +68,8 @@ namespace 码料机
             /// <summary>箱在平面内位姿（默认单位姿；排料坐标变换用）。</summary>
             public BoxPose VisionBoxPose = BoxPose.Identity;
             public float PickCenterX, PickCenterY, PlaceOffsetLocalX, PlaceOffsetLocalY; // 取料圆心、首孔相对补偿（箱内 mm）
+            /// <summary>最近一次 PLC 取料请求侧：true=A/D4018，false=B/D4020；用于九点标定文件选择。</summary>
+            public bool? LastPickRequestIsLeft;
             public int MaxCols, MaxRows, MaxLayers; // 矩阵模式最大行列层；木框时 MaxCols=槽数
             public List<PointF> FramePositions; // 木框模式：每槽圆心箱内局部坐标列表
             /// <summary>当前箱放料视觉是否已完成：false=下次放料请求需拍照识箱；true=仅下发下一放料目标。换箱/确认参数时清零。</summary>
@@ -970,7 +981,7 @@ namespace 码料机
                             await Task.Delay(markerDelayMs).ConfigureAwait(true);
                     }
                     markerOk = await Task.Run(() =>
-                        _jinwo.TryDetectMarkers(imagePath, out markers, out markerErr)).ConfigureAwait(true);
+                        _jinwo.TryDetectMarkers(imagePath, ResolveNinePointCalibIsLeft(st), out markers, out markerErr)).ConfigureAwait(true);
                     if (markerOk) break;
                     if (attempt < maxMarkerAttempts)
                         ProcessPipelineLog.Write($"[算法识别] 黑圆检测 第{attempt}次失败: {markerErr}");
@@ -1309,7 +1320,8 @@ namespace 码料机
                     s.BoxLength, s.BoxWidth, s.BoxHeight,
                     s.OuterDiam, s.SingleProductHeight,
                     0, 0, 0,
-                    gridFromAlgorithmOnly: true);
+                    gridFromAlgorithmOnly: true,
+                    isLeft: IsLeftStation(s));
                 var tray = s.JinwoTray;
                 int effRows = 0, effCols = 0, capacity = 0;
                 if (!_jinwo.TryGetEffectiveGrid(ref tray, out effRows, out effCols, out capacity)

@@ -111,6 +111,8 @@ namespace 码料机
             _editorUndist.SetBool("裁剪黑边", c.UndistortionCropBlackEdge);
 
             _editorNine.SetText("标定文件", c.NinePointRobotCalibFile);
+            _editorNine.SetText("左标定文件", c.NinePointRobotCalibFileLeft);
+            _editorNine.SetText("右标定文件", c.NinePointRobotCalibFileRight);
         }
 
         private bool TryBuildConfig(out JinwoAlgorithmConfig c)
@@ -175,6 +177,8 @@ namespace 码料机
             cfg.UndistortionCropBlackEdge = _editorUndist.GetBool("裁剪黑边");
 
             cfg.NinePointRobotCalibFile = _editorNine.GetText("标定文件");
+            cfg.NinePointRobotCalibFileLeft = _editorNine.GetText("左标定文件");
+            cfg.NinePointRobotCalibFileRight = _editorNine.GetText("右标定文件");
             c = cfg;
             return true;
         }
@@ -332,7 +336,11 @@ namespace 码料机
             var ed = new JinwoParamsEditor();
             ed.Changed += MarkDirty;
             ed.AddHint("robot_calib.yml：DLL 像素转机械坐标（工作目录=配置文件，与金沃dll-测试 一致）。");
-            ed.AddPath("标定文件", "标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
+            ed.AddHint("左右工位可分别指定标定文件；左/右留空则共用下方「标定文件」。");
+            ed.AddHint("标定侧由 PLC 取料请求决定：A/左 D4018 → 左标定文件，B/右 D4020 → 右标定文件。");
+            ed.AddPath("标定文件", "默认标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
+            ed.AddPath("左标定文件", "A/左取料标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
+            ed.AddPath("右标定文件", "B/右取料标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
             return ed;
         }
 

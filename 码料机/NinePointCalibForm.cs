@@ -29,7 +29,14 @@ namespace 码料机
             ForeColor = SystemColors.GrayText,
             Text = "camera_calib.yml：用于畸变矫正。" + Environment.NewLine
                 + "robot_calib.yml：用于像素坐标转机械坐标（u、v 须为畸变矫正后图像上的像素，与九点标定示例一致）。" + Environment.NewLine
-                + "上述路径分别对应 配置文件\\金沃算法.ini 中 [畸变矫正] 与 [九点标定] 的「标定文件」。"
+                + "上述路径分别对应 配置文件\\金沃算法.ini 中 [畸变矫正] 与 [九点标定] 的标定文件（左右工位可分别配置）。"
+        };
+
+        private readonly ComboBox _cmbStation = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 120,
+            Dock = DockStyle.Left,
         };
 
         private double[] _matrix;
@@ -81,6 +88,10 @@ namespace 码料机
 
             int r = 0;
             body.Controls.Add(MakePathRow("camera_calib.yml（畸变矫正）", _txtCamera, BrowseCamera), 0, r++);
+            var rowStation = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, Padding = new Padding(0, 0, 0, 2) };
+            rowStation.Controls.Add(new Label { Text = "取料侧（九点标定）", AutoSize = true, Padding = new Padding(0, 6, 8, 0) });
+            rowStation.Controls.Add(_cmbStation);
+            body.Controls.Add(rowStation, 0, r++);
             body.Controls.Add(MakePathRow("robot_calib.yml（像素→机械）", _txtRobot, BrowseRobot), 0, r++);
             body.Controls.Add(MakePathRow("输入图像", _txtInput, BrowseInput), 0, r++);
             body.Controls.Add(MakePathRow("矫正输出图", _txtOutput, BrowseOutput), 0, r++);
@@ -130,8 +141,18 @@ namespace 码料机
             AcceptButton = btnClose;
             CancelButton = btnClose;
 
-            Shown += (_, __) => FillFromIni();
+            Shown += (_, __) =>
+            {
+                _cmbStation.Items.Clear();
+                _cmbStation.Items.Add(PhotoPositionConfig.SectionLeft);
+                _cmbStation.Items.Add(PhotoPositionConfig.SectionRight);
+                _cmbStation.SelectedIndex = 0;
+                _cmbStation.SelectedIndexChanged += StationSelectionChanged;
+                FillFromIni();
+            };
         }
+
+        private void StationSelectionChanged(object sender, EventArgs e) => RefreshRobotPathFromIni();
 
         private static TableLayoutPanel MakePathRow(string title, TextBox box, Action browse)
         {
@@ -204,7 +225,7 @@ namespace 码料机
         {
             var ini = JinwoAlgorithmConfig.Load();
             _txtCamera.Text = ini.ResolveUndistortionCalibPath();
-            _txtRobot.Text = ini.ResolveNinePointRobotCalibPath();
+            RefreshRobotPathFromIni();
             _numAlpha.Value = (decimal)Math.Max(0, Math.Min(1, ini.UndistortionAlpha));
             _chkCrop.Checked = ini.UndistortionCropBlackEdge;
             if (string.IsNullOrWhiteSpace(_txtInput.Text))
@@ -217,6 +238,13 @@ namespace 码料机
                 string dir = Path.GetDirectoryName(_txtInput.Text) ?? Application.StartupPath;
                 _txtOutput.Text = Path.Combine(dir, "undistorted_" + Path.GetFileNameWithoutExtension(_txtInput.Text) + ".bmp");
             }
+        }
+
+        private void RefreshRobotPathFromIni()
+        {
+            var ini = JinwoAlgorithmConfig.Load();
+            bool isLeft = _cmbStation.SelectedIndex != 1;
+            _txtRobot.Text = ini.ResolveNinePointRobotCalibPath(isLeft);
         }
 
         private void VerifyRobot()

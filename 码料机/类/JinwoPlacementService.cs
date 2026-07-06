@@ -27,6 +27,13 @@ namespace 码料机
         public string UndistortionError => _undistortionError;
         public string StatusText { get; private set; } = "未启用";
 
+        /// <summary>按 PLC 取料请求侧（A/左 或 B/右）同步 robot_calib.yml 到 DLL 工作目录。</summary>
+        public void PrepareNinePointCalibForPickSide(bool isLeft)
+        {
+            if (_ini == null || !_ini.IncludeRobotCoordinate) return;
+            _ini.EnsureCalibFilesForDll(isLeft);
+        }
+
         public void ReloadConfig()
         {
             _ini = JinwoAlgorithmConfig.Load();
@@ -103,18 +110,18 @@ namespace 码料机
         }
 
         /// <summary>DLL 从当前工作目录读取标定 yml（与识图算位一致）。</summary>
-        private void RunInCalibWorkDir(Action action)
+        private string EnterCalibWorkDir(bool isLeft)
         {
+            if (_ini?.IncludeRobotCoordinate == true)
+                _ini.EnsureCalibFilesForDll(isLeft);
             string prevDir = Directory.GetCurrentDirectory();
-            try
-            {
-                Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
-                action();
-            }
-            finally
-            {
-                try { Directory.SetCurrentDirectory(prevDir); } catch { }
-            }
+            Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
+            return prevDir;
+        }
+
+        private static void RestoreWorkDir(string prevDir)
+        {
+            try { Directory.SetCurrentDirectory(prevDir); } catch { }
         }
 
         private void RequireCalibFilesForDll()
@@ -137,7 +144,8 @@ namespace 码料机
             double boxLength, double boxWidth, double boxHeight,
             double bearingOuterDiameter, double bearingHeight,
             int layoutRows, int layoutCols, int layoutLayers,
-            bool gridFromAlgorithmOnly = false)
+            bool gridFromAlgorithmOnly = false,
+            bool isLeft = true)
         {
             RequireDll();
             var cfg = JinwoNative.CreateEmptyTrayConfig();
@@ -189,16 +197,21 @@ namespace 码料机
             if (_ini.FirstCenterOffsetX != 0 || _ini.FirstCenterOffsetY != 0)
                 RequireOk(_dll.SetFirstCenterOffset(ref cfg, _ini.FirstCenterOffsetX, _ini.FirstCenterOffsetY), _dll, "Jinwo_SetFirstCenterOffset");
 
-            _ini.EnsureCalibFilesForDll();
+            _ini.EnsureCalibFilesForDll(isLeft);
             RequireCalibFilesForDll();
             lock (_sync)
             {
-                RunInCalibWorkDir(() =>
+                string prevDir = EnterCalibWorkDir(isLeft);
+                try
                 {
                     RequireOk(_dll.ValidateConfig(ref cfg), _dll, "Jinwo_ValidateConfig");
                     if (_dll.ValidateTrayGeometry != null)
                         RequireOk(_dll.ValidateTrayGeometry(ref cfg), _dll, "Jinwo_ValidateTrayGeometry");
-                });
+                }
+                finally
+                {
+                    RestoreWorkDir(prevDir);
+                }
             }
             return cfg;
         }
@@ -342,7 +355,7 @@ namespace 码料机
             return preparedPath;
         }
 
-        public bool TryDetectMarkers(string imagePath, out JinwoNative.JinwoMarkerResult result, out string error)
+        public bool TryDetectMarkers(string imagePath, bool isLeft, out JinwoNative.JinwoMarkerResult result, out string error)
         {
             result = JinwoNative.CreateEmptyMarkerResult();
             error = null;
@@ -358,23 +371,25 @@ namespace 码料机
 
                 string algoPath = PrepareAlgorithmImage(imagePath);
                 ProcessPipelineLog.RecognizeStart("黑圆检测", algoPath);
-                string prevDir = Directory.GetCurrentDirectory();
-                try
+                lock (_sync)
                 {
-                    Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
-                    int rc;
-                    lock (_sync)
-                        rc = _dll.DetectMarkersFromImage(algoPath, ref result);
-                    if (rc == 0)
+                    string prevDir = EnterCalibWorkDir(isLeft);
+                    try
                     {
-                        error = "Jinwo_DetectMarkersFromImage 失败: " + _dll.ReadLastError();
-                        ProcessPipelineLog.RecognizeFailed("黑圆检测", error);
-                        return false;
+                        if (_ini.IncludeRobotCoordinate)
+                            RequireCalibFilesForDll();
+                        int rc = _dll.DetectMarkersFromImage(algoPath, ref result);
+                        if (rc == 0)
+                        {
+                            error = "Jinwo_DetectMarkersFromImage 失败: " + _dll.ReadLastError();
+                            ProcessPipelineLog.RecognizeFailed("黑圆检测", error);
+                            return false;
+                        }
                     }
-                }
-                finally
-                {
-                    try { Directory.SetCurrentDirectory(prevDir); } catch { }
+                    finally
+                    {
+                        RestoreWorkDir(prevDir);
+                    }
                 }
 
                 int n = result.MarkerPixels?.Length ?? 0;
@@ -389,9 +404,9 @@ namespace 码料机
             }
         }
 
-        public JinwoNative.JinwoMarkerResult DetectMarkers(string imagePath)
+        public JinwoNative.JinwoMarkerResult DetectMarkers(string imagePath, bool isLeft = true)
         {
-            if (!TryDetectMarkers(imagePath, out var result, out string error))
+            if (!TryDetectMarkers(imagePath, isLeft, out var result, out string error))
                 throw new InvalidOperationException(error ?? "黑圆检测失败");
             return result;
         }
@@ -400,13 +415,15 @@ namespace 码料机
             ref JinwoNative.JinwoTrayConfig cfg,
             string imagePath,
             int placedCount,
+            bool isLeft,
             out string effectImagePath)
-            => CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out effectImagePath, false);
+            => CalculateAllBearingCenters(ref cfg, imagePath, placedCount, isLeft, out effectImagePath, false);
 
         public JinwoNative.JinwoBearingCenterResult[] CalculateAllBearingCenters(
             ref JinwoNative.JinwoTrayConfig cfg,
             string imagePath,
             int placedCount,
+            bool isLeft,
             out string effectImagePath,
             bool forceSaveEffectImage)
         {
@@ -421,69 +438,75 @@ namespace 码料机
             int save = (forceSaveEffectImage || _ini.SaveEffectImage) ? 1 : 0;
             effectImagePath = null;
 
-            string prevDir = Directory.GetCurrentDirectory();
+            JinwoNative.JinwoBearingCenterResult[] centersResult = null;
+            string effectPathLocal = null;
             try
             {
-                Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
-
-                int centerCount = 0;
-                var effectBuf = new StringBuilder(1024);
                 lock (_sync)
                 {
-                    RequireOk(_dll.CalculateAllBearingCentersFromImage(
-                        ref cfg,
-                        algoPath,
-                        includeRobot,
-                        save,
-                        placedCount,
-                        null,
-                        0,
-                        out centerCount,
-                        effectBuf,
-                        effectBuf.Capacity),
-                        _dll, "Jinwo_CalculateAllBearingCentersFromImage");
+                    string prevDir = EnterCalibWorkDir(isLeft);
+                    try
+                    {
+                        if (_ini.IncludeRobotCoordinate)
+                            RequireCalibFilesForDll();
+
+                        int centerCount = 0;
+                        var effectBuf = new StringBuilder(1024);
+                        RequireOk(_dll.CalculateAllBearingCentersFromImage(
+                            ref cfg,
+                            algoPath,
+                            includeRobot,
+                            save,
+                            placedCount,
+                            null,
+                            0,
+                            out centerCount,
+                            effectBuf,
+                            effectBuf.Capacity),
+                            _dll, "Jinwo_CalculateAllBearingCentersFromImage");
+
+                        string raw = effectBuf.Length > 0 ? effectBuf.ToString().Trim() : null;
+                        effectPathLocal = ResolveEffectImagePath(raw);
+                        if (save != 0 && string.IsNullOrEmpty(effectPathLocal))
+                            effectPathLocal = FindNewestEffectImage();
+
+                        if (centerCount <= 0)
+                            throw new InvalidOperationException("DLL 未返回轴承中心点");
+
+                        var centers = new JinwoNative.JinwoBearingCenterResult[centerCount];
+                        RequireOk(_dll.CalculateAllBearingCentersFromImage(
+                            ref cfg,
+                            algoPath,
+                            includeRobot,
+                            0,
+                            placedCount,
+                            centers,
+                            centerCount,
+                            out centerCount,
+                            null,
+                            0),
+                            _dll, "Jinwo_CalculateAllBearingCentersFromImage");
+
+                        if (centerCount > 0 && centerCount < centers.Length)
+                            Array.Resize(ref centers, centerCount);
+
+                        centersResult = centers;
+                    }
+                    finally
+                    {
+                        RestoreWorkDir(prevDir);
+                    }
                 }
 
-                string raw = effectBuf.Length > 0 ? effectBuf.ToString().Trim() : null;
-                effectImagePath = ResolveEffectImagePath(raw);
-                if (save != 0 && string.IsNullOrEmpty(effectImagePath))
-                    effectImagePath = FindNewestEffectImage();
-
-                if (centerCount <= 0)
-                    throw new InvalidOperationException("DLL 未返回轴承中心点");
-
-                var centers = new JinwoNative.JinwoBearingCenterResult[centerCount];
-                lock (_sync)
-                {
-                    RequireOk(_dll.CalculateAllBearingCentersFromImage(
-                        ref cfg,
-                        algoPath,
-                        includeRobot,
-                        0,
-                        placedCount,
-                        centers,
-                        centerCount,
-                        out centerCount,
-                        null,
-                        0),
-                        _dll, "Jinwo_CalculateAllBearingCentersFromImage");
-                }
-
-                if (centerCount > 0 && centerCount < centers.Length)
-                    Array.Resize(ref centers, centerCount);
-
-                ProcessPipelineLog.RecognizeDone("轴承中心算位", $"共 {centers.Length} 个中心点");
-                return centers;
+                effectImagePath = effectPathLocal;
+                ProcessPipelineLog.RecognizeDone("轴承中心算位", $"共 {centersResult.Length} 个中心点");
+                return centersResult;
             }
             catch (Exception ex)
             {
                 effectImagePath = null;
                 ProcessPipelineLog.RecognizeFailed("轴承中心算位", ex.Message);
                 throw;
-            }
-            finally
-            {
-                try { Directory.SetCurrentDirectory(prevDir); } catch { }
             }
         }
 
@@ -499,11 +522,12 @@ namespace 码料机
             ref JinwoNative.JinwoTrayConfig cfg,
             string imagePath,
             int placedCount,
+            bool isLeft,
             out string effectImagePath,
             bool forceSaveEffectImage = false)
         {
             RequireDll();
-            var centers = CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out effectImagePath, forceSaveEffectImage);
+            var centers = CalculateAllBearingCenters(ref cfg, imagePath, placedCount, isLeft, out effectImagePath, forceSaveEffectImage);
             DeriveGridFromCenters(centers, out int effRows, out int effCols, out int capacity);
             JinwoPlacementOrder.SortCenters(centers, effRows, effCols);
             if (!TryFindBearingCenter(centers, placedCount, out var next))

@@ -64,6 +64,10 @@ namespace 码料机
 
         /// <summary>robot_calib.yml：含 pixel_to_robot_matrix，供像素坐标转机械坐标（与畸变矫正无关）。</summary>
         public string NinePointRobotCalibFile { get; set; } = "robot_calib.yml";
+        /// <summary>A/左取料请求（D4018）九点标定文件；留空则使用 <see cref="NinePointRobotCalibFile"/>。</summary>
+        public string NinePointRobotCalibFileLeft { get; set; } = "";
+        /// <summary>B/右取料请求（D4020）九点标定文件；留空则使用 <see cref="NinePointRobotCalibFile"/>。</summary>
+        public string NinePointRobotCalibFileRight { get; set; } = "";
 
         public static void EnsureDefaultIniFile()
         {
@@ -138,6 +142,8 @@ namespace 码料机
             c.UndistortionCropBlackEdge = IniAPI.GetPrivateProfileInt(undist, "裁剪黑边", 0, IniPath) != 0;
 
             c.NinePointRobotCalibFile = IniAPI.GetPrivateProfileString(nine, "标定文件", "robot_calib.yml", IniPath);
+            c.NinePointRobotCalibFileLeft = IniAPI.GetPrivateProfileString(nine, "左标定文件", "", IniPath);
+            c.NinePointRobotCalibFileRight = IniAPI.GetPrivateProfileString(nine, "右标定文件", "", IniPath);
 
             c.HikCameraEnabled = IniAPI.GetPrivateProfileInt(hik, "启用", 0, IniPath) != 0;
             c.HikSerialNumber = IniAPI.GetPrivateProfileString(hik, "序列号", "", IniPath);
@@ -217,6 +223,8 @@ namespace 码料机
             ok &= IniAPI.INIWriteValue(path, undist, "裁剪黑边", UndistortionCropBlackEdge ? "1" : "0");
 
             ok &= IniAPI.INIWriteValue(path, nine, "标定文件", NinePointRobotCalibFile ?? "");
+            ok &= IniAPI.INIWriteValue(path, nine, "左标定文件", NinePointRobotCalibFileLeft ?? "");
+            ok &= IniAPI.INIWriteValue(path, nine, "右标定文件", NinePointRobotCalibFileRight ?? "");
             return ok;
         }
 
@@ -233,15 +241,28 @@ namespace 码料机
             return inConfig;
         }
 
+        /// <summary>解析默认九点标定文件路径（[九点标定]「标定文件」）。</summary>
         public string ResolveNinePointRobotCalibPath()
+            => ResolveRelativeCalibPath(NinePointRobotCalibFile, "robot_calib.yml");
+
+        /// <summary>解析指定工位的九点标定文件路径；工位专用项留空时回退到「标定文件」。</summary>
+        public string ResolveNinePointRobotCalibPath(bool isLeft)
         {
-            if (string.IsNullOrWhiteSpace(NinePointRobotCalibFile))
-                return Path.Combine(Parameters.IniDir, "robot_calib.yml");
-            if (Path.IsPathRooted(NinePointRobotCalibFile) && File.Exists(NinePointRobotCalibFile))
-                return Path.GetFullPath(NinePointRobotCalibFile);
-            string inConfig = Path.Combine(Parameters.IniDir, NinePointRobotCalibFile);
+            string configured = isLeft ? NinePointRobotCalibFileLeft : NinePointRobotCalibFileRight;
+            if (string.IsNullOrWhiteSpace(configured))
+                configured = NinePointRobotCalibFile;
+            return ResolveRelativeCalibPath(configured, "robot_calib.yml");
+        }
+
+        static string ResolveRelativeCalibPath(string configuredFile, string defaultFileName)
+        {
+            if (string.IsNullOrWhiteSpace(configuredFile))
+                return Path.Combine(Parameters.IniDir, defaultFileName);
+            if (Path.IsPathRooted(configuredFile) && File.Exists(configuredFile))
+                return Path.GetFullPath(configuredFile);
+            string inConfig = Path.Combine(Parameters.IniDir, configuredFile);
             if (File.Exists(inConfig)) return inConfig;
-            string besideExe = Path.Combine(Application.StartupPath, NinePointRobotCalibFile);
+            string besideExe = Path.Combine(Application.StartupPath, configuredFile);
             if (File.Exists(besideExe)) return besideExe;
             return inConfig;
         }
@@ -325,7 +346,8 @@ namespace 码料机
             return Parameters.IniDir;
         }
 
-        public void EnsureCalibFilesForDll()
+        /// <summary>将相机/指定工位九点标定文件同步到 DLL 工作目录（robot_calib.yml）。</summary>
+        public void EnsureCalibFilesForDll(bool isLeft)
         {
             string workDir = ResolveCalibWorkDir();
             Directory.CreateDirectory(workDir);
@@ -333,7 +355,7 @@ namespace 码料机
             EnsureDefaultRobotCalibFile();
             // DLL 固定从工作目录读取 camera_calib.yml / robot_calib.yml（相对路径）
             SyncCalibFileIntoWorkDir(ResolveUndistortionCalibPath(), Path.Combine(workDir, "camera_calib.yml"));
-            SyncCalibFileIntoWorkDir(ResolveNinePointRobotCalibPath(), Path.Combine(workDir, "robot_calib.yml"));
+            SyncCalibFileIntoWorkDir(ResolveNinePointRobotCalibPath(isLeft), Path.Combine(workDir, "robot_calib.yml"));
         }
 
         static void SyncCalibFileIntoWorkDir(string sourcePath, string destPath)
@@ -430,7 +452,10 @@ Alpha=1.0
 
 [九点标定]
 ; robot_calib.yml：用于像素坐标转机械坐标（pixel_to_robot_matrix），与「算法\金沃\九点标定」格式一致
+; A/左取料 D4018 与 B/右取料 D4020 可分别指定标定文件；左/右留空则共用「标定文件」
 标定文件=robot_calib.yml
+左标定文件=
+右标定文件=
 
 [有无料]
 ; 判断有无轴承.dll：放料拍照后、输出坐标前做箱内异物检测；检测到异物写 D0.11=1

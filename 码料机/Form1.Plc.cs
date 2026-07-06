@@ -110,7 +110,7 @@ namespace 码料机
                 {
                     var cfg = st.JinwoTray;
                     int placedCount = GetPlacedCount(st);
-                    var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out string effectPath);
+                    var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, placedCount, ResolveNinePointCalibIsLeft(st), out string effectPath);
                     st.JinwoTray = cfg;
                     int layerFloor = GetTrayLayerCountFloor(st);
                     SyncStationGridFromCenters(st, centers);
@@ -1102,6 +1102,32 @@ D_机器人运动中=-1
             return value == 1;
         }
 
+        /// <summary>PLC 当前是否有取料请求（D4018 或 D4020=1）；用于九点标定文件选择。</summary>
+        private bool TryReadActivePlcPickRequestSide(out bool isLeft)
+        {
+            isLeft = true;
+            if (!_plcConfig.Enabled || _plcSession?.IsConnected != true || !Hs.HandshakeEnabled)
+                return false;
+            try
+            {
+                if (TryReadPlcPickRequest(Hs.D_PC_A取料请求拍照, out _))
+                {
+                    isLeft = true;
+                    return true;
+                }
+                if (TryReadPlcPickRequest(Hs.D_PC_B取料请求拍照, out _))
+                {
+                    isLeft = false;
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+            return false;
+        }
+
         private void PlcClr0(int d) => _plcSession.WriteUInt16(Hs.Holding(d), 0); // 处理完毕写回 0
         private void PlcWriteXyzRz(int dStart, float x, float y, float z, float rz) => _plcSession.WriteFourFloats(Hs.Holding(dStart), x, y, z, rz); // 写 4 个 REAL
 
@@ -1739,6 +1765,7 @@ D_机器人运动中=-1
         {
             int dReq = isLeft ? Hs.D_PC_A取料请求拍照 : Hs.D_PC_B取料请求拍照;
             if (!TryReadPlcPickRequest(dReq, out ushort reqVal)) return false;
+            st.LastPickRequestIsLeft = isLeft;
             bool useConfiguredPlace = ShouldUseConfiguredPlace(st, isLeft);
             bool needPickPhoto = ShouldRunPickPhotoForStation(st, isLeft, useConfiguredPlace);
             string side = isLeft ? "A/左" : "B/右";
@@ -1762,7 +1789,7 @@ D_机器人运动中=-1
                     {
                         st.PlaceOffsetLocalX = st.PlaceOffsetLocalY = 0;
                         ThrowIfMachineInterrupted($"{st.Name} 取料拍照前");
-                        if (!await RunPickVisionForPlcRequestAsync(st).ConfigureAwait(false))
+                        if (!await RunPickVisionForPlcRequestAsync(st, isLeft).ConfigureAwait(false))
                         {
                             RaiseAutoVisionRecognizeFailAlarm("取料拍照/识料失败");
                             throw new InvalidOperationException("取料拍照/识料失败");
@@ -1797,15 +1824,15 @@ D_机器人运动中=-1
         }
 
         /// <summary>取料拍照识圆心（与自动码放引导 ① 相同：海康/离线采图 + 位置设定兜底）；按工位写入 PickCenter。</summary>
-        private async Task<bool> RunPickVisionForPlcRequestAsync(StationData st)
+        private async Task<bool> RunPickVisionForPlcRequestAsync(StationData st, bool pickRequestIsLeft)
         {
             if (st == null) return false;
             if (!_jinwo.IsEnabled || !_jinwo.IsLoaded)
             {
                 SafeInvoke(() => TEXT($"[取料] {st.Name} 金沃未就绪，使用位置设定取料坐标"));
-                return TryApplyPickCenterFallback(st);
+                return TryApplyPickCenterFallback(st, pickRequestIsLeft);
             }
-            return await Plc_CaptureAndRecognizePickAsync(st).ConfigureAwait(false);
+            return await Plc_CaptureAndRecognizePickAsync(st, pickRequestIsLeft).ConfigureAwait(false);
         }
 
         /// <summary>取料 Z：优先位置设定中的取料 Z，否则 Z 轴入料口高度。</summary>
@@ -1831,9 +1858,9 @@ D_机器人运动中=-1
             return File.Exists(feed) ? feed : null;
         }
 
-        private bool TryApplyPickCenterFallback(StationData st)
+        private bool TryApplyPickCenterFallback(StationData st, bool? pickRequestIsLeft = null)
         {
-            var photo = GetPhotoPositions(IsLeftStation(st));
+            var photo = GetPhotoPositions(ResolveNinePointCalibIsLeft(st, pickRequestIsLeft));
             if (Math.Abs(photo.PickX) > 1e-3 || Math.Abs(photo.PickY) > 1e-3)
             {
                 st.PickCenterX = (float)photo.PickX;
@@ -1844,22 +1871,24 @@ D_机器人运动中=-1
             return false;
         }
 
-        private async Task<bool> Plc_CaptureAndRecognizePickAsync(StationData st = null)
+        private async Task<bool> Plc_CaptureAndRecognizePickAsync(StationData st = null, bool? pickRequestIsLeft = null)
         {
             st = st ?? currentStation;
             if (st == null) return false;
+            bool calibLeft = ResolveNinePointCalibIsLeft(st, pickRequestIsLeft);
 
             if (_jinwo.IsEnabled && _jinwo.IsLoaded)
             {
+                _jinwo.PrepareNinePointCalibForPickSide(calibLeft);
                 if (!await RunCaptureIfConfiguredAsync($"{st.Name} 取料拍照").ConfigureAwait(false))
                     return false;
                 string imagePath = _jinwo.ResolveCaptureImagePath();
                 if (!File.Exists(imagePath))
                     throw new InvalidOperationException("无采图文件，请加载离线测试图或配置金沃「采图路径」");
-                SafeInvoke(() => TEXT($"[取料拍照] {st.Name} 使用图像 {Path.GetFileName(imagePath)}"));
+                SafeInvoke(() => TEXT($"[取料拍照] {st.Name} 使用图像 {Path.GetFileName(imagePath)}（九点标定={(calibLeft ? "A/左" : "B/右")}）"));
             }
 
-            return TryApplyPickCenterFallback(st);
+            return TryApplyPickCenterFallback(st, pickRequestIsLeft);
         }
 
         /// <summary>
@@ -2625,7 +2654,7 @@ D_机器人运动中=-1
             try
             {
                 var cfg = st.JinwoTray;
-                var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, placedCount, out string effectPath);
+                var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, placedCount, ResolveNinePointCalibIsLeft(st), out string effectPath);
                 st.JinwoTray = cfg;
                 int layerFloor = GetTrayLayerCountFloor(st);
                 SyncStationGridFromCenters(st, centers);
@@ -2951,7 +2980,7 @@ D_机器人运动中=-1
                     SafeInvoke(() => TEXT("[金沃] 箱姿算位: " + poseErr));
                 }
 
-                if (!_jinwo.TryDetectMarkers(imagePath, out JinwoMarkerResult markers, out string markerErr))
+                if (!_jinwo.TryDetectMarkers(imagePath, ResolveNinePointCalibIsLeft(st), out JinwoMarkerResult markers, out string markerErr))
                 {
                     SafeInvoke(() => TEXT("[金沃] 黑圆检测: " + markerErr));
                     return;
@@ -3023,17 +3052,19 @@ D_机器人运动中=-1
             pose.Rz = rz;
         }
 
-        private bool TryJinwoCalculatePose(StationData st, int placedCount, out JinwoPoseResult pose, out string effectPath, out string error)
+        private bool TryJinwoCalculatePose(StationData st, int placedCount, out JinwoPoseResult pose, out string effectPath, out string error,
+            bool? pickRequestIsLeft = null)
         {
             pose = CreateEmptyPoseResult();
             effectPath = null;
             error = null;
             int floorLayers = GetTrayLayerCountFloor(st);
+            bool calibLeft = ResolveNinePointCalibIsLeft(st, pickRequestIsLeft);
             try
             {
                 string imagePath = _jinwo.ResolveCaptureImagePath();
                 var cfg = st.JinwoTray;
-                pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, out effectPath);
+                pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, calibLeft, out effectPath);
                 st.JinwoTray = cfg;
                 ApplyConfiguredJinwoZAndRz(st, ref pose);
                 NotifyRecognizedPlacePhotoXY(st, pose.X, pose.Y);
