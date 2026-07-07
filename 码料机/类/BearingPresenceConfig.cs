@@ -61,7 +61,7 @@ namespace 码料机
             return dir;
         }
 
-        public string ResolveCaptureImagePath(JinwoPlacementService jinwo)
+        public string ResolveCaptureImagePath(JinwoPlacementService jinwo, bool isLeft = true)
         {
             if (!string.IsNullOrWhiteSpace(CaptureImagePath))
             {
@@ -71,7 +71,7 @@ namespace 码料机
                 return Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, p));
             }
             if (jinwo != null && jinwo.IsEnabled)
-                return jinwo.ResolveCaptureImagePath();
+                return jinwo.ResolveCaptureImagePath(isLeft);
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, OfflineCaptureHelper.DefaultOfflineFeedFileName);
         }
     }

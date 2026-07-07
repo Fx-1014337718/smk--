@@ -20,7 +20,6 @@ namespace 码料机
             this.tabControl = new System.Windows.Forms.TabControl();
             this.tabPageLeft = new System.Windows.Forms.TabPage();
             this.tabPageRight = new System.Windows.Forms.TabPage();
-            this.tabPageAlarm = new System.Windows.Forms.TabPage();
             this.panelButtons = new System.Windows.Forms.Panel();
             this.flowButtonsRight = new System.Windows.Forms.FlowLayoutPanel();
             this.buttonFromReco = new System.Windows.Forms.Button();
@@ -66,13 +65,12 @@ namespace 码料机
             this.labelHint.Name = "labelHint";
             this.labelHint.Size = new System.Drawing.Size(510, 34);
             this.labelHint.TabIndex = 0;
-            this.labelHint.Text = "左/右机台：取料/放料/放料拍照位置(mm)与 RZ(°)。放料中心点 X/Y/Z 由算法规划自动计算，仅 RZ 在此手动设定。RZ 留空为 0；未填 X/Y 可从识别带入。";
+            this.labelHint.Text = "左/右机台：取料/放料/放料拍照位置(mm)与 RZ(°)；各机台下方可设运动超限报警范围。放料中心点 X/Y/Z 由算法规划自动计算，仅 RZ 在此手动设定。";
             // 
             // tabControl
             // 
             this.tabControl.Controls.Add(this.tabPageLeft);
             this.tabControl.Controls.Add(this.tabPageRight);
-            this.tabControl.Controls.Add(this.tabPageAlarm);
             this.tabControl.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tabControl.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.tabControl.Location = new System.Drawing.Point(3, 48);
@@ -102,16 +100,6 @@ namespace 码料机
             this.tabPageRight.TabIndex = 1;
             this.tabPageRight.Text = "右机台";
             this.tabPageRight.UseVisualStyleBackColor = true;
-            // 
-            // tabPageAlarm
-            // 
-            this.tabPageAlarm.Location = new System.Drawing.Point(4, 32);
-            this.tabPageAlarm.Name = "tabPageAlarm";
-            this.tabPageAlarm.Padding = new System.Windows.Forms.Padding(4);
-            this.tabPageAlarm.Size = new System.Drawing.Size(502, 445);
-            this.tabPageAlarm.TabIndex = 2;
-            this.tabPageAlarm.Text = "报警位置";
-            this.tabPageAlarm.UseVisualStyleBackColor = true;
             // 
             // panelButtons
             // 
@@ -215,7 +203,6 @@ namespace 码料机
         private System.Windows.Forms.TabControl tabControl;
         private System.Windows.Forms.TabPage tabPageLeft;
         private System.Windows.Forms.TabPage tabPageRight;
-        private System.Windows.Forms.TabPage tabPageAlarm;
         private System.Windows.Forms.Panel panelButtons;
         private System.Windows.Forms.FlowLayoutPanel flowButtonsRight;
         private System.Windows.Forms.Button buttonFromReco;

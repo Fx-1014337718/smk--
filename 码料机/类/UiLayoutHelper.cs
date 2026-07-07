@@ -106,6 +106,46 @@ namespace 码料机
             }
         }
 
+        /// <summary>机台操作区底部留白，避免滚到最底时最后一行贴边或被裁切。</summary>
+        public const int StationScrollBottomSlack = 16;
+
+        /// <summary>
+        /// 配置可稳定滚动的 AutoScroll 区域。
+        /// 内层控件勿用 Dock=Top（会与 AutoScroll 冲突导致松手回弹），改由 AutoScrollMinSize 决定可滚高度。
+        /// </summary>
+        public static void ConfigureStableAutoScroll(ScrollableControl scroll, Control content)
+        {
+            if (scroll == null || content == null) return;
+
+            content.Dock = DockStyle.None;
+            content.Location = Point.Empty;
+            content.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+
+            void UpdateLayout()
+            {
+                if (scroll.IsDisposed || content.IsDisposed) return;
+                int w = scroll.ClientSize.Width;
+                if (w <= 0) return;
+
+                if (content.Width != w)
+                    content.Width = w;
+
+                int h = content.GetPreferredSize(new Size(w, 0)).Height;
+                if (h <= 0) return;
+
+                var min = new Size(0, h + StationScrollBottomSlack);
+                if (scroll.AutoScrollMinSize != min)
+                    scroll.AutoScrollMinSize = min;
+            }
+
+            scroll.HandleCreated += (_, __) => UpdateLayout();
+            scroll.Resize += (_, __) => UpdateLayout();
+            content.ControlAdded += (_, __) => UpdateLayout();
+            content.Layout += (_, __) => UpdateLayout();
+            if (scroll.IsHandleCreated)
+                UpdateLayout();
+        }
+
         public static Font MapComfortFont(Font current)
         {
             if (current == null) return Body;

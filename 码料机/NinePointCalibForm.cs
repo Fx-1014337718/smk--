@@ -223,7 +223,7 @@ namespace 码料机
 
         private void FillFromIni()
         {
-            var ini = JinwoAlgorithmConfig.Load();
+            var ini = JinwoAlgorithmConfig.Load(_cmbStation.SelectedIndex != 1);
             _txtCamera.Text = ini.ResolveUndistortionCalibPath();
             RefreshRobotPathFromIni();
             _numAlpha.Value = (decimal)Math.Max(0, Math.Min(1, ini.UndistortionAlpha));
@@ -242,9 +242,9 @@ namespace 码料机
 
         private void RefreshRobotPathFromIni()
         {
-            var ini = JinwoAlgorithmConfig.Load();
             bool isLeft = _cmbStation.SelectedIndex != 1;
-            _txtRobot.Text = ini.ResolveNinePointRobotCalibPath(isLeft);
+            var ini = JinwoAlgorithmConfig.Load(isLeft);
+            _txtRobot.Text = ini.ResolveNinePointRobotCalibPath();
         }
 
         private void VerifyRobot()

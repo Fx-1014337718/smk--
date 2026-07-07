@@ -10,35 +10,46 @@ namespace 码料机
     {
         private readonly object _sync = new object();
         private JinwoNative.JinwoDll _dll;
-        private JinwoAlgorithmConfig _ini;
-        private CameraUndistortion _undistortion;
+        private JinwoAlgorithmConfig _left;
+        private JinwoAlgorithmConfig _right;
+        private CameraUndistortion _undistortionLeft;
+        private CameraUndistortion _undistortionRight;
+        private string _undistortionErrorLeft;
+        private string _undistortionErrorRight;
         private string _loadError;
-        private string _undistortionError;
         private string _captureImageOverride;
         private string _lastUndistortedPath;
         private int _lastUndistortedSourceTicks;
+        private bool _lastUndistortedIsLeft = true;
 
-        public bool IsEnabled => _ini?.Enabled == true;
+        private JinwoAlgorithmConfig StationIni(bool isLeft) => isLeft ? _left : _right;
+
+        public JinwoAlgorithmConfig GetStationConfig(bool isLeft) => StationIni(isLeft);
+
+        public bool IsEnabled => _left?.Enabled == true;
         public bool IsLoaded => _dll != null;
-        /// <summary>金沃算法.ini [托盘] 层数；&gt;0 时优先于 DLL 推导层数（用于竖直取放档 2-3 等）。</summary>
-        public int TrayLayersFromIni => _ini?.TrayLayers ?? 0;
-        public bool UndistortionEnabled => _undistortion != null && _undistortion.IsReady;
+        public int TrayLayersFromIni(bool isLeft) => StationIni(isLeft)?.TrayLayers ?? 0;
+        public bool UndistortionEnabled(bool isLeft) => GetUndistortion(isLeft) != null && GetUndistortion(isLeft).IsReady;
+        public string UndistortionError(bool isLeft) => isLeft ? _undistortionErrorLeft : _undistortionErrorRight;
         public string LoadError => _loadError;
-        public string UndistortionError => _undistortionError;
         public string StatusText { get; private set; } = "未启用";
+
+        CameraUndistortion GetUndistortion(bool isLeft) => isLeft ? _undistortionLeft : _undistortionRight;
 
         /// <summary>按 PLC 取料请求侧（A/左 或 B/右）同步 robot_calib.yml 到 DLL 工作目录。</summary>
         public void PrepareNinePointCalibForPickSide(bool isLeft)
         {
-            if (_ini == null || !_ini.IncludeRobotCoordinate) return;
-            _ini.EnsureCalibFilesForDll(isLeft);
+            var ini = StationIni(isLeft);
+            if (ini == null || !ini.IncludeRobotCoordinate) return;
+            ini.EnsureCalibFilesForDll(isLeft);
         }
 
         public void ReloadConfig()
         {
-            _ini = JinwoAlgorithmConfig.Load();
-            ReloadUndistortion();
-            if (!_ini.Enabled)
+            JinwoAlgorithmConfig.LoadBoth(null, out _left, out _right);
+            ReloadUndistortion(true);
+            ReloadUndistortion(false);
+            if (!_left.Enabled)
             {
                 UnloadDll();
                 StatusText = "金沃算法未启用";
@@ -47,24 +58,37 @@ namespace 码料机
             TryLoadDll();
         }
 
-        private void ReloadUndistortion()
+        private void ReloadUndistortion(bool isLeft)
         {
-            _undistortion?.Dispose();
-            _undistortion = null;
-            _undistortionError = null;
+            var prev = GetUndistortion(isLeft);
+            prev?.Dispose();
+            if (isLeft)
+            {
+                _undistortionLeft = null;
+                _undistortionErrorLeft = null;
+            }
+            else
+            {
+                _undistortionRight = null;
+                _undistortionErrorRight = null;
+            }
             _lastUndistortedPath = null;
-            if (_ini == null || !_ini.UndistortionEnabled)
+
+            var ini = StationIni(isLeft);
+            if (ini == null || !ini.UndistortionEnabled)
                 return;
 
-            string calibPath = _ini.ResolveUndistortionCalibPath();
+            string calibPath = ini.ResolveUndistortionCalibPath();
             if (!CameraUndistortion.TryLoad(calibPath, out CameraUndistortion u, out string err))
             {
-                _undistortionError = err;
+                if (isLeft) _undistortionErrorLeft = err;
+                else _undistortionErrorRight = err;
                 return;
             }
-            u.Alpha = _ini.UndistortionAlpha;
-            u.CropBlackEdge = _ini.UndistortionCropBlackEdge;
-            _undistortion = u;
+            u.Alpha = ini.UndistortionAlpha;
+            u.CropBlackEdge = ini.UndistortionCropBlackEdge;
+            if (isLeft) _undistortionLeft = u;
+            else _undistortionRight = u;
         }
 
         private void TryLoadDll()
@@ -72,14 +96,14 @@ namespace 码料机
             UnloadDll();
             try
             {
-                string dllPath = _ini.ResolveDllPath();
+                string dllPath = _left.ResolveDllPath();
                 if (!File.Exists(dllPath))
                 {
                     _loadError = "未找到 DLL: " + dllPath;
                     StatusText = "DLL 缺失";
                     return;
                 }
-                _dll = JinwoNative.JinwoDll.Load(dllPath, _ini.ResolveOpenCvRuntimeDir());
+                _dll = JinwoNative.JinwoDll.Load(dllPath, _left.ResolveOpenCvRuntimeDir());
                 _loadError = null;
                 StatusText = "金沃算法已加载";
             }
@@ -112,10 +136,11 @@ namespace 码料机
         /// <summary>DLL 从当前工作目录读取标定 yml（与识图算位一致）。</summary>
         private string EnterCalibWorkDir(bool isLeft)
         {
-            if (_ini?.IncludeRobotCoordinate == true)
-                _ini.EnsureCalibFilesForDll(isLeft);
+            var ini = StationIni(isLeft);
+            if (ini?.IncludeRobotCoordinate == true)
+                ini.EnsureCalibFilesForDll(isLeft);
             string prevDir = Directory.GetCurrentDirectory();
-            Directory.SetCurrentDirectory(_ini.ResolveCalibWorkDir());
+            Directory.SetCurrentDirectory(ini.ResolveCalibWorkDir());
             return prevDir;
         }
 
@@ -124,10 +149,11 @@ namespace 码料机
             try { Directory.SetCurrentDirectory(prevDir); } catch { }
         }
 
-        private void RequireCalibFilesForDll()
+        private void RequireCalibFilesForDll(bool isLeft)
         {
-            if (_ini == null || !_ini.IncludeRobotCoordinate) return;
-            string dir = _ini.ResolveCalibWorkDir();
+            var ini = StationIni(isLeft);
+            if (ini == null || !ini.IncludeRobotCoordinate) return;
+            string dir = ini.ResolveCalibWorkDir();
             string cam = Path.Combine(dir, "camera_calib.yml");
             string rob = Path.Combine(dir, "robot_calib.yml");
             if (File.Exists(cam) && File.Exists(rob)) return;
@@ -148,12 +174,13 @@ namespace 码料机
             bool isLeft = true)
         {
             RequireDll();
+            var ini = StationIni(isLeft);
             var cfg = JinwoNative.CreateEmptyTrayConfig();
             RequireOk(_dll.InitConfig(ref cfg), _dll, "Jinwo_InitConfig");
 
-            int rows = _ini.TrayRows > 0 ? _ini.TrayRows : layoutRows;
-            int cols = _ini.TrayCols > 0 ? _ini.TrayCols : layoutCols;
-            int layers = _ini.TrayLayers > 0 ? _ini.TrayLayers : layoutLayers;
+            int rows = ini.TrayRows > 0 ? ini.TrayRows : layoutRows;
+            int cols = ini.TrayCols > 0 ? ini.TrayCols : layoutCols;
+            int layers = ini.TrayLayers > 0 ? ini.TrayLayers : layoutLayers;
             if (!gridFromAlgorithmOnly)
             {
                 if (rows < 1) rows = 1;
@@ -167,38 +194,38 @@ namespace 码料机
                 RequireOk(_dll.SetTrayGrid(ref cfg, rows, cols, layers), _dll, "Jinwo_SetTrayGrid");
             }
 
-            double layerPitchZ = _ini.LayerPitchZ > 0 ? _ini.LayerPitchZ : bearingHeight;
-            RequireOk(_dll.SetBearing(ref cfg, bearingOuterDiameter, bearingHeight, _ini.BearingGap, layerPitchZ), _dll, "Jinwo_SetBearing");
+            double layerPitchZ = ini.LayerPitchZ > 0 ? ini.LayerPitchZ : bearingHeight;
+            RequireOk(_dll.SetBearing(ref cfg, bearingOuterDiameter, bearingHeight, ini.BearingGap, layerPitchZ), _dll, "Jinwo_SetBearing");
 
-            if (_ini.PitchX > 0 || _ini.PitchY > 0)
-                RequireOk(_dll.SetPitch(ref cfg, _ini.PitchX, _ini.PitchY), _dll, "Jinwo_SetPitch");
+            if (ini.PitchX > 0 || ini.PitchY > 0)
+                RequireOk(_dll.SetPitch(ref cfg, ini.PitchX, ini.PitchY), _dll, "Jinwo_SetPitch");
 
-            double boxDepth = _ini.BoxDepth > 0 ? _ini.BoxDepth : boxHeight;
-            double placeComp = _ini.PlaceHeightCompensation;
+            double boxDepth = ini.BoxDepth > 0 ? ini.BoxDepth : boxHeight;
+            double placeComp = ini.PlaceHeightCompensation;
             RequireOk(_dll.SetBox(ref cfg, boxLength, boxWidth, boxDepth, placeComp), _dll, "Jinwo_SetBox");
 
-            if (_ini.CameraDistance > 0)
-                RequireOk(_dll.SetCameraDistance(ref cfg, _ini.CameraDistance), _dll, "Jinwo_SetCameraDistance");
+            if (ini.CameraDistance > 0)
+                RequireOk(_dll.SetCameraDistance(ref cfg, ini.CameraDistance), _dll, "Jinwo_SetCameraDistance");
 
-            RequireOk(_dll.SetMarkerDistance(ref cfg, _ini.MarkerDistanceX, _ini.MarkerDistanceY), _dll, "Jinwo_SetMarkerDistance");
+            RequireOk(_dll.SetMarkerDistance(ref cfg, ini.MarkerDistanceX, ini.MarkerDistanceY), _dll, "Jinwo_SetMarkerDistance");
 
-            if (_ini.AutoInnerReserveX > 0 || _ini.AutoInnerReserveY > 0)
-                RequireOk(_dll.SetAutoInnerReserve(ref cfg, _ini.AutoInnerReserveX, _ini.AutoInnerReserveY), _dll, "Jinwo_SetAutoInnerReserve");
+            if (ini.AutoInnerReserveX > 0 || ini.AutoInnerReserveY > 0)
+                RequireOk(_dll.SetAutoInnerReserve(ref cfg, ini.AutoInnerReserveX, ini.AutoInnerReserveY), _dll, "Jinwo_SetAutoInnerReserve");
 
             for (int i = 0; i < JinwoNative.MarkerCount; i++)
             {
-                if (_ini.MarkerRobotX[i] == 0 && _ini.MarkerRobotY[i] == 0) continue;
-                RequireOk(_dll.SetMarkerRobotPoint(ref cfg, i, _ini.MarkerRobotX[i], _ini.MarkerRobotY[i]), _dll, "Jinwo_SetMarkerRobotPoint");
+                if (ini.MarkerRobotX[i] == 0 && ini.MarkerRobotY[i] == 0) continue;
+                RequireOk(_dll.SetMarkerRobotPoint(ref cfg, i, ini.MarkerRobotX[i], ini.MarkerRobotY[i]), _dll, "Jinwo_SetMarkerRobotPoint");
             }
 
-            RequireOk(_dll.SetInnerRegion(ref cfg, _ini.InnerOffsetX, _ini.InnerOffsetY, _ini.InnerWidth, _ini.InnerHeight), _dll, "Jinwo_SetInnerRegion");
-            RequireOk(_dll.SetRobotPlace(ref cfg, _ini.TargetZ, _ini.TargetRz), _dll, "Jinwo_SetRobotPlace");
+            RequireOk(_dll.SetInnerRegion(ref cfg, ini.InnerOffsetX, ini.InnerOffsetY, ini.InnerWidth, ini.InnerHeight), _dll, "Jinwo_SetInnerRegion");
+            RequireOk(_dll.SetRobotPlace(ref cfg, ini.TargetZ, ini.TargetRz), _dll, "Jinwo_SetRobotPlace");
 
-            if (_ini.FirstCenterOffsetX != 0 || _ini.FirstCenterOffsetY != 0)
-                RequireOk(_dll.SetFirstCenterOffset(ref cfg, _ini.FirstCenterOffsetX, _ini.FirstCenterOffsetY), _dll, "Jinwo_SetFirstCenterOffset");
+            if (ini.FirstCenterOffsetX != 0 || ini.FirstCenterOffsetY != 0)
+                RequireOk(_dll.SetFirstCenterOffset(ref cfg, ini.FirstCenterOffsetX, ini.FirstCenterOffsetY), _dll, "Jinwo_SetFirstCenterOffset");
 
-            _ini.EnsureCalibFilesForDll(isLeft);
-            RequireCalibFilesForDll();
+            ini.EnsureCalibFilesForDll(isLeft);
+            RequireCalibFilesForDll(isLeft);
             lock (_sync)
             {
                 string prevDir = EnterCalibWorkDir(isLeft);
@@ -237,6 +264,7 @@ namespace 码料机
             ref int capacity,
             double boxHeight,
             double bearingHeight,
+            bool isLeft,
             out int maxLayers)
         {
             maxLayers = 1;
@@ -245,12 +273,13 @@ namespace 码料机
             int perLayer = effRows * effCols;
             if (perLayer < 1) return false;
 
-            if (_ini.TrayLayers > 0)
-                maxLayers = _ini.TrayLayers;
+            var ini = StationIni(isLeft);
+            if (ini.TrayLayers > 0)
+                maxLayers = ini.TrayLayers;
             else if (cfg.Layers > 0)
                 maxLayers = cfg.Layers;
             else
-                maxLayers = EstimateLayersFromBoxDepth(cfg, boxHeight, bearingHeight);
+                maxLayers = EstimateLayersFromBoxDepth(cfg, boxHeight, bearingHeight, isLeft);
 
             maxLayers = Math.Max(1, maxLayers);
             if (capacity < perLayer * maxLayers)
@@ -273,11 +302,12 @@ namespace 码料机
             effCols = maxCol + 1;
         }
 
-        private int EstimateLayersFromBoxDepth(JinwoNative.JinwoTrayConfig cfg, double boxHeight, double bearingHeight)
+        private int EstimateLayersFromBoxDepth(JinwoNative.JinwoTrayConfig cfg, double boxHeight, double bearingHeight, bool isLeft)
         {
+            var ini = StationIni(isLeft);
             double depth = cfg.BoxDepth > 1e-3 ? cfg.BoxDepth
-                : (_ini.BoxDepth > 1e-3 ? _ini.BoxDepth : boxHeight);
-            double pitch = _ini.LayerPitchZ > 1e-3 ? _ini.LayerPitchZ
+                : (ini.BoxDepth > 1e-3 ? ini.BoxDepth : boxHeight);
+            double pitch = ini.LayerPitchZ > 1e-3 ? ini.LayerPitchZ
                 : (cfg.LayerPitchZ > 1e-3 ? cfg.LayerPitchZ
                 : (bearingHeight > 1e-3 ? bearingHeight : cfg.BearingHeight));
             if (depth <= 1e-3 || pitch <= 1e-3) return 1;
@@ -290,7 +320,7 @@ namespace 码料机
         /// 金沃 DLL 使用的采图路径（启用畸变矫正时为矫正后的临时 BMP）。
         /// 未启用或矫正失败时由返回值与 <paramref name="error"/> 区分。
         /// </summary>
-        public bool TryPrepareAlgorithmImage(string sourcePath, out string preparedPath, out string error)
+        public bool TryPrepareAlgorithmImage(string sourcePath, bool isLeft, out string preparedPath, out string error)
         {
             preparedPath = null;
             error = null;
@@ -300,18 +330,22 @@ namespace 码料机
                 ProcessPipelineLog.UndistortFailed(sourcePath, error);
                 return false;
             }
-            if (_undistortion == null || !_undistortion.IsReady)
+            var undistortion = GetUndistortion(isLeft);
+            string undistErr = UndistortionError(isLeft);
+            if (undistortion == null || !undistortion.IsReady)
             {
                 preparedPath = sourcePath;
                 ProcessPipelineLog.UndistortSkipped(sourcePath,
-                    _undistortion == null ? "未启用畸变矫正" : (_undistortionError ?? "标定未就绪"));
+                    undistortion == null ? "未启用畸变矫正" : (undistErr ?? "标定未就绪"));
                 return true;
             }
 
             int ticks = File.GetLastWriteTimeUtc(sourcePath).GetHashCode()
                 ^ sourcePath.GetHashCode()
-                ^ _undistortion.CalibFilePath.GetHashCode();
+                ^ undistortion.CalibFilePath.GetHashCode()
+                ^ (isLeft ? 1 : 2);
             if (_lastUndistortedPath != null
+                && _lastUndistortedIsLeft == isLeft
                 && _lastUndistortedSourceTicks == ticks
                 && File.Exists(_lastUndistortedPath))
             {
@@ -322,13 +356,14 @@ namespace 码料机
 
             string outDir = Path.Combine(Path.GetTempPath(), "码料机_undistort");
             Directory.CreateDirectory(outDir);
+            string sideTag = isLeft ? "L" : "R";
             string outPath = Path.Combine(outDir,
-                "undist_" + Path.GetFileNameWithoutExtension(sourcePath) + ".bmp");
+                "undist_" + sideTag + "_" + Path.GetFileNameWithoutExtension(sourcePath) + ".bmp");
 
             ProcessPipelineLog.UndistortStart(sourcePath, outPath);
             lock (_sync)
             {
-                if (!_undistortion.UndistortFile(sourcePath, outPath, out string err))
+                if (!undistortion.UndistortFile(sourcePath, outPath, out string err))
                 {
                     error = err;
                     ProcessPipelineLog.UndistortFailed(sourcePath, err);
@@ -338,15 +373,19 @@ namespace 码料机
 
             _lastUndistortedPath = outPath;
             _lastUndistortedSourceTicks = ticks;
+            _lastUndistortedIsLeft = isLeft;
             preparedPath = outPath;
             ProcessPipelineLog.UndistortDone(sourcePath, outPath);
             return true;
         }
 
+        public bool TryPrepareAlgorithmImage(string sourcePath, out string preparedPath, out string error)
+            => TryPrepareAlgorithmImage(sourcePath, true, out preparedPath, out error);
+
         /// <summary>金沃 DLL 使用的采图路径（可选先畸变矫正）。</summary>
-        public string PrepareAlgorithmImage(string sourcePath)
+        public string PrepareAlgorithmImage(string sourcePath, bool isLeft)
         {
-            if (!TryPrepareAlgorithmImage(sourcePath, out string preparedPath, out string err))
+            if (!TryPrepareAlgorithmImage(sourcePath, isLeft, out string preparedPath, out string err))
             {
                 if (err != null && err.StartsWith("采图不存在", StringComparison.Ordinal))
                     throw new FileNotFoundException(err);
@@ -354,6 +393,8 @@ namespace 码料机
             }
             return preparedPath;
         }
+
+        public string PrepareAlgorithmImage(string sourcePath) => PrepareAlgorithmImage(sourcePath, true);
 
         public bool TryDetectMarkers(string imagePath, bool isLeft, out JinwoNative.JinwoMarkerResult result, out string error)
         {
@@ -369,15 +410,16 @@ namespace 码料机
                     return false;
                 }
 
-                string algoPath = PrepareAlgorithmImage(imagePath);
+                string algoPath = PrepareAlgorithmImage(imagePath, isLeft);
                 ProcessPipelineLog.RecognizeStart("黑圆检测", algoPath);
                 lock (_sync)
                 {
                     string prevDir = EnterCalibWorkDir(isLeft);
                     try
                     {
-                        if (_ini.IncludeRobotCoordinate)
-                            RequireCalibFilesForDll();
+                        var ini = StationIni(isLeft);
+                        if (ini.IncludeRobotCoordinate)
+                            RequireCalibFilesForDll(isLeft);
                         int rc = _dll.DetectMarkersFromImage(algoPath, ref result);
                         if (rc == 0)
                         {
@@ -431,11 +473,12 @@ namespace 码料机
             if (!File.Exists(imagePath))
                 throw new FileNotFoundException("采图不存在: " + imagePath);
 
-            string algoPath = PrepareAlgorithmImage(imagePath);
+            string algoPath = PrepareAlgorithmImage(imagePath, isLeft);
             ProcessPipelineLog.RecognizeStart("轴承中心算位", algoPath, $"已放件数={placedCount}");
-            Directory.CreateDirectory(_ini.ResolveEffectImageDir());
-            int includeRobot = _ini.IncludeRobotCoordinate ? 1 : 0;
-            int save = (forceSaveEffectImage || _ini.SaveEffectImage) ? 1 : 0;
+            var stationIni = StationIni(isLeft);
+            Directory.CreateDirectory(stationIni.ResolveEffectImageDir());
+            int includeRobot = stationIni.IncludeRobotCoordinate ? 1 : 0;
+            int save = (forceSaveEffectImage || stationIni.SaveEffectImage) ? 1 : 0;
             effectImagePath = null;
 
             JinwoNative.JinwoBearingCenterResult[] centersResult = null;
@@ -447,8 +490,8 @@ namespace 码料机
                     string prevDir = EnterCalibWorkDir(isLeft);
                     try
                     {
-                        if (_ini.IncludeRobotCoordinate)
-                            RequireCalibFilesForDll();
+                        if (stationIni.IncludeRobotCoordinate)
+                            RequireCalibFilesForDll(isLeft);
 
                         int centerCount = 0;
                         var effectBuf = new StringBuilder(1024);
@@ -466,9 +509,9 @@ namespace 码料机
                             _dll, "Jinwo_CalculateAllBearingCentersFromImage");
 
                         string raw = effectBuf.Length > 0 ? effectBuf.ToString().Trim() : null;
-                        effectPathLocal = ResolveEffectImagePath(raw);
+                        effectPathLocal = ResolveEffectImagePath(raw, isLeft);
                         if (save != 0 && string.IsNullOrEmpty(effectPathLocal))
-                            effectPathLocal = FindNewestEffectImage();
+                            effectPathLocal = FindNewestEffectImage(isLeft);
 
                         if (centerCount <= 0)
                             throw new InvalidOperationException("DLL 未返回轴承中心点");
@@ -533,7 +576,7 @@ namespace 码料机
             if (!TryFindBearingCenter(centers, placedCount, out var next))
                 throw new InvalidOperationException($"未找到序号 {placedCount} 的放料位（共 {centers.Length} 个中心点）");
 
-            if (_ini.IncludeRobotCoordinate && next.HasRobot == 0)
+            if (StationIni(isLeft).IncludeRobotCoordinate && next.HasRobot == 0)
                 throw new InvalidOperationException("DLL 未输出机械坐标，请确认工作目录下 camera_calib.yml 与 robot_calib.yml 有效");
             var pose = JinwoNative.ToPoseResult(next, effRows, effCols, capacity);
             ProcessPipelineLog.RecognizeDone("箱姿算位",
@@ -543,14 +586,14 @@ namespace 码料机
         }
 
         /// <summary>DLL 返回的效果图路径可能是相对路径（相对效果图目录）。</summary>
-        public string ResolveEffectImagePath(string rawPath)
+        public string ResolveEffectImagePath(string rawPath, bool isLeft = true)
         {
             if (string.IsNullOrWhiteSpace(rawPath)) return null;
             string p = rawPath.Trim().Trim('"');
             if (File.Exists(p))
                 return Path.GetFullPath(p);
 
-            string effectDir = _ini?.ResolveEffectImageDir() ?? Path.Combine(Application.StartupPath, "jinwo_render");
+            string effectDir = StationIni(isLeft)?.ResolveEffectImageDir() ?? Path.Combine(Application.StartupPath, "jinwo_render");
             string combined = Path.Combine(effectDir, p);
             if (File.Exists(combined))
                 return Path.GetFullPath(combined);
@@ -566,9 +609,9 @@ namespace 码料机
         }
 
         /// <summary>效果图目录中最新一张图（DLL 未回路径时的回退）。</summary>
-        public string FindNewestEffectImage()
+        public string FindNewestEffectImage(bool isLeft = true)
         {
-            string dir = _ini?.ResolveEffectImageDir();
+            string dir = StationIni(isLeft)?.ResolveEffectImageDir();
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return null;
             string[] patterns = { "*.bmp", "*.png", "*.jpg", "*.jpeg" };
             FileInfo newest = null;
@@ -584,10 +627,10 @@ namespace 码料机
             return newest?.FullName;
         }
 
-        public bool SaveEffectImage => _ini?.SaveEffectImage != false;
+        public bool SaveEffectImage(bool isLeft) => StationIni(isLeft)?.SaveEffectImage != false;
 
-        public string EffectImageDirectory =>
-            _ini?.ResolveEffectImageDir() ?? Path.Combine(Application.StartupPath, "jinwo_render");
+        public string EffectImageDirectory(bool isLeft)
+            => StationIni(isLeft)?.ResolveEffectImageDir() ?? Path.Combine(Application.StartupPath, "jinwo_render");
 
         /// <summary>离线测试图路径（优先于 INI「采图路径」）。</summary>
         public void SetCaptureImageOverride(string path)
@@ -596,25 +639,34 @@ namespace 码料机
             _lastUndistortedPath = null;
         }
 
-        public string ResolveCaptureImagePath()
-            => JinwoAlgorithmConfig.ResolveCaptureImagePath(_captureImageOverride ?? _ini?.CaptureImagePath);
+        public string ResolveCaptureImagePath(bool isLeft)
+            => JinwoAlgorithmConfig.ResolveCaptureImagePath(_captureImageOverride ?? StationIni(isLeft)?.CaptureImagePath);
 
-        public bool HikCameraEnabled => _ini?.HikCameraEnabled == true;
-        public string HikSerialNumber => _ini?.HikSerialNumber ?? "";
-        public string HikTriggerMode => string.IsNullOrWhiteSpace(_ini?.HikTriggerMode) ? "Software" : _ini.HikTriggerMode.Trim();
-        public bool HikLivePreview => _ini?.HikLivePreview != false;
-        public int HikPreviewIntervalMs => _ini?.HikPreviewIntervalMs ?? 200;
-        public bool HikSaveEveryFrame => _ini?.HikSaveEveryFrame != false;
-        public int RecognizeRetryCount => _ini?.RecognizeRetryCount ?? 2;
-        public int RecognizeRetryDelayMs => _ini?.RecognizeRetryDelayMs ?? 300;
-        public string ResolveHikCaptureSavePath() => _ini?.ResolveHikCaptureSavePath()
+        public string ResolveCaptureImagePath() => ResolveCaptureImagePath(true);
+
+        public bool HikCameraEnabled(bool isLeft) => StationIni(isLeft)?.HikCameraEnabled == true;
+        public bool HikCameraEnabledAny => HikCameraEnabled(true) || HikCameraEnabled(false);
+        public string HikSerialNumber(bool isLeft) => StationIni(isLeft)?.HikSerialNumber ?? "";
+        public string HikTriggerMode(bool isLeft)
+        {
+            string mode = StationIni(isLeft)?.HikTriggerMode;
+            return string.IsNullOrWhiteSpace(mode) ? "Software" : mode.Trim();
+        }
+        public bool HikLivePreview(bool isLeft) => StationIni(isLeft)?.HikLivePreview != false;
+        public int HikPreviewIntervalMs(bool isLeft) => StationIni(isLeft)?.HikPreviewIntervalMs ?? 200;
+        public bool HikSaveEveryFrame(bool isLeft) => StationIni(isLeft)?.HikSaveEveryFrame != false;
+        public int RecognizeRetryCount => _left?.RecognizeRetryCount ?? 2;
+        public int RecognizeRetryDelayMs => _left?.RecognizeRetryDelayMs ?? 300;
+        public string ResolveHikCaptureSavePath(bool isLeft) => StationIni(isLeft)?.ResolveHikCaptureSavePath()
             ?? Path.Combine(Application.StartupPath, OfflineCaptureHelper.DefaultOfflineFeedFileName);
 
         public void Dispose()
         {
             UnloadDll();
-            _undistortion?.Dispose();
-            _undistortion = null;
+            _undistortionLeft?.Dispose();
+            _undistortionRight?.Dispose();
+            _undistortionLeft = null;
+            _undistortionRight = null;
         }
     }
 }

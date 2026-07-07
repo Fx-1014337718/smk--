@@ -1,123 +1,123 @@
-using System;
-using System.IO;
-using System.Text;
-using System.Threading.Tasks;
-using static 码料机.JinwoNative;
+                using System;
+                using System.IO;
+                using System.Text;
+                using System.Threading.Tasks;
+                using static 码料机.JinwoNative;
 
-namespace 码料机
-{
-    /// <summary>供 <see cref="AlgorithmTestForm"/> 调用的算法试跑 API（与 PLC 流程隔离）。</summary>
-    public partial class Form1
-    {
-        public sealed class AlgorithmDllStatus
-        {
-            public bool JinwoEnabled;
-            public bool JinwoLoaded;
-            public string JinwoStatus;
-            public string JinwoLoadError;
-            public bool PresenceEnabled;
-            public bool PresenceLoaded;
-            public string PresenceLoadError;
-            public string StationName;
-            public bool HasTrayConfig;
-        }
+                namespace 码料机
+                {
+                    /// <summary>供 <see cref="AlgorithmTestForm"/> 调用的算法试跑 API（与 PLC 流程隔离）。</summary>
+                    public partial class Form1
+                    {
+                        public sealed class AlgorithmDllStatus
+                        {
+                            public bool JinwoEnabled;
+                            public bool JinwoLoaded;
+                            public string JinwoStatus;
+                            public string JinwoLoadError;
+                            public bool PresenceEnabled;
+                            public bool PresenceLoaded;
+                            public string PresenceLoadError;
+                            public string StationName;
+                            public bool HasTrayConfig;
+                        }
 
-        public sealed class BearingPresenceTestOutcome
-        {
-            public bool AlgorithmOk;
-            public bool HasDetected;
-            public int DetectCount;
-            public string Error;
-            /// <summary>本测试专用目录下的渲染图（唯一文件名）。</summary>
-            public string RenderImagePath;
-            public string Summary;
-        }
+                        public sealed class BearingPresenceTestOutcome
+                        {
+                            public bool AlgorithmOk;
+                            public bool HasDetected;
+                            public int DetectCount;
+                            public string Error;
+                            /// <summary>本测试专用目录下的渲染图（唯一文件名）。</summary>
+                            public string RenderImagePath;
+                            public string Summary;
+                        }
 
-        public sealed class JinwoMarkerTestOutcome
-        {
-            public bool Success;
-            public string Error;
-            public string RenderImagePath;
-            public string PreparedImagePath;
-            public string Summary;
-        }
+                        public sealed class JinwoMarkerTestOutcome
+                        {
+                            public bool Success;
+                            public string Error;
+                            public string RenderImagePath;
+                            public string PreparedImagePath;
+                            public string Summary;
+                        }
 
-        public sealed class JinwoPoseTestOutcome
-        {
-            public bool Success;
-            public string Error;
-            public string RenderImagePath;
-            public string PreparedImagePath;
-            public JinwoPoseResult Pose;
-            public string Summary;
-        }
+                        public sealed class JinwoPoseTestOutcome
+                        {
+                            public bool Success;
+                            public string Error;
+                            public string RenderImagePath;
+                            public string PreparedImagePath;
+                            public JinwoPoseResult Pose;
+                            public string Summary;
+                        }
 
-        public sealed class JinwoPlanTestOutcome
-        {
-            public bool Success;
-            public string Error;
-            public string RenderImagePath;
-            public string PreparedImagePath;
-            public int CenterCount;
-            public int EffectiveRows;
-            public int EffectiveCols;
-            public int Capacity;
-            public string Summary;
-        }
+                        public sealed class JinwoPlanTestOutcome
+                        {
+                            public bool Success;
+                            public string Error;
+                            public string RenderImagePath;
+                            public string PreparedImagePath;
+                            public int CenterCount;
+                            public int EffectiveRows;
+                            public int EffectiveCols;
+                            public int Capacity;
+                            public string Summary;
+                        }
 
-        public AlgorithmDllStatus GetAlgorithmDllStatus()
-        {
-            var st = currentStation ?? leftStation;
-            return new AlgorithmDllStatus
-            {
-                JinwoEnabled = _jinwo.IsEnabled,
-                JinwoLoaded = _jinwo.IsLoaded,
-                JinwoStatus = _jinwo.StatusText,
-                JinwoLoadError = _jinwo.LoadError,
-                PresenceEnabled = _bearingPresence.IsEnabled,
-                PresenceLoaded = _bearingPresence.IsLoaded,
-                PresenceLoadError = _bearingPresence.LoadError,
-                StationName = st?.Name ?? "(无工位)",
-                HasTrayConfig = st?.HasJinwoTrayConfig == true
-            };
-        }
+                        public AlgorithmDllStatus GetAlgorithmDllStatus()
+                        {
+                            var st = currentStation ?? leftStation;
+                            return new AlgorithmDllStatus
+                            {
+                                JinwoEnabled = _jinwo.IsEnabled,
+                                JinwoLoaded = _jinwo.IsLoaded,
+                                JinwoStatus = _jinwo.StatusText,
+                                JinwoLoadError = _jinwo.LoadError,
+                                PresenceEnabled = _bearingPresence.IsEnabled,
+                                PresenceLoaded = _bearingPresence.IsLoaded,
+                                PresenceLoadError = _bearingPresence.LoadError,
+                                StationName = st?.Name ?? "(无工位)",
+                                HasTrayConfig = st?.HasJinwoTrayConfig == true
+                            };
+                        }
 
-        public void ReloadAlgorithmDlls()
-        {
-            _jinwo.ReloadConfig();
-            _bearingPresence.ReloadConfig();
-            RefreshJinwoStatusUi();
-        }
+                        public void ReloadAlgorithmDlls()
+                        {
+                            _jinwo.ReloadConfig();
+                            _bearingPresence.ReloadConfig();
+                            RefreshJinwoStatusUi();
+                        }
 
-        public string GetAlgorithmTestDefaultImagePath()
-        {
-            if (!string.IsNullOrWhiteSpace(_offlineTestImagePath) && File.Exists(_offlineTestImagePath))
-                return _offlineTestImagePath;
-            string p = _jinwo.ResolveCaptureImagePath();
-            return File.Exists(p) ? p : null;
-        }
+                        public string GetAlgorithmTestDefaultImagePath()
+                        {
+                            if (!string.IsNullOrWhiteSpace(_offlineTestImagePath) && File.Exists(_offlineTestImagePath))
+                                return _offlineTestImagePath;
+                            string p = _jinwo.ResolveCaptureImagePath(IsLeftStation(currentStation));
+                            return File.Exists(p) ? p : null;
+                        }
 
-        public Task<bool> AlgorithmTestTryHikCaptureAsync()
-            => TryHikvisionCaptureAsync();
+                        public Task<bool> AlgorithmTestTryHikCaptureAsync()
+                            => TryHikvisionCaptureAsync(IsLeftStation(currentStation));
 
-        public BearingPresenceTestOutcome TestBearingPresence(string imagePath)
-        {
-            var outcome = new BearingPresenceTestOutcome();
-            if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
-            {
-                outcome.Error = "图像不存在";
-                outcome.Summary = outcome.Error;
-                return outcome;
-            }
-            if (!_bearingPresence.IsEnabled)
-            {
-                outcome.Error = "有无料算法未启用（金沃算法.ini [有无料] 启用=1）";
-                outcome.Summary = outcome.Error;
-                return outcome;
-            }
-            if (!_bearingPresence.IsLoaded)
-            {
-                outcome.Error = "DLL 未加载: " + (_bearingPresence.LoadError ?? "未知");
+                        public BearingPresenceTestOutcome TestBearingPresence(string imagePath)
+                        {
+                            var outcome = new BearingPresenceTestOutcome();
+                            if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+                            {
+                                outcome.Error = "图像不存在";
+                                outcome.Summary = outcome.Error;
+                                return outcome;
+                            }
+                            if (!_bearingPresence.IsEnabled)
+                            {
+                                outcome.Error = "有无料算法未启用（金沃算法.ini [有无料] 启用=1）";
+                                outcome.Summary = outcome.Error;
+                                return outcome;
+                            }
+                            if (!_bearingPresence.IsLoaded)
+                            {
+                                outcome.Error = "DLL 未加载: " + (_bearingPresence.LoadError ?? "未知");
                 outcome.Summary = outcome.Error;
                 return outcome;
             }
@@ -165,7 +165,7 @@ namespace 码料机
 
             try
             {
-                if (!_jinwo.TryPrepareAlgorithmImage(imagePath, out string prepared, out string prepErr))
+                if (!_jinwo.TryPrepareAlgorithmImage(imagePath, isLeft, out string prepared, out string prepErr))
                 {
                     outcome.Error = prepErr ?? "图像预处理失败";
                     outcome.Summary = outcome.Error;
@@ -236,7 +236,8 @@ namespace 码料机
 
             try
             {
-                if (!_jinwo.TryPrepareAlgorithmImage(imagePath, out string prepared, out string prepErr))
+                bool isLeft = IsLeftStation(st);
+                if (!_jinwo.TryPrepareAlgorithmImage(imagePath, isLeft, out string prepared, out string prepErr))
                 {
                     outcome.Error = prepErr ?? "图像预处理失败";
                     outcome.Summary = outcome.Error;
@@ -248,7 +249,7 @@ namespace 码料机
                 var pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, ResolveNinePointCalibIsLeft(st), out string effectPath, forceSaveEffectImage: true);
                 ApplyConfiguredJinwoZAndRz(st, ref pose);
                 outcome.Pose = pose;
-                string dllEffect = ResolveJinwoDllEffectPath(effectPath);
+                string dllEffect = ResolveJinwoDllEffectPath(effectPath, isLeft);
                 outcome.RenderImagePath = AlgorithmTestRenderPaths.Publish(
                     dllEffect, AlgorithmTestRenderPaths.Kind.JinwoPose, imagePath);
                 outcome.Success = true;
@@ -291,7 +292,8 @@ namespace 码料机
 
             try
             {
-                if (!_jinwo.TryPrepareAlgorithmImage(imagePath, out string prepared, out string prepErr))
+                bool isLeft = IsLeftStation(st);
+                if (!_jinwo.TryPrepareAlgorithmImage(imagePath, isLeft, out string prepared, out string prepErr))
                 {
                     outcome.Error = prepErr ?? "图像预处理失败";
                     outcome.Summary = outcome.Error;
@@ -307,7 +309,7 @@ namespace 码料机
                 outcome.EffectiveRows = effRows;
                 outcome.EffectiveCols = effCols;
                 outcome.Capacity = capacity;
-                string dllEffect = ResolveJinwoDllEffectPath(effectPath);
+                string dllEffect = ResolveJinwoDllEffectPath(effectPath, isLeft);
                 outcome.RenderImagePath = AlgorithmTestRenderPaths.Publish(
                     dllEffect, AlgorithmTestRenderPaths.Kind.JinwoPlan, imagePath);
                 outcome.Success = outcome.CenterCount > 0;
@@ -374,12 +376,12 @@ namespace 码料机
             return true;
         }
 
-        private string ResolveJinwoDllEffectPath(string rawEffectPath)
+        private string ResolveJinwoDllEffectPath(string rawEffectPath, bool isLeft = true)
         {
-            string resolved = _jinwo.ResolveEffectImagePath(rawEffectPath);
+            string resolved = _jinwo.ResolveEffectImagePath(rawEffectPath, isLeft);
             if (!string.IsNullOrEmpty(resolved) && File.Exists(resolved))
                 return resolved;
-            return _jinwo.FindNewestEffectImage();
+            return _jinwo.FindNewestEffectImage(isLeft);
         }
 
         private static string RenderPathSuffix(string renderPath)

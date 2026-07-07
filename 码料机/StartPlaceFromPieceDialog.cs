@@ -6,81 +6,100 @@ using System.Windows.Forms;
 
 namespace 码料机
 {
-    /// <summary>顺序放料：空箱拍照规划后，指定下一发从第几件开始。</summary>
+    /// <summary>顺序放料：左/右机台分别空箱拍照规划后，指定下一发从第几件开始。</summary>
     public sealed class StartPlaceFromPieceDialog : Form
     {
         private readonly Form1 _main;
-        private readonly Label _lblTitle;
-        private readonly Label _lblHint;
-        private readonly TextBox _txtImage = new TextBox { Dock = DockStyle.Fill, Font = UiLayoutHelper.DialogBase };
-        private readonly NumericUpDown _numStart;
-
-        public int StartPiece => (int)_numStart.Value;
-        public string ImagePath => _txtImage.Text?.Trim();
+        private readonly TabControl _tabs;
+        private readonly StationPageUi _leftUi = new StationPageUi { IsLeft = true };
+        private readonly StationPageUi _rightUi = new StationPageUi { IsLeft = false };
 
         public StartPlaceFromPieceDialog(Form1 main)
         {
             _main = main ?? throw new ArgumentNullException(nameof(main));
             Text = "指定开始放料件";
             StartPosition = FormStartPosition.CenterParent;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            ShowInTaskbar = false;
             Font = UiLayoutHelper.DialogBase;
-            ClientSize = new Size(560, 340);
-            BackColor = Color.FromArgb(248, 250, 252);
+            ClientSize = new Size(760, 520);
+            MinimumSize = new Size(680, 460);
+            UiLayoutHelper.ApplyDialogChrome(this);
 
             var root = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 4,
-                Padding = new Padding(16, 14, 16, 14)
+                RowCount = 2
             };
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             Controls.Add(root);
 
-            _lblTitle = new Label
+            _tabs = new TabControl { Dock = DockStyle.Fill, Font = UiLayoutHelper.DialogBase, ItemSize = new Size(120, 36) };
+            _tabs.TabPages.Add(BuildStationPage("左机台", _leftUi));
+            _tabs.TabPages.Add(BuildStationPage("右机台", _rightUi));
+            root.Controls.Add(_tabs, 0, 0);
+            root.Controls.Add(BuildBottomBar(), 0, 1);
+
+            Load += (_, __) => RefreshAllStations();
+        }
+
+        private sealed class StationPageUi
+        {
+            public bool IsLeft;
+            public Label LblHint;
+            public TextBox TxtImage;
+            public NumericUpDown NumStart;
+            public Button BtnApply;
+        }
+
+        private TabPage BuildStationPage(string title, StationPageUi ui)
+        {
+            var page = new TabPage(title) { Padding = new Padding(12, 10, 12, 10) };
+
+            var root = new TableLayoutPanel
             {
-                AutoSize = false,
                 Dock = DockStyle.Fill,
-                Height = 32,
-                Font = UiLayoutHelper.DialogTitle,
-                ForeColor = Color.FromArgb(30, 41, 59),
-                Text = "指定下一发件号",
-                Margin = new Padding(0, 0, 0, 8)
+                ColumnCount = 1,
+                RowCount = 4
             };
-            _lblHint = new Label
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            ui.LblHint = new Label
             {
                 AutoSize = false,
-                Dock = DockStyle.Fill,
-                Height = 72,
+                Dock = DockStyle.Top,
+                Height = 88,
                 ForeColor = Color.FromArgb(100, 116, 139),
-                Text = "说明",
                 Margin = new Padding(0, 0, 0, 10)
             };
 
-            _numStart = new NumericUpDown
+            ui.TxtImage = new TextBox { Dock = DockStyle.Fill, Font = UiLayoutHelper.DialogBase };
+
+            ui.NumStart = new NumericUpDown
             {
-                Location = new Point(56, 36),
-                Size = new Size(88, 28),
                 Minimum = 1,
                 Maximum = 9999,
                 Value = 1,
-                Font = UiLayoutHelper.Combo
+                Width = 96,
+                Font = UiLayoutHelper.Combo,
+                Margin = new Padding(0, 8, 8, 0)
             };
 
-            root.Controls.Add(_lblTitle, 0, 0);
-            root.Controls.Add(_lblHint, 0, 1);
-            root.Controls.Add(BuildImageRow(), 0, 2);
-            root.Controls.Add(BuildPieceRow(), 0, 3);
+            ui.BtnApply = MakeButton("确定规划并开始", Color.FromArgb(37, 99, 235));
+            ui.BtnApply.Click += async (_, __) => await ApplyStationAsync(ui).ConfigureAwait(true);
+
+            root.Controls.Add(ui.LblHint, 0, 0);
+            root.Controls.Add(BuildImageSection(ui), 0, 1);
+            root.Controls.Add(BuildPieceSection(ui), 0, 2);
+            root.Controls.Add(ui.BtnApply, 0, 3);
+            page.Controls.Add(root);
+            return page;
         }
 
-        private Control BuildImageRow()
+        private Control BuildImageSection(StationPageUi ui)
         {
             var panel = new TableLayoutPanel
             {
@@ -113,24 +132,24 @@ namespace 码料机
             {
                 using (var dlg = new OpenFileDialog { Filter = "图像|*.bmp;*.jpg;*.jpeg;*.png|所有文件|*.*" })
                 {
-                    if (dlg.ShowDialog(this) == DialogResult.OK)
-                        _txtImage.Text = dlg.FileName;
+                    if (dlg.ShowDialog() == DialogResult.OK)
+                        ui.TxtImage.Text = dlg.FileName;
                 }
             };
             var btnMain = MakeButton("用主界面图", Color.FromArgb(71, 85, 105));
             btnMain.Click += (_, __) =>
             {
-                string p = _main.GetManualPlaceDefaultImagePath();
+                string p = _main.GetManualPlaceDefaultImagePath(ui.IsLeft);
                 if (string.IsNullOrEmpty(p))
                     DialogPrompts.ShowInfo("主界面无可用测试图。", "提示");
                 else
-                    _txtImage.Text = p;
+                    ui.TxtImage.Text = p;
             };
             var btnHik = MakeButton("海康采图", Color.FromArgb(14, 116, 144));
-            btnHik.Click += async (_, __) => await CaptureHikAsync().ConfigureAwait(true);
+            btnHik.Click += async (_, __) => await CaptureHikAsync(ui).ConfigureAwait(true);
 
             row.Controls.Add(new Label { Text = "图像：", AutoSize = true, Margin = new Padding(0, 10, 6, 0) }, 0, 0);
-            row.Controls.Add(_txtImage, 1, 0);
+            row.Controls.Add(ui.TxtImage, 1, 0);
             row.Controls.Add(btnBrowse, 2, 0);
             row.Controls.Add(btnMain, 3, 0);
             row.Controls.Add(btnHik, 4, 0);
@@ -138,62 +157,51 @@ namespace 码料机
             return panel;
         }
 
-        private Control BuildPieceRow()
+        private static Control BuildPieceSection(StationPageUi ui)
         {
-            var panel = new Panel { Dock = DockStyle.Top, Height = 100 };
-
-            var lblStep = new Label
+            var panel = new FlowLayoutPanel
             {
-                Text = "② 从第几件开始顺序放料",
+                Dock = DockStyle.Top,
                 AutoSize = true,
-                Location = new Point(0, 0),
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                Margin = new Padding(0, 0, 0, 12)
+            };
+            panel.Controls.Add(new Label
+            {
+                Text = "② 从第",
+                AutoSize = true,
                 Font = UiLayoutHelper.DialogTitle,
-                ForeColor = Color.FromArgb(51, 65, 85)
-            };
-            var lblPiece = new Label
+                ForeColor = Color.FromArgb(51, 65, 85),
+                Margin = new Padding(0, 10, 4, 0)
+            });
+            panel.Controls.Add(ui.NumStart);
+            panel.Controls.Add(new Label
             {
+                Text = "件开始顺序放料（下一发 PLC 坐标）",
                 AutoSize = true,
-                Location = new Point(0, 40),
-                Text = "从第",
-                ForeColor = Color.FromArgb(51, 65, 85)
-            };
-            var lblPiece2 = new Label
-            {
-                AutoSize = true,
-                Location = new Point(152, 40),
-                Text = "件开始（下一发 PLC 坐标）",
-                ForeColor = Color.FromArgb(51, 65, 85)
-            };
-
-            var btnOk = new Button
-            {
-                Text = "确定",
-                DialogResult = DialogResult.OK,
-                Location = new Point(312, 48),
-                Size = new Size(92, 44),
-                BackColor = Color.FromArgb(37, 99, 235),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = UiLayoutHelper.DialogButton,
-                Cursor = Cursors.Hand
-            };
-            var btnCancel = new Button
-            {
-                Text = "取消",
-                DialogResult = DialogResult.Cancel,
-                Location = new Point(412, 48),
-                Size = new Size(92, 44),
-                BackColor = Color.FromArgb(148, 163, 184),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = UiLayoutHelper.DialogButton,
-                Cursor = Cursors.Hand
-            };
-            AcceptButton = btnOk;
-            CancelButton = btnCancel;
-
-            panel.Controls.AddRange(new Control[] { lblStep, lblPiece, _numStart, lblPiece2, btnOk, btnCancel });
+                ForeColor = Color.FromArgb(51, 65, 85),
+                Margin = new Padding(0, 12, 0, 0)
+            });
             return panel;
+        }
+
+        private Control BuildBottomBar()
+        {
+            var bar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.RightToLeft,
+                AutoSize = true,
+                Padding = new Padding(0, 10, 0, 0)
+            };
+            var btnClose = MakeButton("关闭", Color.FromArgb(148, 163, 184));
+            btnClose.Click += (_, __) => Close();
+            var btnRefresh = MakeButton("刷新", Color.FromArgb(71, 85, 105));
+            btnRefresh.Click += (_, __) => RefreshAllStations();
+            bar.Controls.Add(btnClose);
+            bar.Controls.Add(btnRefresh);
+            return bar;
         }
 
         private static Button MakeButton(string text, Color back) =>
@@ -201,25 +209,26 @@ namespace 码料机
             {
                 Text = text,
                 AutoSize = true,
-                MinimumSize = new Size(88, 36),
+                MinimumSize = new Size(120, 42),
                 BackColor = back,
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
-                Margin = new Padding(4, 4, 4, 4),
+                Font = UiLayoutHelper.DialogButton,
+                Margin = new Padding(6, 4, 6, 4),
                 Cursor = Cursors.Hand
             };
 
-        private async Task CaptureHikAsync()
+        private async Task CaptureHikAsync(StationPageUi ui)
         {
             Enabled = false;
             try
             {
-                if (!await _main.ManualPlaceTryHikCaptureAsync().ConfigureAwait(true))
+                if (!await _main.ManualPlaceTryHikCaptureAsync(ui.IsLeft).ConfigureAwait(true))
                     DialogPrompts.ShowInfo("海康采图失败。", "采图");
                 else
                 {
-                    string p = _main.GetManualPlaceDefaultImagePath();
-                    if (!string.IsNullOrEmpty(p)) _txtImage.Text = p;
+                    string p = _main.GetManualPlaceDefaultImagePath(ui.IsLeft);
+                    if (!string.IsNullOrEmpty(p)) ui.TxtImage.Text = p;
                 }
             }
             finally
@@ -228,35 +237,72 @@ namespace 码料机
             }
         }
 
-        public void BindStation(string stationName, int planTotal, int currentPlaced, int suggestedStartPiece)
+        private void RefreshAllStations()
         {
-            _lblTitle.Text = stationName + " — 指定开始件（须先空箱拍照）";
-            int cap = Math.Max(1, planTotal);
-            _numStart.Maximum = cap;
-            int suggest = Math.Max(1, Math.Min(cap, suggestedStartPiece));
-            _numStart.Value = suggest;
-            _lblHint.Text =
-                $"本箱容量约 {cap} 件；当前已确认 {currentPlaced} 件。\n" +
+            RefreshStation(_leftUi);
+            RefreshStation(_rightUi);
+        }
+
+        private void RefreshStation(StationPageUi ui)
+        {
+            var view = _main.GetStartPieceStationView(ui.IsLeft);
+            int cap = Math.Max(1, view.PlanTotal);
+            ui.NumStart.Maximum = cap;
+            ui.NumStart.Value = Math.Max(1, Math.Min(cap, view.SuggestedStartPiece));
+            ui.BtnApply.Enabled = view.CanApply;
+            ui.TxtImage.Enabled = view.CanApply;
+            ui.NumStart.Enabled = view.CanApply;
+
+            string side = ui.IsLeft ? "左" : "右";
+            if (!view.CanApply)
+            {
+                ui.LblHint.Text =
+                    $"{view.StationName} 当前不可用：{view.BlockReason}\n" +
+                    $"本箱容量约 {cap} 件；当前已确认 {view.PlacedCount} 件。";
+                return;
+            }
+
+            ui.LblHint.Text =
+                $"{view.StationName} — 指定开始件（须先空箱拍照）\n" +
+                $"本箱容量约 {cap} 件；当前已确认 {view.PlacedCount} 件。\n" +
                 "• 此处空箱图用于离线生成整箱规划表（件序与容量）。\n" +
                 "• 箱内前面已有料时，请确认跳过件数与现场一致。\n" +
                 "• 设定后 PLC 取料/放料握手与正常相同；首次放料请求须至拍照位现场采图，才能算出下一发坐标。";
 
-            string img = _main.GetManualPlaceDefaultImagePath();
-            if (!string.IsNullOrEmpty(img)) _txtImage.Text = img;
+            if (string.IsNullOrWhiteSpace(ui.TxtImage.Text))
+            {
+                string img = _main.GetManualPlaceDefaultImagePath(ui.IsLeft);
+                if (!string.IsNullOrEmpty(img)) ui.TxtImage.Text = img;
+            }
         }
 
-        public static bool TryGetStartPiece(Form1 main, string stationName, int planTotal,
-            int currentPlaced, int suggestedStartPiece, out int startPiece, out string imagePath)
+        private async Task ApplyStationAsync(StationPageUi ui)
         {
-            startPiece = 1;
-            imagePath = null;
-            using (var dlg = new StartPlaceFromPieceDialog(main))
+            var view = _main.GetStartPieceStationView(ui.IsLeft);
+            if (!view.CanApply)
             {
-                dlg.BindStation(stationName, planTotal, currentPlaced, suggestedStartPiece);
-                if (dlg.ShowDialog(main) != DialogResult.OK) return false;
-                startPiece = dlg.StartPiece;
-                imagePath = dlg.ImagePath;
-                return true;
+                DialogPrompts.ShowWarning(view.BlockReason ?? "当前机台不可用", "指定开始件");
+                return;
+            }
+
+            int startPiece = (int)ui.NumStart.Value;
+            string imagePath = ui.TxtImage.Text?.Trim();
+            Enabled = false;
+            try
+            {
+                var result = await _main.TryApplyStartPieceAsync(ui.IsLeft, startPiece, imagePath, this)
+                    .ConfigureAwait(true);
+                if (result.Error != null)
+                    DialogPrompts.ShowWarning(result.Error, "指定开始件");
+                else if (result.Ok)
+                {
+                    DialogPrompts.ShowInfo($"{view.StationName} 已设定从第 {startPiece} 件开始。", "指定开始件");
+                    RefreshAllStations();
+                }
+            }
+            finally
+            {
+                Enabled = true;
             }
         }
     }

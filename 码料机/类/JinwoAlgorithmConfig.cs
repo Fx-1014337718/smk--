@@ -5,10 +5,16 @@ using System.Windows.Forms;
 
 namespace 码料机
 {
-    /// <summary>金沃算法 INI（配置文件\金沃算法.ini）。</summary>
+    /// <summary>金沃算法 INI（配置文件\金沃算法.ini）；托盘/标定/相机等按左/右机台独立存储。</summary>
     public sealed class JinwoAlgorithmConfig
     {
+        public const string SectionLeft = "左机台";
+        public const string SectionRight = "右机台";
+
         public static readonly string IniPath = Path.Combine(Parameters.IniDir, "金沃算法.ini");
+
+        public static string StationSection(bool isLeft, string suffix)
+            => (isLeft ? SectionLeft : SectionRight) + "_" + suffix;
 
         public bool Enabled { get; set; }
         public string DllFileName { get; set; } = "JinwoRobotArm.dll";
@@ -64,10 +70,6 @@ namespace 码料机
 
         /// <summary>robot_calib.yml：含 pixel_to_robot_matrix，供像素坐标转机械坐标（与畸变矫正无关）。</summary>
         public string NinePointRobotCalibFile { get; set; } = "robot_calib.yml";
-        /// <summary>A/左取料请求（D4018）九点标定文件；留空则使用 <see cref="NinePointRobotCalibFile"/>。</summary>
-        public string NinePointRobotCalibFileLeft { get; set; } = "";
-        /// <summary>B/右取料请求（D4020）九点标定文件；留空则使用 <see cref="NinePointRobotCalibFile"/>。</summary>
-        public string NinePointRobotCalibFileRight { get; set; } = "";
 
         public static void EnsureDefaultIniFile()
         {
@@ -78,90 +80,138 @@ namespace 码料机
             File.WriteAllText(IniPath, DefaultIniText, System.Text.Encoding.Default);
         }
 
-        public static JinwoAlgorithmConfig Load()
+        /// <summary>加载左/右机台完整配置（含全局 [算法] 节）。</summary>
+        public static JinwoAlgorithmConfig Load(bool isLeft, string iniPath = null) => LoadMerged(isLeft, iniPath);
+
+        /// <summary>兼容旧调用：等同加载左机台配置。</summary>
+        public static JinwoAlgorithmConfig Load() => Load(true);
+
+        public static void LoadBoth(string iniPath, out JinwoAlgorithmConfig left, out JinwoAlgorithmConfig right)
+        {
+            left = Load(true, iniPath);
+            right = Load(false, iniPath);
+        }
+
+        static JinwoAlgorithmConfig LoadMerged(bool isLeft, string iniPath)
         {
             EnsureDefaultIniFile();
+            string path = iniPath ?? IniPath;
             var c = new JinwoAlgorithmConfig();
-            const string alg = "算法";
-            const string tray = "托盘";
-            const string cal = "标定";
-            const string undist = "畸变矫正";
-            const string nine = "九点标定";
-            const string hik = "海康相机";
+            LoadGlobalInto(c, path);
+            LoadStationInto(c, isLeft, path);
+            return c;
+        }
 
-            c.Enabled = IniAPI.GetPrivateProfileInt(alg, "启用", 0, IniPath) != 0;
-            c.DllFileName = IniAPI.GetPrivateProfileString(alg, "Dll路径", "JinwoRobotArm.dll", IniPath);
-            c.OpenCvRuntimeDir = IniAPI.GetPrivateProfileString(alg, "OpenCv运行时目录", "", IniPath);
-            c.CaptureImagePath = IniAPI.GetPrivateProfileString(alg, "采图路径", "", IniPath);
-            c.SaveEffectImage = IniAPI.GetPrivateProfileInt(alg, "保存效果图", 1, IniPath) != 0;
-            c.IncludeRobotCoordinate = IniAPI.GetPrivateProfileInt(alg, "输出机械坐标", 1, IniPath) != 0;
-            c.EffectImageDir = IniAPI.GetPrivateProfileString(alg, "效果图目录", "jinwo_render", IniPath);
-            c.RecognizeRetryCount = IniAPI.GetPrivateProfileInt(alg, "识别重试次数", 2, IniPath);
+        static void LoadGlobalInto(JinwoAlgorithmConfig c, string path)
+        {
+            const string alg = "算法";
+            c.Enabled = IniAPI.GetPrivateProfileInt(alg, "启用", 0, path) != 0;
+            c.DllFileName = IniAPI.GetPrivateProfileString(alg, "Dll路径", "JinwoRobotArm.dll", path);
+            c.OpenCvRuntimeDir = IniAPI.GetPrivateProfileString(alg, "OpenCv运行时目录", "", path);
+            c.IncludeRobotCoordinate = IniAPI.GetPrivateProfileInt(alg, "输出机械坐标", 1, path) != 0;
+            c.RecognizeRetryCount = IniAPI.GetPrivateProfileInt(alg, "识别重试次数", 2, path);
             if (c.RecognizeRetryCount < 0) c.RecognizeRetryCount = 0;
             if (c.RecognizeRetryCount > 10) c.RecognizeRetryCount = 10;
-            c.RecognizeRetryDelayMs = IniAPI.GetPrivateProfileInt(alg, "识别重试间隔毫秒", 300, IniPath);
+            c.RecognizeRetryDelayMs = IniAPI.GetPrivateProfileInt(alg, "识别重试间隔毫秒", 300, path);
             if (c.RecognizeRetryDelayMs < 0) c.RecognizeRetryDelayMs = 0;
             if (c.RecognizeRetryDelayMs > 5000) c.RecognizeRetryDelayMs = 5000;
+        }
 
-            c.TrayRows = IniAPI.GetPrivateProfileInt(tray, "每层行数", 0, IniPath);
-            c.TrayCols = IniAPI.GetPrivateProfileInt(tray, "每层列数", 0, IniPath);
-            c.TrayLayers = IniAPI.GetPrivateProfileInt(tray, "层数", 0, IniPath);
-            c.BearingGap = IniAPI.GetPrivateProfileDouble(tray, "轴承间隙", 0, IniPath);
-            c.PitchX = IniAPI.GetPrivateProfileDouble(tray, "PitchX", 0, IniPath);
-            c.PitchY = IniAPI.GetPrivateProfileDouble(tray, "PitchY", 0, IniPath);
-            c.LayerPitchZ = IniAPI.GetPrivateProfileDouble(tray, "每层Z间距", 0, IniPath);
+        static void LoadStationInto(JinwoAlgorithmConfig c, bool isLeft, string path)
+        {
+            string alg = StationSection(isLeft, "算法");
+            string tray = StationSection(isLeft, "托盘");
+            string cal = StationSection(isLeft, "标定");
+            string undist = StationSection(isLeft, "畸变矫正");
+            string nine = StationSection(isLeft, "九点标定");
+            string hik = StationSection(isLeft, "海康相机");
 
-            c.CameraDistance = IniAPI.GetPrivateProfileDouble(cal, "相机距离", 0, IniPath);
-            c.BoxDepth = IniAPI.GetPrivateProfileDouble(cal, "木箱深度", 0, IniPath);
-            c.PlaceHeightCompensation = IniAPI.GetPrivateProfileDouble(cal, "放料平面高度补偿", 0, IniPath);
-            c.TargetZ = IniAPI.GetPrivateProfileDouble(cal, "机器人放料基准Z", 0, IniPath);
-            c.TargetRz = IniAPI.GetPrivateProfileDouble(cal, "机器人放料姿态Rz", 0, IniPath);
-            c.MarkerDistanceX = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距X", 0, IniPath);
-            c.MarkerDistanceY = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距Y", 0, IniPath);
-            c.AutoInnerReserveX = IniAPI.GetPrivateProfileDouble(cal, "自动内缩X", 0, IniPath);
-            c.AutoInnerReserveY = IniAPI.GetPrivateProfileDouble(cal, "自动内缩Y", 0, IniPath);
-            c.InnerOffsetX = IniAPI.GetPrivateProfileDouble(cal, "内区偏移X", 0, IniPath);
-            c.InnerOffsetY = IniAPI.GetPrivateProfileDouble(cal, "内区偏移Y", 0, IniPath);
-            c.InnerWidth = IniAPI.GetPrivateProfileDouble(cal, "内区宽度", 0, IniPath);
-            c.InnerHeight = IniAPI.GetPrivateProfileDouble(cal, "内区高度", 0, IniPath);
-            c.FirstCenterOffsetX = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移X", 0, IniPath);
-            c.FirstCenterOffsetY = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移Y", 0, IniPath);
+            c.CaptureImagePath = IniAPI.GetPrivateProfileString(alg, "采图路径", "", path);
+            c.SaveEffectImage = IniAPI.GetPrivateProfileInt(alg, "保存效果图", 1, path) != 0;
+            c.EffectImageDir = IniAPI.GetPrivateProfileString(alg, "效果图目录", "jinwo_render", path);
+
+            c.TrayRows = IniAPI.GetPrivateProfileInt(tray, "每层行数", 0, path);
+            c.TrayCols = IniAPI.GetPrivateProfileInt(tray, "每层列数", 0, path);
+            c.TrayLayers = IniAPI.GetPrivateProfileInt(tray, "层数", 0, path);
+            c.BearingGap = IniAPI.GetPrivateProfileDouble(tray, "轴承间隙", 0, path);
+            c.PitchX = IniAPI.GetPrivateProfileDouble(tray, "PitchX", 0, path);
+            c.PitchY = IniAPI.GetPrivateProfileDouble(tray, "PitchY", 0, path);
+            c.LayerPitchZ = IniAPI.GetPrivateProfileDouble(tray, "每层Z间距", 0, path);
+
+            c.CameraDistance = IniAPI.GetPrivateProfileDouble(cal, "相机距离", 0, path);
+            c.BoxDepth = IniAPI.GetPrivateProfileDouble(cal, "木箱深度", 0, path);
+            c.PlaceHeightCompensation = IniAPI.GetPrivateProfileDouble(cal, "放料平面高度补偿", 0, path);
+            c.TargetZ = IniAPI.GetPrivateProfileDouble(cal, "机器人放料基准Z", 0, path);
+            c.TargetRz = IniAPI.GetPrivateProfileDouble(cal, "机器人放料姿态Rz", 0, path);
+            c.MarkerDistanceX = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距X", 0, path);
+            c.MarkerDistanceY = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距Y", 0, path);
+            c.AutoInnerReserveX = IniAPI.GetPrivateProfileDouble(cal, "自动内缩X", 0, path);
+            c.AutoInnerReserveY = IniAPI.GetPrivateProfileDouble(cal, "自动内缩Y", 0, path);
+            c.InnerOffsetX = IniAPI.GetPrivateProfileDouble(cal, "内区偏移X", 0, path);
+            c.InnerOffsetY = IniAPI.GetPrivateProfileDouble(cal, "内区偏移Y", 0, path);
+            c.InnerWidth = IniAPI.GetPrivateProfileDouble(cal, "内区宽度", 0, path);
+            c.InnerHeight = IniAPI.GetPrivateProfileDouble(cal, "内区高度", 0, path);
+            c.FirstCenterOffsetX = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移X", 0, path);
+            c.FirstCenterOffsetY = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移Y", 0, path);
 
             for (int i = 0; i < JinwoNative.MarkerCount; i++)
             {
                 string keyX = "黑圆" + i + "机器人X";
                 string keyY = "黑圆" + i + "机器人Y";
-                c.MarkerRobotX[i] = IniAPI.GetPrivateProfileDouble(cal, keyX, 0, IniPath);
-                c.MarkerRobotY[i] = IniAPI.GetPrivateProfileDouble(cal, keyY, 0, IniPath);
+                c.MarkerRobotX[i] = IniAPI.GetPrivateProfileDouble(cal, keyX, 0, path);
+                c.MarkerRobotY[i] = IniAPI.GetPrivateProfileDouble(cal, keyY, 0, path);
             }
 
-            c.UndistortionEnabled = IniAPI.GetPrivateProfileInt(undist, "启用", 0, IniPath) != 0;
-            c.UndistortionCalibFile = IniAPI.GetPrivateProfileString(undist, "标定文件", "camera_calib.yml", IniPath);
-            c.UndistortionAlpha = IniAPI.GetPrivateProfileDouble(undist, "Alpha", 1.0, IniPath);
+            c.UndistortionEnabled = IniAPI.GetPrivateProfileInt(undist, "启用", 0, path) != 0;
+            c.UndistortionCalibFile = IniAPI.GetPrivateProfileString(undist, "标定文件", "camera_calib.yml", path);
+            c.UndistortionAlpha = IniAPI.GetPrivateProfileDouble(undist, "Alpha", 1.0, path);
             if (c.UndistortionAlpha <= 0) c.UndistortionAlpha = 1.0;
-            c.UndistortionCropBlackEdge = IniAPI.GetPrivateProfileInt(undist, "裁剪黑边", 0, IniPath) != 0;
+            c.UndistortionCropBlackEdge = IniAPI.GetPrivateProfileInt(undist, "裁剪黑边", 0, path) != 0;
 
-            c.NinePointRobotCalibFile = IniAPI.GetPrivateProfileString(nine, "标定文件", "robot_calib.yml", IniPath);
-            c.NinePointRobotCalibFileLeft = IniAPI.GetPrivateProfileString(nine, "左标定文件", "", IniPath);
-            c.NinePointRobotCalibFileRight = IniAPI.GetPrivateProfileString(nine, "右标定文件", "", IniPath);
+            c.NinePointRobotCalibFile = IniAPI.GetPrivateProfileString(nine, "标定文件", "robot_calib.yml", path);
 
-            c.HikCameraEnabled = IniAPI.GetPrivateProfileInt(hik, "启用", 0, IniPath) != 0;
-            c.HikSerialNumber = IniAPI.GetPrivateProfileString(hik, "序列号", "", IniPath);
-            c.HikTriggerMode = IniAPI.GetPrivateProfileString(hik, "触发模式", "Software", IniPath);
-            c.HikLivePreview = IniAPI.GetPrivateProfileInt(hik, "实时预览", 1, IniPath) != 0;
-            c.HikPreviewIntervalMs = IniAPI.GetPrivateProfileInt(hik, "预览间隔毫秒", 200, IniPath);
+            c.HikCameraEnabled = IniAPI.GetPrivateProfileInt(hik, "启用", 0, path) != 0;
+            c.HikSerialNumber = IniAPI.GetPrivateProfileString(hik, "序列号", "", path);
+            c.HikTriggerMode = IniAPI.GetPrivateProfileString(hik, "触发模式", "Software", path);
+            c.HikLivePreview = IniAPI.GetPrivateProfileInt(hik, "实时预览", 1, path) != 0;
+            c.HikPreviewIntervalMs = IniAPI.GetPrivateProfileInt(hik, "预览间隔毫秒", 200, path);
             if (c.HikPreviewIntervalMs < 50) c.HikPreviewIntervalMs = 50;
-            c.HikSaveEveryFrame = IniAPI.GetPrivateProfileInt(hik, "每帧保存采图", 1, IniPath) != 0;
-            return c;
+            c.HikSaveEveryFrame = IniAPI.GetPrivateProfileInt(hik, "每帧保存采图", 1, path) != 0;
+
+            if (SectionExistsInIni(path, tray))
+                return;
+
+            if (!isLeft)
+            {
+                var legacyRight = LoadLegacyStation(path, false);
+                if (IsStationNineEmpty(c)) ApplyStationNine(c, legacyRight);
+                return;
+            }
+
+            var legacy = LoadLegacyStation(path, true);
+            if (legacy == null) return;
+            if (IsStationCaptureEmpty(c)) ApplyStationCapture(c, legacy);
+            if (IsStationTrayEmpty(c)) ApplyStationTray(c, legacy);
+            if (IsStationCalibEmpty(c)) ApplyStationCalib(c, legacy);
+            if (!c.UndistortionEnabled && legacy.UndistortionEnabled) ApplyStationUndist(c, legacy);
+            if (IsStationNineEmpty(c)) ApplyStationNine(c, legacy);
+            if (!c.HikCameraEnabled && legacy.HikCameraEnabled) ApplyStationHik(c, legacy);
         }
 
-        public bool Save(string iniPath = null)
+        static bool SectionExistsInIni(string path, string section)
         {
-            string path = iniPath ?? IniPath;
-            Directory.CreateDirectory(Parameters.IniDir);
-            if (!File.Exists(path))
-                File.WriteAllText(path, DefaultIniText, Encoding.Default);
+            if (!File.Exists(path)) return false;
+            string marker = "[" + section + "]";
+            foreach (string line in File.ReadAllLines(path))
+            {
+                if (line.Trim().Equals(marker, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
 
+        static JinwoAlgorithmConfig LoadLegacyStation(string path, bool isLeft)
+        {
             const string alg = "算法";
             const string tray = "托盘";
             const string cal = "标定";
@@ -169,62 +219,218 @@ namespace 码料机
             const string nine = "九点标定";
             const string hik = "海康相机";
 
+            var c = new JinwoAlgorithmConfig();
+            c.CaptureImagePath = IniAPI.GetPrivateProfileString(alg, "采图路径", "", path);
+            c.SaveEffectImage = IniAPI.GetPrivateProfileInt(alg, "保存效果图", 1, path) != 0;
+            c.EffectImageDir = IniAPI.GetPrivateProfileString(alg, "效果图目录", "jinwo_render", path);
+
+            c.TrayRows = IniAPI.GetPrivateProfileInt(tray, "每层行数", 0, path);
+            c.TrayCols = IniAPI.GetPrivateProfileInt(tray, "每层列数", 0, path);
+            c.TrayLayers = IniAPI.GetPrivateProfileInt(tray, "层数", 0, path);
+            c.BearingGap = IniAPI.GetPrivateProfileDouble(tray, "轴承间隙", 0, path);
+            c.PitchX = IniAPI.GetPrivateProfileDouble(tray, "PitchX", 0, path);
+            c.PitchY = IniAPI.GetPrivateProfileDouble(tray, "PitchY", 0, path);
+            c.LayerPitchZ = IniAPI.GetPrivateProfileDouble(tray, "每层Z间距", 0, path);
+
+            c.CameraDistance = IniAPI.GetPrivateProfileDouble(cal, "相机距离", 0, path);
+            c.BoxDepth = IniAPI.GetPrivateProfileDouble(cal, "木箱深度", 0, path);
+            c.PlaceHeightCompensation = IniAPI.GetPrivateProfileDouble(cal, "放料平面高度补偿", 0, path);
+            c.TargetZ = IniAPI.GetPrivateProfileDouble(cal, "机器人放料基准Z", 0, path);
+            c.TargetRz = IniAPI.GetPrivateProfileDouble(cal, "机器人放料姿态Rz", 0, path);
+            c.MarkerDistanceX = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距X", 0, path);
+            c.MarkerDistanceY = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距Y", 0, path);
+            c.AutoInnerReserveX = IniAPI.GetPrivateProfileDouble(cal, "自动内缩X", 0, path);
+            c.AutoInnerReserveY = IniAPI.GetPrivateProfileDouble(cal, "自动内缩Y", 0, path);
+            c.InnerOffsetX = IniAPI.GetPrivateProfileDouble(cal, "内区偏移X", 0, path);
+            c.InnerOffsetY = IniAPI.GetPrivateProfileDouble(cal, "内区偏移Y", 0, path);
+            c.InnerWidth = IniAPI.GetPrivateProfileDouble(cal, "内区宽度", 0, path);
+            c.InnerHeight = IniAPI.GetPrivateProfileDouble(cal, "内区高度", 0, path);
+            c.FirstCenterOffsetX = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移X", 0, path);
+            c.FirstCenterOffsetY = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移Y", 0, path);
+            for (int i = 0; i < JinwoNative.MarkerCount; i++)
+            {
+                c.MarkerRobotX[i] = IniAPI.GetPrivateProfileDouble(cal, "黑圆" + i + "机器人X", 0, path);
+                c.MarkerRobotY[i] = IniAPI.GetPrivateProfileDouble(cal, "黑圆" + i + "机器人Y", 0, path);
+            }
+
+            c.UndistortionEnabled = IniAPI.GetPrivateProfileInt(undist, "启用", 0, path) != 0;
+            c.UndistortionCalibFile = IniAPI.GetPrivateProfileString(undist, "标定文件", "camera_calib.yml", path);
+            c.UndistortionAlpha = IniAPI.GetPrivateProfileDouble(undist, "Alpha", 1.0, path);
+            c.UndistortionCropBlackEdge = IniAPI.GetPrivateProfileInt(undist, "裁剪黑边", 0, path) != 0;
+
+            string defaultNine = IniAPI.GetPrivateProfileString(nine, "标定文件", "robot_calib.yml", path);
+            string sideNine = isLeft
+                ? IniAPI.GetPrivateProfileString(nine, "左标定文件", "", path)
+                : IniAPI.GetPrivateProfileString(nine, "右标定文件", "", path);
+            c.NinePointRobotCalibFile = string.IsNullOrWhiteSpace(sideNine) ? defaultNine : sideNine;
+
+            c.HikCameraEnabled = IniAPI.GetPrivateProfileInt(hik, "启用", 0, path) != 0;
+            c.HikSerialNumber = IniAPI.GetPrivateProfileString(hik, "序列号", "", path);
+            c.HikTriggerMode = IniAPI.GetPrivateProfileString(hik, "触发模式", "Software", path);
+            c.HikLivePreview = IniAPI.GetPrivateProfileInt(hik, "实时预览", 1, path) != 0;
+            c.HikPreviewIntervalMs = IniAPI.GetPrivateProfileInt(hik, "预览间隔毫秒", 200, path);
+            c.HikSaveEveryFrame = IniAPI.GetPrivateProfileInt(hik, "每帧保存采图", 1, path) != 0;
+            return c;
+        }
+
+        static bool IsStationCaptureEmpty(JinwoAlgorithmConfig c)
+            => string.IsNullOrWhiteSpace(c.CaptureImagePath) && string.IsNullOrWhiteSpace(c.EffectImageDir);
+
+        static bool IsStationTrayEmpty(JinwoAlgorithmConfig c)
+            => c.TrayRows == 0 && c.TrayCols == 0 && c.TrayLayers == 0
+               && Math.Abs(c.BearingGap) < 1e-9 && Math.Abs(c.PitchX) < 1e-9 && Math.Abs(c.PitchY) < 1e-9;
+
+        static bool IsStationCalibEmpty(JinwoAlgorithmConfig c)
+            => Math.Abs(c.CameraDistance) < 1e-9 && Math.Abs(c.MarkerDistanceX) < 1e-9 && Math.Abs(c.InnerWidth) < 1e-9;
+
+        static bool IsStationNineEmpty(JinwoAlgorithmConfig c)
+            => string.IsNullOrWhiteSpace(c.NinePointRobotCalibFile) || c.NinePointRobotCalibFile == "robot_calib.yml";
+
+        static void ApplyStationCapture(JinwoAlgorithmConfig target, JinwoAlgorithmConfig src)
+        {
+            target.CaptureImagePath = src.CaptureImagePath;
+            target.SaveEffectImage = src.SaveEffectImage;
+            target.EffectImageDir = src.EffectImageDir;
+        }
+
+        static void ApplyStationTray(JinwoAlgorithmConfig target, JinwoAlgorithmConfig src)
+        {
+            target.TrayRows = src.TrayRows;
+            target.TrayCols = src.TrayCols;
+            target.TrayLayers = src.TrayLayers;
+            target.BearingGap = src.BearingGap;
+            target.PitchX = src.PitchX;
+            target.PitchY = src.PitchY;
+            target.LayerPitchZ = src.LayerPitchZ;
+        }
+
+        static void ApplyStationCalib(JinwoAlgorithmConfig target, JinwoAlgorithmConfig src)
+        {
+            target.CameraDistance = src.CameraDistance;
+            target.BoxDepth = src.BoxDepth;
+            target.PlaceHeightCompensation = src.PlaceHeightCompensation;
+            target.TargetZ = src.TargetZ;
+            target.TargetRz = src.TargetRz;
+            target.MarkerDistanceX = src.MarkerDistanceX;
+            target.MarkerDistanceY = src.MarkerDistanceY;
+            target.AutoInnerReserveX = src.AutoInnerReserveX;
+            target.AutoInnerReserveY = src.AutoInnerReserveY;
+            target.InnerOffsetX = src.InnerOffsetX;
+            target.InnerOffsetY = src.InnerOffsetY;
+            target.InnerWidth = src.InnerWidth;
+            target.InnerHeight = src.InnerHeight;
+            target.FirstCenterOffsetX = src.FirstCenterOffsetX;
+            target.FirstCenterOffsetY = src.FirstCenterOffsetY;
+            for (int i = 0; i < JinwoNative.MarkerCount; i++)
+            {
+                target.MarkerRobotX[i] = src.MarkerRobotX[i];
+                target.MarkerRobotY[i] = src.MarkerRobotY[i];
+            }
+        }
+
+        static void ApplyStationUndist(JinwoAlgorithmConfig target, JinwoAlgorithmConfig src)
+        {
+            target.UndistortionEnabled = src.UndistortionEnabled;
+            target.UndistortionCalibFile = src.UndistortionCalibFile;
+            target.UndistortionAlpha = src.UndistortionAlpha;
+            target.UndistortionCropBlackEdge = src.UndistortionCropBlackEdge;
+        }
+
+        static void ApplyStationNine(JinwoAlgorithmConfig target, JinwoAlgorithmConfig src)
+            => target.NinePointRobotCalibFile = src.NinePointRobotCalibFile;
+
+        static void ApplyStationHik(JinwoAlgorithmConfig target, JinwoAlgorithmConfig src)
+        {
+            target.HikCameraEnabled = src.HikCameraEnabled;
+            target.HikSerialNumber = src.HikSerialNumber;
+            target.HikTriggerMode = src.HikTriggerMode;
+            target.HikLivePreview = src.HikLivePreview;
+            target.HikPreviewIntervalMs = src.HikPreviewIntervalMs;
+            target.HikSaveEveryFrame = src.HikSaveEveryFrame;
+        }
+
+        public static bool SaveBoth(JinwoAlgorithmConfig left, JinwoAlgorithmConfig right, string iniPath = null)
+        {
+            string path = iniPath ?? IniPath;
+            Directory.CreateDirectory(Parameters.IniDir);
+            if (!File.Exists(path))
+                File.WriteAllText(path, DefaultIniText, Encoding.Default);
+            bool ok = SaveGlobal(left, path);
+            ok &= SaveStation(true, left, path);
+            ok &= SaveStation(false, right, path);
+            return ok;
+        }
+
+        static bool SaveGlobal(JinwoAlgorithmConfig c, string path)
+        {
+            const string alg = "算法";
             bool ok = true;
-            ok &= IniAPI.INIWriteValue(path, alg, "启用", Enabled ? "1" : "0");
-            ok &= IniAPI.INIWriteValue(path, alg, "Dll路径", DllFileName ?? "");
-            ok &= IniAPI.INIWriteValue(path, alg, "OpenCv运行时目录", OpenCvRuntimeDir ?? "");
-            ok &= IniAPI.INIWriteValue(path, alg, "采图路径", CaptureImagePath ?? "");
-            ok &= IniAPI.INIWriteValue(path, alg, "保存效果图", SaveEffectImage ? "1" : "0");
-            ok &= IniAPI.INIWriteValue(path, alg, "输出机械坐标", IncludeRobotCoordinate ? "1" : "0");
-            ok &= IniAPI.INIWriteValue(path, alg, "效果图目录", EffectImageDir ?? "");
-            ok &= IniAPI.INIWriteValue(path, alg, "识别重试次数", RecognizeRetryCount.ToString());
-            ok &= IniAPI.INIWriteValue(path, alg, "识别重试间隔毫秒", RecognizeRetryDelayMs.ToString());
+            ok &= IniAPI.INIWriteValue(path, alg, "启用", c.Enabled ? "1" : "0");
+            ok &= IniAPI.INIWriteValue(path, alg, "Dll路径", c.DllFileName ?? "");
+            ok &= IniAPI.INIWriteValue(path, alg, "OpenCv运行时目录", c.OpenCvRuntimeDir ?? "");
+            ok &= IniAPI.INIWriteValue(path, alg, "输出机械坐标", c.IncludeRobotCoordinate ? "1" : "0");
+            ok &= IniAPI.INIWriteValue(path, alg, "识别重试次数", c.RecognizeRetryCount.ToString());
+            ok &= IniAPI.INIWriteValue(path, alg, "识别重试间隔毫秒", c.RecognizeRetryDelayMs.ToString());
+            return ok;
+        }
 
-            ok &= IniAPI.INIWriteValue(path, hik, "启用", HikCameraEnabled ? "1" : "0");
-            ok &= IniAPI.INIWriteValue(path, hik, "序列号", HikSerialNumber ?? "");
-            ok &= IniAPI.INIWriteValue(path, hik, "触发模式", HikTriggerMode ?? "Software");
-            ok &= IniAPI.INIWriteValue(path, hik, "实时预览", HikLivePreview ? "1" : "0");
-            ok &= IniAPI.INIWriteValue(path, hik, "预览间隔毫秒", HikPreviewIntervalMs.ToString());
-            ok &= IniAPI.INIWriteValue(path, hik, "每帧保存采图", HikSaveEveryFrame ? "1" : "0");
+        static bool SaveStation(bool isLeft, JinwoAlgorithmConfig c, string path)
+        {
+            string alg = StationSection(isLeft, "算法");
+            string tray = StationSection(isLeft, "托盘");
+            string cal = StationSection(isLeft, "标定");
+            string undist = StationSection(isLeft, "畸变矫正");
+            string nine = StationSection(isLeft, "九点标定");
+            string hik = StationSection(isLeft, "海康相机");
 
-            ok &= IniAPI.INIWriteValue(path, tray, "每层行数", TrayRows.ToString());
-            ok &= IniAPI.INIWriteValue(path, tray, "每层列数", TrayCols.ToString());
-            ok &= IniAPI.INIWriteValue(path, tray, "层数", TrayLayers.ToString());
-            ok &= IniAPI.INIWriteValue(path, tray, "轴承间隙", BearingGap.ToString());
-            ok &= IniAPI.INIWriteValue(path, tray, "PitchX", PitchX.ToString());
-            ok &= IniAPI.INIWriteValue(path, tray, "PitchY", PitchY.ToString());
-            ok &= IniAPI.INIWriteValue(path, tray, "每层Z间距", LayerPitchZ.ToString());
+            bool ok = true;
+            ok &= IniAPI.INIWriteValue(path, alg, "采图路径", c.CaptureImagePath ?? "");
+            ok &= IniAPI.INIWriteValue(path, alg, "保存效果图", c.SaveEffectImage ? "1" : "0");
+            ok &= IniAPI.INIWriteValue(path, alg, "效果图目录", c.EffectImageDir ?? "");
 
-            ok &= IniAPI.INIWriteValue(path, cal, "相机距离", CameraDistance.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "木箱深度", BoxDepth.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "放料平面高度补偿", PlaceHeightCompensation.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "机器人放料基准Z", TargetZ.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "机器人放料姿态Rz", TargetRz.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "黑圆间距X", MarkerDistanceX.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "黑圆间距Y", MarkerDistanceY.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "自动内缩X", AutoInnerReserveX.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "自动内缩Y", AutoInnerReserveY.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "内区偏移X", InnerOffsetX.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "内区偏移Y", InnerOffsetY.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "内区宽度", InnerWidth.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "内区高度", InnerHeight.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "首件中心偏移X", FirstCenterOffsetX.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "首件中心偏移Y", FirstCenterOffsetY.ToString());
+            ok &= IniAPI.INIWriteValue(path, hik, "启用", c.HikCameraEnabled ? "1" : "0");
+            ok &= IniAPI.INIWriteValue(path, hik, "序列号", c.HikSerialNumber ?? "");
+            ok &= IniAPI.INIWriteValue(path, hik, "触发模式", c.HikTriggerMode ?? "Software");
+            ok &= IniAPI.INIWriteValue(path, hik, "实时预览", c.HikLivePreview ? "1" : "0");
+            ok &= IniAPI.INIWriteValue(path, hik, "预览间隔毫秒", c.HikPreviewIntervalMs.ToString());
+            ok &= IniAPI.INIWriteValue(path, hik, "每帧保存采图", c.HikSaveEveryFrame ? "1" : "0");
+
+            ok &= IniAPI.INIWriteValue(path, tray, "每层行数", c.TrayRows.ToString());
+            ok &= IniAPI.INIWriteValue(path, tray, "每层列数", c.TrayCols.ToString());
+            ok &= IniAPI.INIWriteValue(path, tray, "层数", c.TrayLayers.ToString());
+            ok &= IniAPI.INIWriteValue(path, tray, "轴承间隙", c.BearingGap.ToString());
+            ok &= IniAPI.INIWriteValue(path, tray, "PitchX", c.PitchX.ToString());
+            ok &= IniAPI.INIWriteValue(path, tray, "PitchY", c.PitchY.ToString());
+            ok &= IniAPI.INIWriteValue(path, tray, "每层Z间距", c.LayerPitchZ.ToString());
+
+            ok &= IniAPI.INIWriteValue(path, cal, "相机距离", c.CameraDistance.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "木箱深度", c.BoxDepth.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "放料平面高度补偿", c.PlaceHeightCompensation.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "机器人放料基准Z", c.TargetZ.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "机器人放料姿态Rz", c.TargetRz.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "黑圆间距X", c.MarkerDistanceX.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "黑圆间距Y", c.MarkerDistanceY.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "自动内缩X", c.AutoInnerReserveX.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "自动内缩Y", c.AutoInnerReserveY.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "内区偏移X", c.InnerOffsetX.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "内区偏移Y", c.InnerOffsetY.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "内区宽度", c.InnerWidth.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "内区高度", c.InnerHeight.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "首件中心偏移X", c.FirstCenterOffsetX.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "首件中心偏移Y", c.FirstCenterOffsetY.ToString());
 
             for (int i = 0; i < JinwoNative.MarkerCount; i++)
             {
-                ok &= IniAPI.INIWriteValue(path, cal, "黑圆" + i + "机器人X", MarkerRobotX[i].ToString());
-                ok &= IniAPI.INIWriteValue(path, cal, "黑圆" + i + "机器人Y", MarkerRobotY[i].ToString());
+                ok &= IniAPI.INIWriteValue(path, cal, "黑圆" + i + "机器人X", c.MarkerRobotX[i].ToString());
+                ok &= IniAPI.INIWriteValue(path, cal, "黑圆" + i + "机器人Y", c.MarkerRobotY[i].ToString());
             }
 
-            ok &= IniAPI.INIWriteValue(path, undist, "启用", UndistortionEnabled ? "1" : "0");
-            ok &= IniAPI.INIWriteValue(path, undist, "标定文件", UndistortionCalibFile ?? "");
-            ok &= IniAPI.INIWriteValue(path, undist, "Alpha", UndistortionAlpha.ToString());
-            ok &= IniAPI.INIWriteValue(path, undist, "裁剪黑边", UndistortionCropBlackEdge ? "1" : "0");
+            ok &= IniAPI.INIWriteValue(path, undist, "启用", c.UndistortionEnabled ? "1" : "0");
+            ok &= IniAPI.INIWriteValue(path, undist, "标定文件", c.UndistortionCalibFile ?? "");
+            ok &= IniAPI.INIWriteValue(path, undist, "Alpha", c.UndistortionAlpha.ToString());
+            ok &= IniAPI.INIWriteValue(path, undist, "裁剪黑边", c.UndistortionCropBlackEdge ? "1" : "0");
 
-            ok &= IniAPI.INIWriteValue(path, nine, "标定文件", NinePointRobotCalibFile ?? "");
-            ok &= IniAPI.INIWriteValue(path, nine, "左标定文件", NinePointRobotCalibFileLeft ?? "");
-            ok &= IniAPI.INIWriteValue(path, nine, "右标定文件", NinePointRobotCalibFileRight ?? "");
+            ok &= IniAPI.INIWriteValue(path, nine, "标定文件", c.NinePointRobotCalibFile ?? "");
             return ok;
         }
 
@@ -241,18 +447,13 @@ namespace 码料机
             return inConfig;
         }
 
-        /// <summary>解析默认九点标定文件路径（[九点标定]「标定文件」）。</summary>
+        /// <summary>解析本工位九点标定文件路径。</summary>
         public string ResolveNinePointRobotCalibPath()
             => ResolveRelativeCalibPath(NinePointRobotCalibFile, "robot_calib.yml");
 
-        /// <summary>解析指定工位的九点标定文件路径；工位专用项留空时回退到「标定文件」。</summary>
+        /// <summary>解析指定工位的九点标定文件路径（配置对象已含工位数据时与无参重载相同）。</summary>
         public string ResolveNinePointRobotCalibPath(bool isLeft)
-        {
-            string configured = isLeft ? NinePointRobotCalibFileLeft : NinePointRobotCalibFileRight;
-            if (string.IsNullOrWhiteSpace(configured))
-                configured = NinePointRobotCalibFile;
-            return ResolveRelativeCalibPath(configured, "robot_calib.yml");
-        }
+            => ResolveNinePointRobotCalibPath();
 
         static string ResolveRelativeCalibPath(string configuredFile, string defaultFileName)
         {
@@ -387,20 +588,26 @@ namespace 码料机
 
         public const string DefaultIniText = @"; 金沃轴承码放算法（JinwoRobotArm.dll）
 ; 黑圆顺序：左上(0)、右上(1)、右下(2)、左下(3)，单位 mm
+; [算法] 为全局；托盘/标定/相机等按 [左机台_*] / [右机台_*] 分别配置
 [算法]
 启用=0
 Dll路径=JinwoRobotArm.dll
 OpenCv运行时目录=
-采图路径=
-保存效果图=1
 输出机械坐标=1
-效果图目录=jinwo_render
-; 识别失败时自动重试：总尝试次数 = 1 + 识别重试次数
 识别重试次数=2
 识别重试间隔毫秒=300
 
-[海康相机]
-; 金沃 DLL 模式下用海康 MVS 采图；序列号在 MVS 客户端查看
+[左机台_算法]
+采图路径=
+保存效果图=1
+效果图目录=jinwo_render
+
+[右机台_算法]
+采图路径=
+保存效果图=1
+效果图目录=jinwo_render
+
+[左机台_海康相机]
 启用=1
 序列号=
 触发模式=Software
@@ -408,8 +615,15 @@ OpenCv运行时目录=
 预览间隔毫秒=200
 每帧保存采图=1
 
-[托盘]
-; 行列层为 0 时，按产品外径与箱体尺寸自动估算
+[右机台_海康相机]
+启用=1
+序列号=
+触发模式=Software
+实时预览=1
+预览间隔毫秒=200
+每帧保存采图=1
+
+[左机台_托盘]
 每层行数=0
 每层列数=0
 层数=0
@@ -418,7 +632,16 @@ PitchX=0
 PitchY=0
 每层Z间距=0
 
-[标定]
+[右机台_托盘]
+每层行数=0
+每层列数=0
+层数=0
+轴承间隙=2
+PitchX=0
+PitchY=0
+每层Z间距=0
+
+[左机台_标定]
 相机距离=0
 木箱深度=0
 放料平面高度补偿=0
@@ -443,19 +666,48 @@ PitchY=0
 黑圆3机器人X=0
 黑圆3机器人Y=0
 
-[畸变矫正]
-; camera_calib.yml：用于畸变矫正（纯 C# remap，与「畸变矫正-测试」一致）
+[右机台_标定]
+相机距离=0
+木箱深度=0
+放料平面高度补偿=0
+机器人放料基准Z=0
+机器人放料姿态Rz=0
+黑圆间距X=0
+黑圆间距Y=0
+自动内缩X=0
+自动内缩Y=0
+内区偏移X=0
+内区偏移Y=0
+内区宽度=0
+内区高度=0
+首件中心偏移X=0
+首件中心偏移Y=0
+黑圆0机器人X=0
+黑圆0机器人Y=0
+黑圆1机器人X=0
+黑圆1机器人Y=0
+黑圆2机器人X=0
+黑圆2机器人Y=0
+黑圆3机器人X=0
+黑圆3机器人Y=0
+
+[左机台_畸变矫正]
 启用=1
 标定文件=camera_calib.yml
 Alpha=1.0
 裁剪黑边=0
 
-[九点标定]
-; robot_calib.yml：用于像素坐标转机械坐标（pixel_to_robot_matrix），与「算法\金沃\九点标定」格式一致
-; A/左取料 D4018 与 B/右取料 D4020 可分别指定标定文件；左/右留空则共用「标定文件」
+[右机台_畸变矫正]
+启用=1
+标定文件=camera_calib.yml
+Alpha=1.0
+裁剪黑边=0
+
+[左机台_九点标定]
 标定文件=robot_calib.yml
-左标定文件=
-右标定文件=
+
+[右机台_九点标定]
+标定文件=robot_calib.yml
 
 [有无料]
 ; 判断有无轴承.dll：放料拍照后、输出坐标前做箱内异物检测；检测到异物写 D0.11=1

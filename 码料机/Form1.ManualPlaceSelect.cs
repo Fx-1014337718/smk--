@@ -151,15 +151,17 @@ namespace 码料机
             UpdateStationUI();
         }
 
-        public string GetManualPlaceDefaultImagePath()
+        public string GetManualPlaceDefaultImagePath(bool? isLeft = null)
         {
             if (!string.IsNullOrWhiteSpace(_offlineTestImagePath) && File.Exists(_offlineTestImagePath))
                 return _offlineTestImagePath;
-            string p = _jinwo.ResolveCaptureImagePath();
+            bool left = isLeft ?? IsLeftStation(currentStation);
+            string p = _jinwo.ResolveCaptureImagePath(left);
             return File.Exists(p) ? p : null;
         }
 
-        public Task<bool> ManualPlaceTryHikCaptureAsync() => TryHikvisionCaptureAsync();
+        public Task<bool> ManualPlaceTryHikCaptureAsync(bool? isLeft = null) =>
+            TryHikvisionCaptureAsync(isLeft ?? IsLeftStation(currentStation));
 
         public ManualPlacePlanOutcome TryBuildManualPlacePlan(bool isLeft, string imagePath)
         {
@@ -197,7 +199,7 @@ namespace 码料机
                 st.PlcPlaceBoxVisionDone = true;
                 outcome.Success = true;
                 outcome.SlotCount = st.BoxPlan?.Slots?.Count ?? 0;
-                outcome.EffectImagePath = _jinwo.FindNewestEffectImage();
+                outcome.EffectImagePath = _jinwo.FindNewestEffectImage(isLeft);
                 outcome.Summary = $"{st.Name} 已识别 {outcome.SlotCount} 个放料位（算法规划）";
                 TEXT($"[手动放料] {outcome.Summary}");
                 return outcome;

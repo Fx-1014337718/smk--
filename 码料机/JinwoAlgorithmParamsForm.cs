@@ -5,19 +5,16 @@ using System.Windows.Forms;
 
 namespace 码料机
 {
-    /// <summary>金沃算法 INI 全参数设定（配置文件\金沃算法.ini）。</summary>
+    /// <summary>金沃算法 INI 全参数设定（配置文件\金沃算法.ini；左/右机台独立）。</summary>
     public partial class JinwoAlgorithmParamsForm : Form
     {
         public Form1 MainForm;
         private bool _dirty;
         private readonly string _iniPath;
 
-        private readonly JinwoParamsEditor _editorAlgorithm;
-        private readonly JinwoParamsEditor _editorHik;
-        private readonly JinwoParamsEditor _editorTray;
-        private readonly JinwoParamsEditor _editorCalib;
-        private readonly JinwoParamsEditor _editorUndist;
-        private readonly JinwoParamsEditor _editorNine;
+        private readonly JinwoParamsEditor _editorGlobal;
+        private readonly JinwoStationParamsPanel _leftPanel;
+        private readonly JinwoStationParamsPanel _rightPanel;
 
         public JinwoAlgorithmParamsForm(Form1 main)
         {
@@ -30,156 +27,80 @@ namespace 码料机
             AutoScaleMode = AutoScaleMode.Dpi;
             UiLayoutHelper.ApplyDialogChrome(this);
 
-            _editorAlgorithm = BuildAlgorithmEditor();
-            _editorHik = BuildHikEditor();
-            _editorTray = BuildTrayEditor();
-            _editorCalib = BuildCalibEditor();
-            _editorUndist = BuildUndistEditor();
-            _editorNine = BuildNinePointEditor();
-
-            MountEditor(tabPageAlgorithm, _editorAlgorithm);
-            MountEditor(tabPageHik, _editorHik);
-            MountEditor(tabPageTray, _editorTray);
-            MountEditor(tabPageCalib, _editorCalib);
-            MountEditor(tabPageUndist, _editorUndist);
-            MountEditor(tabPageNinePoint, _editorNine);
-        }
-
-        private static void MountEditor(TabPage page, JinwoParamsEditor editor)
-        {
-            editor.Dock = DockStyle.Fill;
-            page.Controls.Add(editor);
+            _editorGlobal = BuildGlobalEditor();
+            _leftPanel = new JinwoStationParamsPanel();
+            _rightPanel = new JinwoStationParamsPanel();
+            _leftPanel.Dock = DockStyle.Fill;
+            _rightPanel.Dock = DockStyle.Fill;
+            _editorGlobal.Dock = DockStyle.Fill;
+            tabPageGlobal.Controls.Add(_editorGlobal);
+            tabPageLeft.Controls.Add(_leftPanel);
+            tabPageRight.Controls.Add(_rightPanel);
+            _editorGlobal.Changed += (_, __) => _dirty = true;
+            _leftPanel.Changed += (_, __) => _dirty = true;
+            _rightPanel.Changed += (_, __) => _dirty = true;
         }
 
         private void JinwoAlgorithmParamsForm_Load(object sender, EventArgs e)
         {
             JinwoAlgorithmConfig.EnsureDefaultIniFile();
-            LoadFromIni(JinwoAlgorithmConfig.Load());
+            JinwoAlgorithmConfig.LoadBoth(_iniPath, out var left, out var right);
+            LoadGlobalFromIni(left);
+            _leftPanel.LoadFrom(left);
+            _rightPanel.LoadFrom(right);
             _dirty = false;
         }
 
-        private void LoadFromIni(JinwoAlgorithmConfig c)
+        private void LoadGlobalFromIni(JinwoAlgorithmConfig c)
         {
-            _editorAlgorithm.SetBool("启用", c.Enabled);
-            _editorAlgorithm.SetText("Dll路径", c.DllFileName);
-            _editorAlgorithm.SetText("OpenCv运行时目录", c.OpenCvRuntimeDir);
-            _editorAlgorithm.SetText("采图路径", c.CaptureImagePath);
-            _editorAlgorithm.SetBool("保存效果图", c.SaveEffectImage);
-            _editorAlgorithm.SetBool("输出机械坐标", c.IncludeRobotCoordinate);
-            _editorAlgorithm.SetText("效果图目录", c.EffectImageDir);
-
-            _editorHik.SetBool("启用", c.HikCameraEnabled);
-            _editorHik.SetText("序列号", c.HikSerialNumber);
-            _editorHik.SetText("触发模式", c.HikTriggerMode);
-            _editorHik.SetBool("实时预览", c.HikLivePreview);
-            _editorHik.SetInt("预览间隔毫秒", c.HikPreviewIntervalMs);
-            _editorHik.SetBool("每帧保存采图", c.HikSaveEveryFrame);
-
-            _editorTray.SetInt("每层行数", c.TrayRows);
-            _editorTray.SetInt("每层列数", c.TrayCols);
-            _editorTray.SetInt("层数", c.TrayLayers);
-            _editorTray.SetDouble("轴承间隙", c.BearingGap);
-            _editorTray.SetDouble("PitchX", c.PitchX);
-            _editorTray.SetDouble("PitchY", c.PitchY);
-            _editorTray.SetDouble("每层Z间距", c.LayerPitchZ);
-
-            _editorCalib.SetDouble("相机距离", c.CameraDistance);
-            _editorCalib.SetDouble("木箱深度", c.BoxDepth);
-            _editorCalib.SetDouble("放料平面高度补偿", c.PlaceHeightCompensation);
-            _editorCalib.SetDouble("机器人放料基准Z", c.TargetZ);
-            _editorCalib.SetDouble("机器人放料姿态Rz", c.TargetRz);
-            _editorCalib.SetDouble("黑圆间距X", c.MarkerDistanceX);
-            _editorCalib.SetDouble("黑圆间距Y", c.MarkerDistanceY);
-            _editorCalib.SetDouble("自动内缩X", c.AutoInnerReserveX);
-            _editorCalib.SetDouble("自动内缩Y", c.AutoInnerReserveY);
-            _editorCalib.SetDouble("内区偏移X", c.InnerOffsetX);
-            _editorCalib.SetDouble("内区偏移Y", c.InnerOffsetY);
-            _editorCalib.SetDouble("内区宽度", c.InnerWidth);
-            _editorCalib.SetDouble("内区高度", c.InnerHeight);
-            _editorCalib.SetDouble("首件中心偏移X", c.FirstCenterOffsetX);
-            _editorCalib.SetDouble("首件中心偏移Y", c.FirstCenterOffsetY);
-            string[] markerNames = { "左上(0)", "右上(1)", "右下(2)", "左下(3)" };
-            for (int i = 0; i < JinwoNative.MarkerCount; i++)
-            {
-                _editorCalib.SetDouble($"黑圆{i}机器人X", c.MarkerRobotX[i], $"{markerNames[i]} 机器人X (mm):");
-                _editorCalib.SetDouble($"黑圆{i}机器人Y", c.MarkerRobotY[i], $"{markerNames[i]} 机器人Y (mm):");
-            }
-
-            _editorUndist.SetBool("启用", c.UndistortionEnabled);
-            _editorUndist.SetText("标定文件", c.UndistortionCalibFile);
-            _editorUndist.SetDouble("Alpha", c.UndistortionAlpha);
-            _editorUndist.SetBool("裁剪黑边", c.UndistortionCropBlackEdge);
-
-            _editorNine.SetText("标定文件", c.NinePointRobotCalibFile);
-            _editorNine.SetText("左标定文件", c.NinePointRobotCalibFileLeft);
-            _editorNine.SetText("右标定文件", c.NinePointRobotCalibFileRight);
+            _editorGlobal.SetBool("启用", c.Enabled);
+            _editorGlobal.SetText("Dll路径", c.DllFileName);
+            _editorGlobal.SetText("OpenCv运行时目录", c.OpenCvRuntimeDir);
+            _editorGlobal.SetBool("输出机械坐标", c.IncludeRobotCoordinate);
+            _editorGlobal.SetInt("识别重试次数", c.RecognizeRetryCount);
+            _editorGlobal.SetInt("识别重试间隔毫秒", c.RecognizeRetryDelayMs);
         }
 
-        private bool TryBuildConfig(out JinwoAlgorithmConfig c)
+        private bool TryBuildConfigs(out JinwoAlgorithmConfig left, out JinwoAlgorithmConfig right)
         {
-            var cfg = new JinwoAlgorithmConfig();
+            left = right = null;
+            if (!TryBuildGlobal(out var global)) return false;
+            if (!_leftPanel.TryBuild(out left)) return false;
+            if (!_rightPanel.TryBuild(out right)) return false;
+            ApplyGlobal(global, left);
+            ApplyGlobal(global, right);
+            return true;
+        }
 
-            cfg.Enabled = _editorAlgorithm.GetBool("启用");
-            cfg.DllFileName = _editorAlgorithm.GetText("Dll路径");
-            cfg.OpenCvRuntimeDir = _editorAlgorithm.GetText("OpenCv运行时目录");
-            cfg.CaptureImagePath = _editorAlgorithm.GetText("采图路径");
-            cfg.SaveEffectImage = _editorAlgorithm.GetBool("保存效果图");
-            cfg.IncludeRobotCoordinate = _editorAlgorithm.GetBool("输出机械坐标");
-            cfg.EffectImageDir = _editorAlgorithm.GetText("效果图目录");
+        private static void ApplyGlobal(JinwoAlgorithmConfig global, JinwoAlgorithmConfig target)
+        {
+            target.Enabled = global.Enabled;
+            target.DllFileName = global.DllFileName;
+            target.OpenCvRuntimeDir = global.OpenCvRuntimeDir;
+            target.IncludeRobotCoordinate = global.IncludeRobotCoordinate;
+            target.RecognizeRetryCount = global.RecognizeRetryCount;
+            target.RecognizeRetryDelayMs = global.RecognizeRetryDelayMs;
+        }
 
-            cfg.HikCameraEnabled = _editorHik.GetBool("启用");
-            cfg.HikSerialNumber = _editorHik.GetText("序列号");
-            cfg.HikTriggerMode = _editorHik.GetText("触发模式");
-            if (string.IsNullOrWhiteSpace(cfg.HikTriggerMode))
-                cfg.HikTriggerMode = "Software";
-            cfg.HikLivePreview = _editorHik.GetBool("实时预览");
-            if (!AssignInt(_editorHik, "预览间隔毫秒", "预览间隔毫秒", 50, v => cfg.HikPreviewIntervalMs = v))
+        private bool TryBuildGlobal(out JinwoAlgorithmConfig cfg)
+        {
+            var built = new JinwoAlgorithmConfig();
+            built.Enabled = _editorGlobal.GetBool("启用");
+            built.DllFileName = _editorGlobal.GetText("Dll路径");
+            built.OpenCvRuntimeDir = _editorGlobal.GetText("OpenCv运行时目录");
+            built.IncludeRobotCoordinate = _editorGlobal.GetBool("输出机械坐标");
+            if (!AssignInt(_editorGlobal, "识别重试次数", "识别重试次数", 0, v => built.RecognizeRetryCount = v))
             {
-                c = null;
+                cfg = null;
                 return false;
             }
-            cfg.HikSaveEveryFrame = _editorHik.GetBool("每帧保存采图");
-
-            if (!AssignInt(_editorTray, "每层行数", "每层行数", 0, v => cfg.TrayRows = v)) { c = null; return false; }
-            if (!AssignInt(_editorTray, "每层列数", "每层列数", 0, v => cfg.TrayCols = v)) { c = null; return false; }
-            if (!AssignInt(_editorTray, "层数", "层数", 0, v => cfg.TrayLayers = v)) { c = null; return false; }
-            if (!AssignDouble(_editorTray, "轴承间隙", "轴承间隙", v => cfg.BearingGap = v)) { c = null; return false; }
-            if (!AssignDouble(_editorTray, "PitchX", "PitchX", v => cfg.PitchX = v)) { c = null; return false; }
-            if (!AssignDouble(_editorTray, "PitchY", "PitchY", v => cfg.PitchY = v)) { c = null; return false; }
-            if (!AssignDouble(_editorTray, "每层Z间距", "每层Z间距", v => cfg.LayerPitchZ = v)) { c = null; return false; }
-
-            if (!AssignDouble(_editorCalib, "相机距离", "相机距离", v => cfg.CameraDistance = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "木箱深度", "木箱深度", v => cfg.BoxDepth = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "放料平面高度补偿", "放料平面高度补偿", v => cfg.PlaceHeightCompensation = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "机器人放料基准Z", "机器人放料基准Z", v => cfg.TargetZ = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "机器人放料姿态Rz", "机器人放料姿态Rz", v => cfg.TargetRz = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "黑圆间距X", "黑圆间距X", v => cfg.MarkerDistanceX = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "黑圆间距Y", "黑圆间距Y", v => cfg.MarkerDistanceY = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "自动内缩X", "自动内缩X", v => cfg.AutoInnerReserveX = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "自动内缩Y", "自动内缩Y", v => cfg.AutoInnerReserveY = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "内区偏移X", "内区偏移X", v => cfg.InnerOffsetX = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "内区偏移Y", "内区偏移Y", v => cfg.InnerOffsetY = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "内区宽度", "内区宽度", v => cfg.InnerWidth = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "内区高度", "内区高度", v => cfg.InnerHeight = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "首件中心偏移X", "首件中心偏移X", v => cfg.FirstCenterOffsetX = v)) { c = null; return false; }
-            if (!AssignDouble(_editorCalib, "首件中心偏移Y", "首件中心偏移Y", v => cfg.FirstCenterOffsetY = v)) { c = null; return false; }
-            for (int i = 0; i < JinwoNative.MarkerCount; i++)
+            if (built.RecognizeRetryCount > 10) built.RecognizeRetryCount = 10;
+            if (!AssignInt(_editorGlobal, "识别重试间隔毫秒", "识别重试间隔毫秒", 0, v => built.RecognizeRetryDelayMs = v))
             {
-                int idx = i;
-                if (!AssignDouble(_editorCalib, $"黑圆{idx}机器人X", $"黑圆{idx}机器人X", v => cfg.MarkerRobotX[idx] = v)) { c = null; return false; }
-                if (!AssignDouble(_editorCalib, $"黑圆{idx}机器人Y", $"黑圆{idx}机器人Y", v => cfg.MarkerRobotY[idx] = v)) { c = null; return false; }
+                cfg = null;
+                return false;
             }
-
-            cfg.UndistortionEnabled = _editorUndist.GetBool("启用");
-            cfg.UndistortionCalibFile = _editorUndist.GetText("标定文件");
-            if (!AssignDouble(_editorUndist, "Alpha", "Alpha", v => cfg.UndistortionAlpha = v)) { c = null; return false; }
-            if (cfg.UndistortionAlpha <= 0) cfg.UndistortionAlpha = 1.0;
-            cfg.UndistortionCropBlackEdge = _editorUndist.GetBool("裁剪黑边");
-
-            cfg.NinePointRobotCalibFile = _editorNine.GetText("标定文件");
-            cfg.NinePointRobotCalibFileLeft = _editorNine.GetText("左标定文件");
-            cfg.NinePointRobotCalibFileRight = _editorNine.GetText("右标定文件");
-            c = cfg;
+            cfg = built;
             return true;
         }
 
@@ -201,14 +122,14 @@ namespace 码料机
 
         private void buttonSave_Click(object sender, EventArgs e)
         {
-            if (!TryBuildConfig(out var c)) return;
-            if (!c.Save(_iniPath))
+            if (!TryBuildConfigs(out var left, out var right)) return;
+            if (!JinwoAlgorithmConfig.SaveBoth(left, right, _iniPath))
             {
                 DialogPrompts.ShowError("写入配置文件失败，请检查程序是否有写入权限。");
                 return;
             }
             _dirty = false;
-            DialogPrompts.ShowInfo("金沃算法参数已保存。", "保存成功");
+            DialogPrompts.ShowInfo("左/右机台金沃算法参数已保存。", "保存成功");
             MainForm?.ReloadJinwoAlgorithmConfig();
         }
 
@@ -231,8 +152,8 @@ namespace 码料机
             switch (DialogPrompts.AskUnsavedClose("金沃算法设定"))
             {
                 case DialogPrompts.UnsavedCloseAction.Save:
-                    if (!TryBuildConfig(out var c)) return false;
-                    if (!c.Save(_iniPath)) return false;
+                    if (!TryBuildConfigs(out var left, out var right)) return false;
+                    if (!JinwoAlgorithmConfig.SaveBoth(left, right, _iniPath)) return false;
                     MainForm?.ReloadJinwoAlgorithmConfig();
                     _dirty = false;
                     return true;
@@ -243,105 +164,257 @@ namespace 码料机
             }
         }
 
-        private void MarkDirty(object sender, EventArgs e) => _dirty = true;
-
-        private JinwoParamsEditor BuildAlgorithmEditor()
+        private JinwoParamsEditor BuildGlobalEditor()
         {
             var ed = new JinwoParamsEditor();
-            ed.Changed += MarkDirty;
-            ed.AddHint("启用=1 时使用 JinwoRobotArm.dll；采图路径为空则回退 Feed.bmp。");
-            ed.AddHint("机械坐标由 DLL 读取 配置文件\\camera_calib.yml 与 robot_calib.yml（与金沃dll-测试一致）。");
+            ed.AddHint("全局项左右机台共用：DLL、启用与识别重试。");
             ed.AddCheck("启用", "启用金沃算法:");
             ed.AddPath("Dll路径", "DLL 路径:", PathPickKind.File, "动态库 (*.dll)|*.dll|所有文件 (*.*)|*.*");
             ed.AddPath("OpenCv运行时目录", "OpenCV 运行时目录:", PathPickKind.Folder);
-            ed.AddPath("采图路径", "采图路径:", PathPickKind.File, "图像 (*.bmp;*.jpg;*.png)|*.bmp;*.jpg;*.png|所有文件 (*.*)|*.*");
-            ed.AddCheck("保存效果图", "保存效果图:");
             ed.AddCheck("输出机械坐标", "输出机械坐标(读yml):");
-            ed.AddText("效果图目录", "效果图目录:");
+            ed.AddInt("识别重试次数", "识别重试次数 (总尝试=1+本值):");
+            ed.AddInt("识别重试间隔毫秒", "识别重试间隔 (毫秒):");
             return ed;
         }
 
-        private JinwoParamsEditor BuildHikEditor()
+        private sealed class JinwoStationParamsPanel : Panel
         {
-            var ed = new JinwoParamsEditor();
-            ed.Changed += MarkDirty;
-            ed.AddHint("金沃启用时：海康 MVS 采图 → 金沃 DLL 识别。");
-            ed.AddCheck("启用", "启用海康相机:");
-            ed.AddText("序列号", "相机序列号:");
-            ed.AddText("触发模式", "触发模式 (如 Software):");
-            ed.AddCheck("实时预览", "实时预览:");
-            ed.AddInt("预览间隔毫秒", "预览间隔 (毫秒):");
-            ed.AddCheck("每帧保存采图", "每帧保存采图:");
-            return ed;
-        }
+            public event EventHandler Changed;
 
-        private JinwoParamsEditor BuildTrayEditor()
-        {
-            var ed = new JinwoParamsEditor();
-            ed.Changed += MarkDirty;
-            ed.AddHint("行列层为 0 时按产品外径与箱体尺寸自动估算。");
-            ed.AddInt("每层行数", "每层行数 (0=自动):");
-            ed.AddInt("每层列数", "每层列数 (0=自动):");
-            ed.AddInt("层数", "层数 (0=自动):");
-            ed.AddDouble("轴承间隙", "轴承间隙 (mm):");
-            ed.AddDouble("PitchX", "PitchX (mm):");
-            ed.AddDouble("PitchY", "PitchY (mm):");
-            ed.AddDouble("每层Z间距", "每层 Z 间距 (mm):");
-            return ed;
-        }
+            private readonly TabControl _tabs = new TabControl();
+            private readonly JinwoParamsEditor _editorAlgorithm;
+            private readonly JinwoParamsEditor _editorHik;
+            private readonly JinwoParamsEditor _editorTray;
+            private readonly JinwoParamsEditor _editorCalib;
+            private readonly JinwoParamsEditor _editorUndist;
+            private readonly JinwoParamsEditor _editorNine;
 
-        private JinwoParamsEditor BuildCalibEditor()
-        {
-            var ed = new JinwoParamsEditor();
-            ed.Changed += MarkDirty;
-            ed.AddHint("标定与托盘几何参数，单位一般为 mm。机械坐标由 DLL 自动读取 camera_calib.yml 与 robot_calib.yml 计算，黑圆机器人坐标项可留 0。");
-            ed.AddDouble("相机距离", "相机距离 (mm):");
-            ed.AddDouble("木箱深度", "木箱深度 (mm):");
-            ed.AddDouble("放料平面高度补偿", "放料平面高度补偿 (mm):");
-            ed.AddDouble("机器人放料基准Z", "机器人放料基准 Z (mm):");
-            ed.AddDouble("机器人放料姿态Rz", "机器人放料姿态 Rz (°):");
-            ed.AddDouble("黑圆间距X", "黑圆间距 X (mm):");
-            ed.AddDouble("黑圆间距Y", "黑圆间距 Y (mm):");
-            ed.AddDouble("自动内缩X", "自动内缩 X (mm):");
-            ed.AddDouble("自动内缩Y", "自动内缩 Y (mm):");
-            ed.AddDouble("内区偏移X", "内区偏移 X (mm):");
-            ed.AddDouble("内区偏移Y", "内区偏移 Y (mm):");
-            ed.AddDouble("内区宽度", "内区宽度 (mm):");
-            ed.AddDouble("内区高度", "内区高度 (mm):");
-            ed.AddDouble("首件中心偏移X", "首件中心偏移 X (mm):");
-            ed.AddDouble("首件中心偏移Y", "首件中心偏移 Y (mm):");
-            string[] markerNames = { "左上(0)", "右上(1)", "右下(2)", "左下(3)" };
-            for (int i = 0; i < JinwoNative.MarkerCount; i++)
+            public JinwoStationParamsPanel()
             {
-                ed.AddDouble($"黑圆{i}机器人X", $"{markerNames[i]} 机器人 X (mm):");
-                ed.AddDouble($"黑圆{i}机器人Y", $"{markerNames[i]} 机器人 Y (mm):");
+                Dock = DockStyle.Fill;
+                _tabs.Dock = DockStyle.Fill;
+                _tabs.Padding = new Point(8, 6);
+                Controls.Add(_tabs);
+
+                _editorAlgorithm = BuildAlgorithmEditor();
+                _editorHik = BuildHikEditor();
+                _editorTray = BuildTrayEditor();
+                _editorCalib = BuildCalibEditor();
+                _editorUndist = BuildUndistEditor();
+                _editorNine = BuildNinePointEditor();
+
+                AddTab("采图", _editorAlgorithm);
+                AddTab("海康相机", _editorHik);
+                AddTab("托盘", _editorTray);
+                AddTab("标定", _editorCalib);
+                AddTab("畸变矫正", _editorUndist);
+                AddTab("九点标定", _editorNine);
             }
-            return ed;
-        }
 
-        private JinwoParamsEditor BuildUndistEditor()
-        {
-            var ed = new JinwoParamsEditor();
-            ed.Changed += MarkDirty;
-            ed.AddHint("camera_calib.yml：畸变矫正 + DLL 机械坐标（工作目录=配置文件）。");
-            ed.AddCheck("启用", "启用畸变矫正:");
-            ed.AddPath("标定文件", "标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
-            ed.AddDouble("Alpha", "Alpha:");
-            ed.AddCheck("裁剪黑边", "裁剪黑边:");
-            return ed;
-        }
+            private void AddTab(string title, JinwoParamsEditor editor)
+            {
+                var page = new TabPage(title);
+                editor.Dock = DockStyle.Fill;
+                editor.Changed += (_, __) => Changed?.Invoke(this, EventArgs.Empty);
+                page.Controls.Add(editor);
+                _tabs.TabPages.Add(page);
+            }
 
-        private JinwoParamsEditor BuildNinePointEditor()
-        {
-            var ed = new JinwoParamsEditor();
-            ed.Changed += MarkDirty;
-            ed.AddHint("robot_calib.yml：DLL 像素转机械坐标（工作目录=配置文件，与金沃dll-测试 一致）。");
-            ed.AddHint("左右工位可分别指定标定文件；左/右留空则共用下方「标定文件」。");
-            ed.AddHint("标定侧由 PLC 取料请求决定：A/左 D4018 → 左标定文件，B/右 D4020 → 右标定文件。");
-            ed.AddPath("标定文件", "默认标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
-            ed.AddPath("左标定文件", "A/左取料标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
-            ed.AddPath("右标定文件", "B/右取料标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
-            return ed;
+            public void LoadFrom(JinwoAlgorithmConfig c)
+            {
+                _editorAlgorithm.SetText("采图路径", c.CaptureImagePath);
+                _editorAlgorithm.SetBool("保存效果图", c.SaveEffectImage);
+                _editorAlgorithm.SetText("效果图目录", c.EffectImageDir);
+
+                _editorHik.SetBool("启用", c.HikCameraEnabled);
+                _editorHik.SetText("序列号", c.HikSerialNumber);
+                _editorHik.SetText("触发模式", c.HikTriggerMode);
+                _editorHik.SetBool("实时预览", c.HikLivePreview);
+                _editorHik.SetInt("预览间隔毫秒", c.HikPreviewIntervalMs);
+                _editorHik.SetBool("每帧保存采图", c.HikSaveEveryFrame);
+
+                _editorTray.SetInt("每层行数", c.TrayRows);
+                _editorTray.SetInt("每层列数", c.TrayCols);
+                _editorTray.SetInt("层数", c.TrayLayers);
+                _editorTray.SetDouble("轴承间隙", c.BearingGap);
+                _editorTray.SetDouble("PitchX", c.PitchX);
+                _editorTray.SetDouble("PitchY", c.PitchY);
+                _editorTray.SetDouble("每层Z间距", c.LayerPitchZ);
+
+                _editorCalib.SetDouble("相机距离", c.CameraDistance);
+                _editorCalib.SetDouble("木箱深度", c.BoxDepth);
+                _editorCalib.SetDouble("放料平面高度补偿", c.PlaceHeightCompensation);
+                _editorCalib.SetDouble("机器人放料基准Z", c.TargetZ);
+                _editorCalib.SetDouble("机器人放料姿态Rz", c.TargetRz);
+                _editorCalib.SetDouble("黑圆间距X", c.MarkerDistanceX);
+                _editorCalib.SetDouble("黑圆间距Y", c.MarkerDistanceY);
+                _editorCalib.SetDouble("自动内缩X", c.AutoInnerReserveX);
+                _editorCalib.SetDouble("自动内缩Y", c.AutoInnerReserveY);
+                _editorCalib.SetDouble("内区偏移X", c.InnerOffsetX);
+                _editorCalib.SetDouble("内区偏移Y", c.InnerOffsetY);
+                _editorCalib.SetDouble("内区宽度", c.InnerWidth);
+                _editorCalib.SetDouble("内区高度", c.InnerHeight);
+                _editorCalib.SetDouble("首件中心偏移X", c.FirstCenterOffsetX);
+                _editorCalib.SetDouble("首件中心偏移Y", c.FirstCenterOffsetY);
+                string[] markerNames = { "左上(0)", "右上(1)", "右下(2)", "左下(3)" };
+                for (int i = 0; i < JinwoNative.MarkerCount; i++)
+                {
+                    _editorCalib.SetDouble($"黑圆{i}机器人X", c.MarkerRobotX[i], $"{markerNames[i]} 机器人X (mm):");
+                    _editorCalib.SetDouble($"黑圆{i}机器人Y", c.MarkerRobotY[i], $"{markerNames[i]} 机器人Y (mm):");
+                }
+
+                _editorUndist.SetBool("启用", c.UndistortionEnabled);
+                _editorUndist.SetText("标定文件", c.UndistortionCalibFile);
+                _editorUndist.SetDouble("Alpha", c.UndistortionAlpha);
+                _editorUndist.SetBool("裁剪黑边", c.UndistortionCropBlackEdge);
+
+                _editorNine.SetText("标定文件", c.NinePointRobotCalibFile);
+            }
+
+            public bool TryBuild(out JinwoAlgorithmConfig cfg)
+            {
+                var built = new JinwoAlgorithmConfig();
+                built.CaptureImagePath = _editorAlgorithm.GetText("采图路径");
+                built.SaveEffectImage = _editorAlgorithm.GetBool("保存效果图");
+                built.EffectImageDir = _editorAlgorithm.GetText("效果图目录");
+
+                built.HikCameraEnabled = _editorHik.GetBool("启用");
+                built.HikSerialNumber = _editorHik.GetText("序列号");
+                built.HikTriggerMode = _editorHik.GetText("触发模式");
+                if (string.IsNullOrWhiteSpace(built.HikTriggerMode))
+                    built.HikTriggerMode = "Software";
+                built.HikLivePreview = _editorHik.GetBool("实时预览");
+                if (!AssignInt(_editorHik, "预览间隔毫秒", "预览间隔毫秒", 50, v => built.HikPreviewIntervalMs = v))
+                {
+                    cfg = null;
+                    return false;
+                }
+                built.HikSaveEveryFrame = _editorHik.GetBool("每帧保存采图");
+
+                if (!AssignInt(_editorTray, "每层行数", "每层行数", 0, v => built.TrayRows = v)) { cfg = null; return false; }
+                if (!AssignInt(_editorTray, "每层列数", "每层列数", 0, v => built.TrayCols = v)) { cfg = null; return false; }
+                if (!AssignInt(_editorTray, "层数", "层数", 0, v => built.TrayLayers = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorTray, "轴承间隙", "轴承间隙", v => built.BearingGap = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorTray, "PitchX", "PitchX", v => built.PitchX = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorTray, "PitchY", "PitchY", v => built.PitchY = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorTray, "每层Z间距", "每层Z间距", v => built.LayerPitchZ = v)) { cfg = null; return false; }
+
+                if (!AssignDouble(_editorCalib, "相机距离", "相机距离", v => built.CameraDistance = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "木箱深度", "木箱深度", v => built.BoxDepth = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "放料平面高度补偿", "放料平面高度补偿", v => built.PlaceHeightCompensation = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "机器人放料基准Z", "机器人放料基准Z", v => built.TargetZ = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "机器人放料姿态Rz", "机器人放料姿态Rz", v => built.TargetRz = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "黑圆间距X", "黑圆间距X", v => built.MarkerDistanceX = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "黑圆间距Y", "黑圆间距Y", v => built.MarkerDistanceY = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "自动内缩X", "自动内缩X", v => built.AutoInnerReserveX = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "自动内缩Y", "自动内缩Y", v => built.AutoInnerReserveY = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "内区偏移X", "内区偏移X", v => built.InnerOffsetX = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "内区偏移Y", "内区偏移Y", v => built.InnerOffsetY = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "内区宽度", "内区宽度", v => built.InnerWidth = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "内区高度", "内区高度", v => built.InnerHeight = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "首件中心偏移X", "首件中心偏移X", v => built.FirstCenterOffsetX = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "首件中心偏移Y", "首件中心偏移Y", v => built.FirstCenterOffsetY = v)) { cfg = null; return false; }
+                for (int i = 0; i < JinwoNative.MarkerCount; i++)
+                {
+                    int idx = i;
+                    if (!AssignDouble(_editorCalib, $"黑圆{idx}机器人X", $"黑圆{idx}机器人X", v => built.MarkerRobotX[idx] = v)) { cfg = null; return false; }
+                    if (!AssignDouble(_editorCalib, $"黑圆{idx}机器人Y", $"黑圆{idx}机器人Y", v => built.MarkerRobotY[idx] = v)) { cfg = null; return false; }
+                }
+
+                built.UndistortionEnabled = _editorUndist.GetBool("启用");
+                built.UndistortionCalibFile = _editorUndist.GetText("标定文件");
+                if (!AssignDouble(_editorUndist, "Alpha", "Alpha", v => built.UndistortionAlpha = v)) { cfg = null; return false; }
+                if (built.UndistortionAlpha <= 0) built.UndistortionAlpha = 1.0;
+                built.UndistortionCropBlackEdge = _editorUndist.GetBool("裁剪黑边");
+
+                built.NinePointRobotCalibFile = _editorNine.GetText("标定文件");
+                cfg = built;
+                return true;
+            }
+
+            private JinwoParamsEditor BuildAlgorithmEditor()
+            {
+                var ed = new JinwoParamsEditor();
+                ed.AddHint("本机台采图与效果图路径；采图路径为空则回退 Feed.bmp。");
+                ed.AddPath("采图路径", "采图路径:", PathPickKind.File, "图像 (*.bmp;*.jpg;*.png)|*.bmp;*.jpg;*.png|所有文件 (*.*)|*.*");
+                ed.AddCheck("保存效果图", "保存效果图:");
+                ed.AddText("效果图目录", "效果图目录:");
+                return ed;
+            }
+
+            private JinwoParamsEditor BuildHikEditor()
+            {
+                var ed = new JinwoParamsEditor();
+                ed.AddHint("金沃启用时：海康 MVS 采图 → 金沃 DLL 识别。");
+                ed.AddCheck("启用", "启用海康相机:");
+                ed.AddText("序列号", "相机序列号:");
+                ed.AddText("触发模式", "触发模式 (如 Software):");
+                ed.AddCheck("实时预览", "实时预览:");
+                ed.AddInt("预览间隔毫秒", "预览间隔 (毫秒):");
+                ed.AddCheck("每帧保存采图", "每帧保存采图:");
+                return ed;
+            }
+
+            private JinwoParamsEditor BuildTrayEditor()
+            {
+                var ed = new JinwoParamsEditor();
+                ed.AddHint("行列层为 0 时按产品外径与箱体尺寸自动估算。");
+                ed.AddInt("每层行数", "每层行数 (0=自动):");
+                ed.AddInt("每层列数", "每层列数 (0=自动):");
+                ed.AddInt("层数", "层数 (0=自动):");
+                ed.AddDouble("轴承间隙", "轴承间隙 (mm):");
+                ed.AddDouble("PitchX", "PitchX (mm):");
+                ed.AddDouble("PitchY", "PitchY (mm):");
+                ed.AddDouble("每层Z间距", "每层 Z 间距 (mm):");
+                return ed;
+            }
+
+            private JinwoParamsEditor BuildCalibEditor()
+            {
+                var ed = new JinwoParamsEditor();
+                ed.AddHint("标定与托盘几何参数，单位一般为 mm。");
+                ed.AddDouble("相机距离", "相机距离 (mm):");
+                ed.AddDouble("木箱深度", "木箱深度 (mm):");
+                ed.AddDouble("放料平面高度补偿", "放料平面高度补偿 (mm):");
+                ed.AddDouble("机器人放料基准Z", "机器人放料基准 Z (mm):");
+                ed.AddDouble("机器人放料姿态Rz", "机器人放料姿态 Rz (°):");
+                ed.AddDouble("黑圆间距X", "黑圆间距 X (mm):");
+                ed.AddDouble("黑圆间距Y", "黑圆间距 Y (mm):");
+                ed.AddDouble("自动内缩X", "自动内缩 X (mm):");
+                ed.AddDouble("自动内缩Y", "自动内缩 Y (mm):");
+                ed.AddDouble("内区偏移X", "内区偏移 X (mm):");
+                ed.AddDouble("内区偏移Y", "内区偏移 Y (mm):");
+                ed.AddDouble("内区宽度", "内区宽度 (mm):");
+                ed.AddDouble("内区高度", "内区高度 (mm):");
+                ed.AddDouble("首件中心偏移X", "首件中心偏移 X (mm):");
+                ed.AddDouble("首件中心偏移Y", "首件中心偏移 Y (mm):");
+                string[] markerNames = { "左上(0)", "右上(1)", "右下(2)", "左下(3)" };
+                for (int i = 0; i < JinwoNative.MarkerCount; i++)
+                {
+                    ed.AddDouble($"黑圆{i}机器人X", $"{markerNames[i]} 机器人 X (mm):");
+                    ed.AddDouble($"黑圆{i}机器人Y", $"{markerNames[i]} 机器人 Y (mm):");
+                }
+                return ed;
+            }
+
+            private JinwoParamsEditor BuildUndistEditor()
+            {
+                var ed = new JinwoParamsEditor();
+                ed.AddHint("camera_calib.yml：畸变矫正 + DLL 机械坐标（工作目录=配置文件）。");
+                ed.AddCheck("启用", "启用畸变矫正:");
+                ed.AddPath("标定文件", "标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
+                ed.AddDouble("Alpha", "Alpha:");
+                ed.AddCheck("裁剪黑边", "裁剪黑边:");
+                return ed;
+            }
+
+            private JinwoParamsEditor BuildNinePointEditor()
+            {
+                var ed = new JinwoParamsEditor();
+                ed.AddHint("robot_calib.yml：DLL 像素转机械坐标（工作目录=配置文件）。");
+                ed.AddPath("标定文件", "九点标定文件:", PathPickKind.File, "YAML (*.yml;*.yaml)|*.yml;*.yaml|所有文件 (*.*)|*.*");
+                return ed;
+            }
         }
 
         private enum PathPickKind { None, File, Folder }
@@ -361,13 +434,13 @@ namespace 码料机
                 AutoScroll = true;
                 Font = UiLayoutHelper.Body;
                 Padding = new Padding(10, 6, 10, 14);
-                _table.Dock = DockStyle.Top;
                 _table.AutoSize = true;
                 _table.AutoSizeMode = AutoSizeMode.GrowAndShrink;
                 _table.ColumnCount = 2;
                 _table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220));
                 _table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 Controls.Add(_table);
+                UiLayoutHelper.ConfigureStableAutoScroll(this, _table);
             }
 
             private int _row;
@@ -406,11 +479,11 @@ namespace 码料机
                 _fields[key] = tb;
             }
 
-            public void AddInt(string key, string label) => AddNumeric(key, label, false);
+            public void AddInt(string key, string label) => AddNumeric(key, label);
 
-            public void AddDouble(string key, string label) => AddNumeric(key, label, true);
+            public void AddDouble(string key, string label) => AddNumeric(key, label);
 
-            private void AddNumeric(string key, string label, bool isDouble)
+            private void AddNumeric(string key, string label)
             {
                 RegisterLabel(key, label);
                 var tb = CreateTextBox();

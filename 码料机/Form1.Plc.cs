@@ -142,7 +142,7 @@ namespace 码料机
                     {
                         TEXT($"[规划] {st.Name} 空箱一次性规划 {slots.Count} 个放料位（金沃，{JinwoPlacementOrder.DescribeTraversal(st.MaxRows, st.MaxCols)}）");
                         if (!string.IsNullOrEmpty(effectPath))
-                            TryDisplayJinwoEffectImage(effectPath, GetJinwoFallbackPreviewPath(imagePath));
+                            TryDisplayJinwoEffectImage(effectPath, GetJinwoFallbackPreviewPath(imagePath, ResolveNinePointCalibIsLeft(st)), ResolveNinePointCalibIsLeft(st));
                     });
                 }
                 catch (Exception ex)
@@ -1216,8 +1216,9 @@ D_机器人运动中=-1
             PlcWriteXyzRz(dTarget, (float)pose.X, (float)pose.Y, (float)pose.Z, (float)pose.Rz);
             SafeInvoke(() =>
             {
+                bool isLeft = IsLeftStation(st);
                 TEXT($"[金沃] {st.Name} 位姿 X={pose.X:F2} Y={pose.Y:F2} Z={pose.Z:F2} Rz={pose.Rz:F2}° L{pose.Layer + 1}/R{pose.Row + 1}/C{pose.Col + 1}");
-                TryDisplayJinwoEffectImage(effectPath, GetJinwoFallbackPreviewPath(_jinwo.ResolveCaptureImagePath()));
+                TryDisplayJinwoEffectImage(effectPath, GetJinwoFallbackPreviewPath(_jinwo.ResolveCaptureImagePath(isLeft), isLeft), isLeft);
             });
             return true;
         }
@@ -1517,7 +1518,7 @@ D_机器人运动中=-1
         /// <summary>握手轮询：运动中读取机器人当前坐标，超出报警位置设定则写 D0.12。</summary>
         private void PollRobotPositionLimitAlarm(string phase)
         {
-            var limits = AlarmPositionLimits;
+            var limits = GetAlarmPositionLimits(IsLeftStation(currentStation));
             if (!_plcConfig.Enabled || !Hs.HandshakeEnabled || limits == null || !limits.Enabled
                 || !limits.HasAnyAxisLimit() || !IsConfiguredPlcD(Hs.D_机器人当前坐标X)
                 || !IsConfiguredPlcD(Hs.D_PLC报警字) || !IsConfiguredPlcD(Hs.D_PC位置超限报警位)
@@ -1549,8 +1550,9 @@ D_机器人运动中=-1
                 bool outOfLimit = limits.IsOutOfLimit(x, y, z, out string detail);
                 if (moving && outOfLimit)
                 {
+                    string stationName = currentStation?.Name ?? (IsLeftStation(currentStation) ? "左机台" : "右机台");
                     if (!_positionLimitAlarmActive)
-                        SafeInvoke(() => TEXT($"[位置超限] {detail}（{phase}）"));
+                        SafeInvoke(() => TEXT($"[位置超限] {stationName} {detail}（{phase}）"));
                     WritePcPositionLimitAlarmBit(true);
                 }
             }
@@ -1574,7 +1576,7 @@ D_机器人运动中=-1
             }
 
             var cfg = BearingPresenceConfig.Load();
-            string imagePath = cfg.ResolveCaptureImagePath(_jinwo);
+            string imagePath = cfg.ResolveCaptureImagePath(_jinwo, IsLeftStation(st));
             if (!_bearingPresence.TryDetect(imagePath, out bool hasDetected, out int detectCount,
                     out string effectPath, out error))
                 return false;
@@ -1602,7 +1604,10 @@ D_机器人运动中=-1
 
             SafeInvoke(() => TEXT($"[异物检测] {st?.Name ?? "工位"} 箱内无异物，继续算位/下发坐标"));
             if (!string.IsNullOrEmpty(effectPath))
-                TryDisplayJinwoEffectImage(effectPath, GetJinwoFallbackPreviewPath(imagePath));
+            {
+                bool isLeft = IsLeftStation(st);
+                TryDisplayJinwoEffectImage(effectPath, GetJinwoFallbackPreviewPath(imagePath, isLeft), isLeft);
+            }
             return true;
         }
 
@@ -1882,7 +1887,7 @@ D_机器人运动中=-1
                 _jinwo.PrepareNinePointCalibForPickSide(calibLeft);
                 if (!await RunCaptureIfConfiguredAsync($"{st.Name} 取料拍照").ConfigureAwait(false))
                     return false;
-                string imagePath = _jinwo.ResolveCaptureImagePath();
+                string imagePath = _jinwo.ResolveCaptureImagePath(calibLeft);
                 if (!File.Exists(imagePath))
                     throw new InvalidOperationException("无采图文件，请加载离线测试图或配置金沃「采图路径」");
                 SafeInvoke(() => TEXT($"[取料拍照] {st.Name} 使用图像 {Path.GetFileName(imagePath)}（九点标定={(calibLeft ? "A/左" : "B/右")}）"));
@@ -2122,7 +2127,7 @@ D_机器人运动中=-1
                 SafeInvoke(() =>
                 {
                     TEXT($"[金沃] {stationName} 位姿 X={jx:F2} Y={jy:F2} Z={jz:F2} Rz={jRz:F2}° L{jLayer + 1}/R{jRow + 1}/C{jCol + 1}");
-                    TryDisplayJinwoEffectImage(jEffect, GetJinwoFallbackPreviewPath(_jinwo.ResolveCaptureImagePath()));
+                    TryDisplayJinwoEffectImage(jEffect, GetJinwoFallbackPreviewPath(_jinwo.ResolveCaptureImagePath(isLeft), isLeft), isLeft);
                 });
                 return true;
             }
@@ -2710,7 +2715,7 @@ D_机器人运动中=-1
                     TEXT($"[指定开始件] {stationName} 现场放料拍照完成：已按已放 {logPlaced} 件对齐 {logAligned} 个规划位，下一发第 {logNext} 件");
                     TEXT($"[规划] {stationName} 工位中心点 X={logCx:F2} Y={logCy:F2}（{slotCount} 位均值）");
                     if (!string.IsNullOrEmpty(logEffect))
-                        TryDisplayJinwoEffectImage(logEffect, GetJinwoFallbackPreviewPath(imagePath));
+                        TryDisplayJinwoEffectImage(logEffect, GetJinwoFallbackPreviewPath(imagePath, IsLeftStation(st)), IsLeftStation(st));
                 });
                 return true;
             }
@@ -2727,7 +2732,7 @@ D_机器人运动中=-1
             if (!await Plc_CaptureAndUpdateBoxPoseAsync().ConfigureAwait(false))
                 return (false, "放料拍照/识箱失败");
 
-            string imagePath = _jinwo.ResolveCaptureImagePath();
+            string imagePath = _jinwo.ResolveCaptureImagePath(IsLeftStation(st));
             if (st.StartPieceAwaitingLivePlacePhoto && st.BoxPlan != null && st.BoxPlan.IsValid)
             {
                 if (!TryRealignStartPieceBoxPlanFromLiveImage(st, imagePath, out string alignErr))
@@ -2909,8 +2914,9 @@ D_机器人运动中=-1
         {
             if (st == null) return 0;
             int floor = st.MaxLayers;
-            if (_jinwo.TrayLayersFromIni > 0)
-                floor = Math.Max(floor, _jinwo.TrayLayersFromIni);
+            bool isLeft = IsLeftStation(st);
+            if (_jinwo.TrayLayersFromIni(isLeft) > 0)
+                floor = Math.Max(floor, _jinwo.TrayLayersFromIni(isLeft));
             return floor;
         }
 
@@ -2938,16 +2944,16 @@ D_机器人运动中=-1
                 return false;
             }
 
-            if (ShouldUseHikCamera() && _hikCameraConnected)
+            if (ShouldUseHikCamera(IsLeftStation(currentStation)) && _hikCameraConnected)
             {
-                bool ok = await TryHikvisionCaptureAsync().ConfigureAwait(false);
+                bool ok = await TryHikvisionCaptureAsync(IsLeftStation(currentStation)).ConfigureAwait(false);
                 SafeInvoke(() => TEXT(ok
                     ? $"[海康→金沃] {step}：MVS 已采图"
                     : $"[海康→金沃] {step}：MVS 采图失败"));
                 return ok;
             }
 
-            string path = _jinwo.ResolveCaptureImagePath();
+            string path = _jinwo.ResolveCaptureImagePath(IsLeftStation(currentStation));
             bool exists = File.Exists(path);
             SafeInvoke(() => TEXT(exists
                 ? $"[金沃] {step}：使用采图 {Path.GetFileName(path)}"
@@ -2963,8 +2969,9 @@ D_机器人运动中=-1
                 if (st.StartPieceAwaitingLivePlacePhoto)
                     return;
 
-                string imagePath = _jinwo.ResolveCaptureImagePath();
-                string previewPath = GetJinwoFallbackPreviewPath(imagePath);
+                bool isLeft = IsLeftStation(st);
+                string imagePath = _jinwo.ResolveCaptureImagePath(isLeft);
+                string previewPath = GetJinwoFallbackPreviewPath(imagePath, isLeft);
                 if (st.HasJinwoTrayConfig)
                 {
                     int placedCount = GetPlacedCount(st);
@@ -2973,7 +2980,7 @@ D_机器人运动中=-1
                         SafeInvoke(() =>
                         {
                             TEXT($"[金沃] {st.Name} 箱姿算位 X={pose.X:F2} Y={pose.Y:F2} Z={pose.Z:F2}");
-                            TryDisplayJinwoEffectImage(effectPath, previewPath);
+                            TryDisplayJinwoEffectImage(effectPath, previewPath, isLeft);
                         });
                         return;
                     }
@@ -2995,7 +3002,7 @@ D_机器人运动中=-1
                         TEXT($"[金沃]   黑圆{i}: x={p.X:F1}, y={p.Y:F1}");
                     }
                     string overlay = JinwoImagePreview.DrawMarkersOverlay(
-                        previewPath, markers, _jinwo.EffectImageDirectory);
+                        previewPath, markers, _jinwo.EffectImageDirectory(isLeft));
                     if (!string.IsNullOrEmpty(overlay))
                         ShowOfflinePreviewImage(overlay);
                 });
@@ -3011,7 +3018,7 @@ D_机器人运动中=-1
         {
             bool isLeft = IsLeftStation(st);
             var photo = GetPhotoPositions(isLeft);
-            var ini = JinwoAlgorithmConfig.Load();
+            var ini = JinwoAlgorithmConfig.Load(isLeft);
             var zAxis = GetZAxis(isLeft);
             float plcRz = isLeft ? Hs.左放料拍照_基准RZ : Hs.右放料拍照_基准RZ;
 
@@ -3059,10 +3066,11 @@ D_机器人运动中=-1
             effectPath = null;
             error = null;
             int floorLayers = GetTrayLayerCountFloor(st);
+            bool isLeft = IsLeftStation(st);
             bool calibLeft = ResolveNinePointCalibIsLeft(st, pickRequestIsLeft);
             try
             {
-                string imagePath = _jinwo.ResolveCaptureImagePath();
+                string imagePath = _jinwo.ResolveCaptureImagePath(isLeft);
                 var cfg = st.JinwoTray;
                 pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, calibLeft, out effectPath);
                 st.JinwoTray = cfg;

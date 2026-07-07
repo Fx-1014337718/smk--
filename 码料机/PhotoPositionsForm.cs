@@ -26,7 +26,9 @@ namespace 码料机
 
         private readonly PhotoStationPanel _rightPanel;
 
-        private readonly AlarmLimitPanel _alarmPanel;
+        private readonly AlarmLimitPanel _leftAlarmPanel;
+
+        private readonly AlarmLimitPanel _rightAlarmPanel;
 
 
 
@@ -53,25 +55,73 @@ namespace 码料机
 
             _rightPanel = new PhotoStationPanel();
 
-            _alarmPanel = new AlarmLimitPanel();
+            _leftAlarmPanel = new AlarmLimitPanel("左机台");
 
-            _leftPanel.Dock = DockStyle.Fill;
+            _rightAlarmPanel = new AlarmLimitPanel("右机台");
 
-            _rightPanel.Dock = DockStyle.Fill;
+            MountStationTab(tabPageLeft, _leftPanel, _leftAlarmPanel);
 
-            _alarmPanel.Dock = DockStyle.Fill;
-
-            tabPageLeft.Controls.Add(_leftPanel);
-
-            tabPageRight.Controls.Add(_rightPanel);
-
-            tabPageAlarm.Controls.Add(_alarmPanel);
+            MountStationTab(tabPageRight, _rightPanel, _rightAlarmPanel);
 
             _leftPanel.Changed += (_, __) => _dirty = true;
 
             _rightPanel.Changed += (_, __) => _dirty = true;
 
-            _alarmPanel.Changed += (_, __) => _dirty = true;
+            _leftAlarmPanel.Changed += (_, __) => _dirty = true;
+
+            _rightAlarmPanel.Changed += (_, __) => _dirty = true;
+
+        }
+
+
+
+        private static void MountStationTab(TabPage page, PhotoStationPanel station, AlarmLimitPanel alarm)
+
+        {
+
+            var scroll = new Panel
+
+            {
+
+                Dock = DockStyle.Fill,
+
+                AutoScroll = true,
+
+                Padding = new Padding(0, 0, SystemInformation.VerticalScrollBarWidth, 0),
+
+            };
+
+            var content = new TableLayoutPanel
+
+            {
+
+                AutoSize = true,
+
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+
+                ColumnCount = 1,
+
+                RowCount = 2,
+
+                Margin = Padding.Empty,
+
+            };
+
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            content.Controls.Add(station, 0, 0);
+
+            content.Controls.Add(alarm, 0, 1);
+
+            scroll.Controls.Add(content);
+
+            UiLayoutHelper.ConfigureStableAutoScroll(scroll, content);
+
+            page.Controls.Add(scroll);
 
         }
 
@@ -93,7 +143,11 @@ namespace 码料机
 
             _rightPanel.LoadFrom(right);
 
-            _alarmPanel.LoadFrom(AlarmPositionLimitConfig.Load(_iniPath));
+            AlarmPositionLimitConfig.LoadBoth(_iniPath, out var alarmLeft, out var alarmRight);
+
+            _leftAlarmPanel.LoadFrom(alarmLeft);
+
+            _rightAlarmPanel.LoadFrom(alarmRight);
 
             ApplyRecognitionToEmptyXY(true);
 
@@ -233,7 +287,7 @@ namespace 码料机
 
         {
 
-            if (!TryBuildConfigs(out var left, out var right, out var alarm)) return;
+            if (!TryBuildConfigs(out var left, out var right, out var alarmLeft, out var alarmRight)) return;
 
             if (!PhotoPositionConfig.SaveBoth(left, right, _iniPath))
 
@@ -245,7 +299,7 @@ namespace 码料机
 
             }
 
-            if (!alarm.Save(_iniPath))
+            if (!AlarmPositionLimitConfig.SaveBoth(alarmLeft, alarmRight, _iniPath))
 
             {
 
@@ -303,11 +357,11 @@ namespace 码料机
 
                 case DialogPrompts.UnsavedCloseAction.Save:
 
-                    if (!TryBuildConfigs(out var left, out var right, out var alarm)) return false;
+                    if (!TryBuildConfigs(out var left, out var right, out var alarmLeft, out var alarmRight)) return false;
 
                     if (!PhotoPositionConfig.SaveBoth(left, right, _iniPath)) return false;
 
-                    if (!alarm.Save(_iniPath)) return false;
+                    if (!AlarmPositionLimitConfig.SaveBoth(alarmLeft, alarmRight, _iniPath)) return false;
 
                     MainForm?.ReloadPhotoPositionConfig(pushToPlc: true);
 
@@ -329,19 +383,22 @@ namespace 码料机
 
 
 
-        private bool TryBuildConfigs(out PhotoPositionConfig left, out PhotoPositionConfig right, out AlarmPositionLimitConfig alarm)
+        private bool TryBuildConfigs(out PhotoPositionConfig left, out PhotoPositionConfig right,
+            out AlarmPositionLimitConfig alarmLeft, out AlarmPositionLimitConfig alarmRight)
 
         {
 
             left = right = null;
 
-            alarm = null;
+            alarmLeft = alarmRight = null;
 
             if (!_leftPanel.TryRead(out left, "左机台")) return false;
 
             if (!_rightPanel.TryRead(out right, "右机台")) return false;
 
-            if (!_alarmPanel.TryRead(out alarm)) return false;
+            if (!_leftAlarmPanel.TryRead(out alarmLeft)) return false;
+
+            if (!_rightAlarmPanel.TryRead(out alarmRight)) return false;
 
             return true;
 
@@ -389,13 +446,13 @@ namespace 码料机
 
             {
 
-                AutoScroll = true;
+                AutoSize = true;
+
+                AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
                 var layout = new TableLayoutPanel
 
                 {
-
-                    Dock = DockStyle.Top,
 
                     AutoSize = true,
 
@@ -405,7 +462,11 @@ namespace 码料机
 
                     RowCount = 4,
 
+                    Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+
                 };
+
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
                 layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -425,11 +486,41 @@ namespace 码料机
 
                 Controls.Add(layout);
 
+                WireParentWidth(layout);
+
 
 
                 foreach (var tb in new[] { _pickX, _pickY, _pickZ, _pickRz, _placeX, _placeY, _placeZ, _placeRz, _placePhotoX, _placePhotoY, _placePhotoZ, _placePhotoRz, _placeCenterRz })
 
                     tb.TextChanged += (_, __) => Changed?.Invoke(this, EventArgs.Empty);
+
+            }
+
+
+
+            private void WireParentWidth(TableLayoutPanel layout)
+
+            {
+
+                void Sync()
+
+                {
+
+                    int w = Parent?.ClientSize.Width ?? 0;
+
+                    if (w <= 0) return;
+
+                    Width = w;
+
+                    layout.Width = w;
+
+                }
+
+                ParentChanged += (_, __) => Sync();
+
+                SizeChanged += (_, __) => Sync();
+
+                if (Parent != null) Parent.SizeChanged += (_, __) => Sync();
 
             }
 
@@ -447,9 +538,9 @@ namespace 码料机
 
                     Dock = DockStyle.Top,
 
-                    MinimumSize = new Size(0, 72),
+                    MinimumSize = new Size(0, 80),
 
-                    Padding = new Padding(10, 6, 10, 10),
+                    Padding = new Padding(10, 10, 10, 10),
 
                     Font = UiLayoutHelper.Body,
 
@@ -501,9 +592,9 @@ namespace 码料机
 
                     Dock = DockStyle.Top,
 
-                    MinimumSize = new Size(0, 72),
+                    MinimumSize = new Size(0, 80),
 
-                    Padding = new Padding(10, 6, 10, 10),
+                    Padding = new Padding(10, 10, 10, 10),
 
                     Font = UiLayoutHelper.Body,
 
@@ -546,6 +637,8 @@ namespace 码料机
                 box.Anchor = AnchorStyles.Left | AnchorStyles.Right;
 
                 box.Margin = new Padding(0, 2, 8, 2);
+
+                box.MinimumSize = new Size(64, 26);
 
                 t.Controls.Add(lbl, col, 0);
 
@@ -735,7 +828,11 @@ namespace 码料机
 
         {
 
+            private readonly string _stationName;
+
             private readonly CheckBox _enabled = new CheckBox { Text = "启用运动超限报警", AutoSize = true };
+
+            private readonly Label _hint;
 
             private readonly TextBox _minX = new TextBox(), _maxX = new TextBox();
 
@@ -749,17 +846,19 @@ namespace 码料机
 
 
 
-            public AlarmLimitPanel()
+            public AlarmLimitPanel(string stationName)
 
             {
 
-                AutoScroll = true;
+                _stationName = stationName ?? "";
+
+                AutoSize = true;
+
+                AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
                 var layout = new TableLayoutPanel
 
                 {
-
-                    Dock = DockStyle.Top,
 
                     AutoSize = true,
 
@@ -767,9 +866,25 @@ namespace 码料机
 
                     ColumnCount = 1,
 
+                    RowCount = 5,
+
                     Padding = new Padding(4),
 
+                    Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+
                 };
+
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
                 var hint = new Label
 
@@ -777,35 +892,69 @@ namespace 码料机
 
                     AutoSize = true,
 
-                    MaximumSize = new Size(480, 0),
-
                     ForeColor = SystemColors.GrayText,
 
-                    Text = "机器人运动过程中，若 PLC 反馈坐标超出下列范围，上位机写 D0.12=1。\n" +
+                    Text = $"「{_stationName}」运动超限报警：机器人运动过程中，若 PLC 反馈坐标超出下列范围，上位机写 D0.12=1。\n" +
 
-                           "各轴仅当「最大＞最小」时参与判断；未配置 D_机器人运动中 时由坐标变化推断运动。",
+                           "各轴仅当「最大＞最小」时参与判断；未配置 D_机器人运动中 时由坐标变化推断运动。按当前工作机台选用对应报警范围。",
 
                     Margin = new Padding(0, 0, 0, 8),
 
                 };
 
-                layout.Controls.Add(hint);
+                _hint = hint;
 
-                layout.Controls.Add(_enabled);
+                layout.Controls.Add(hint, 0, 0);
 
-                layout.Controls.Add(BuildLimitGroup("X 轴 (mm)", _minX, _maxX));
+                layout.Controls.Add(_enabled, 0, 1);
 
-                layout.Controls.Add(BuildLimitGroup("Y 轴 (mm)", _minY, _maxY));
+                layout.Controls.Add(BuildLimitGroup("X 轴 (mm)", _minX, _maxX), 0, 2);
 
-                layout.Controls.Add(BuildLimitGroup("Z 轴 (mm)", _minZ, _maxZ));
+                layout.Controls.Add(BuildLimitGroup("Y 轴 (mm)", _minY, _maxY), 0, 3);
+
+                layout.Controls.Add(BuildLimitGroup("Z 轴 (mm)", _minZ, _maxZ), 0, 4);
 
                 Controls.Add(layout);
+
+                WireParentWidth(layout);
 
                 _enabled.CheckedChanged += (_, __) => Changed?.Invoke(this, EventArgs.Empty);
 
                 foreach (var tb in new[] { _minX, _maxX, _minY, _maxY, _minZ, _maxZ })
 
                     tb.TextChanged += (_, __) => Changed?.Invoke(this, EventArgs.Empty);
+
+            }
+
+
+
+            private void WireParentWidth(TableLayoutPanel layout)
+
+            {
+
+                void Sync()
+
+                {
+
+                    int w = Parent?.ClientSize.Width ?? 0;
+
+                    if (w <= 0) return;
+
+                    Width = w;
+
+                    layout.Width = w;
+
+                    if (_hint != null)
+
+                        _hint.MaximumSize = new Size(Math.Max(0, w - layout.Padding.Horizontal - 8), 0);
+
+                }
+
+                ParentChanged += (_, __) => Sync();
+
+                SizeChanged += (_, __) => Sync();
+
+                if (Parent != null) Parent.SizeChanged += (_, __) => Sync();
 
             }
 
@@ -823,9 +972,9 @@ namespace 码料机
 
                     Dock = DockStyle.Top,
 
-                    MinimumSize = new Size(0, 72),
+                    MinimumSize = new Size(0, 80),
 
-                    Padding = new Padding(10, 6, 10, 10),
+                    Padding = new Padding(10, 10, 10, 10),
 
                     Font = UiLayoutHelper.Body,
 
@@ -860,6 +1009,8 @@ namespace 码料机
                 box.Anchor = AnchorStyles.Left | AnchorStyles.Right;
 
                 box.Margin = new Padding(0, 2, 8, 2);
+
+                box.MinimumSize = new Size(64, 26);
 
                 t.Controls.Add(lbl, col, 0);
 
@@ -897,17 +1048,17 @@ namespace 码料机
 
                 c = new AlarmPositionLimitConfig { Enabled = _enabled.Checked };
 
-                if (!TryParseOptional(_minX, "报警位置 X 最小", out double minX)) return false;
+                if (!TryParseOptional(_minX, $"{_stationName} 报警位置 X 最小", out double minX)) return false;
 
-                if (!TryParseOptional(_maxX, "报警位置 X 最大", out double maxX)) return false;
+                if (!TryParseOptional(_maxX, $"{_stationName} 报警位置 X 最大", out double maxX)) return false;
 
-                if (!TryParseOptional(_minY, "报警位置 Y 最小", out double minY)) return false;
+                if (!TryParseOptional(_minY, $"{_stationName} 报警位置 Y 最小", out double minY)) return false;
 
-                if (!TryParseOptional(_maxY, "报警位置 Y 最大", out double maxY)) return false;
+                if (!TryParseOptional(_maxY, $"{_stationName} 报警位置 Y 最大", out double maxY)) return false;
 
-                if (!TryParseOptional(_minZ, "报警位置 Z 最小", out double minZ)) return false;
+                if (!TryParseOptional(_minZ, $"{_stationName} 报警位置 Z 最小", out double minZ)) return false;
 
-                if (!TryParseOptional(_maxZ, "报警位置 Z 最大", out double maxZ)) return false;
+                if (!TryParseOptional(_maxZ, $"{_stationName} 报警位置 Z 最大", out double maxZ)) return false;
 
                 c.MinX = minX; c.MaxX = maxX;
 
@@ -919,7 +1070,7 @@ namespace 码料机
 
                 {
 
-                    DialogPrompts.ShowWarning("已启用报警位置，请至少为一根轴填写有效的最小/最大范围（最大须大于最小）。");
+                    DialogPrompts.ShowWarning($"「{_stationName}」已启用报警位置，请至少为一根轴填写有效的最小/最大范围（最大须大于最小）。");
 
                     return false;
 

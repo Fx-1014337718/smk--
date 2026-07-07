@@ -360,7 +360,7 @@ namespace 码料机
             this.toolStripLabelStartPiece.Name = "toolStripLabelStartPiece";
             this.toolStripLabelStartPiece.Size = new System.Drawing.Size(118, 24);
             this.toolStripLabelStartPiece.Text = "指定开始件";
-            this.toolStripLabelStartPiece.ToolTipText = "空箱离线规划+指定起始件；首次放料请求现场拍照算位，之后与正常流程相同";
+            this.toolStripLabelStartPiece.ToolTipText = "左/右机台分别空箱离线规划并指定起始件；首次放料请求现场拍照算位，之后与正常流程相同";
             this.toolStripLabelStartPiece.Click += new System.EventHandler(this.toolStripLabelStartPiece_Click);
             // 
             // statusStripBottom
