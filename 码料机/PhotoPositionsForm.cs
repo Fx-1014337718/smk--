@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 using System.Drawing;
 
@@ -87,9 +87,15 @@ namespace 码料机
 
                 AutoScroll = true,
 
-                Padding = new Padding(0, 0, SystemInformation.VerticalScrollBarWidth, 0),
+                BackColor = Color.FromArgb(246, 248, 250),
+
+                Padding = new Padding(10, 10, SystemInformation.VerticalScrollBarWidth + 10, 10),
 
             };
+
+            station.Dock = DockStyle.Fill;
+
+            alarm.Dock = DockStyle.Fill;
 
             var content = new TableLayoutPanel
 
@@ -104,6 +110,8 @@ namespace 码料机
                 RowCount = 2,
 
                 Margin = Padding.Empty,
+
+                BackColor = Color.Transparent,
 
             };
 
@@ -450,6 +458,8 @@ namespace 码料机
 
                 AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
+                BackColor = Color.Transparent;
+
                 var layout = new TableLayoutPanel
 
                 {
@@ -462,7 +472,11 @@ namespace 码料机
 
                     RowCount = 4,
 
+                    Padding = new Padding(0, 0, 0, 2),
+
                     Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+
+                    BackColor = Color.Transparent,
 
                 };
 
@@ -476,13 +490,13 @@ namespace 码料机
 
                 layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-                layout.Controls.Add(BuildXyzRzGroup("取料位置", _pickX, _pickY, _pickZ, _pickRz), 0, 0);
+                layout.Controls.Add(BuildXyzRzGroup("取料位置", "机器人到料仓取轴承时使用", _pickX, _pickY, _pickZ, _pickRz), 0, 0);
 
-                layout.Controls.Add(BuildXyzRzGroup("放料位置", _placeX, _placeY, _placeZ, _placeRz), 0, 1);
+                layout.Controls.Add(BuildXyzRzGroup("放料位置", "启用固定放料位时直接下发", _placeX, _placeY, _placeZ, _placeRz), 0, 1);
 
-                layout.Controls.Add(BuildXyzRzGroup("放料拍照位置", _placePhotoX, _placePhotoY, _placePhotoZ, _placePhotoRz), 0, 2);
+                layout.Controls.Add(BuildXyzRzGroup("放料拍照位置", "识别箱体前的相机拍照位置", _placePhotoX, _placePhotoY, _placePhotoZ, _placePhotoRz), 0, 2);
 
-                layout.Controls.Add(BuildPlaceCenterRzGroup(_placeCenterRz), 0, 3);
+                layout.Controls.Add(BuildPlaceCenterRzCard(_placeCenterRz), 0, 3);
 
                 Controls.Add(layout);
 
@@ -526,11 +540,79 @@ namespace 码料机
 
 
 
-            private static GroupBox BuildXyzRzGroup(string title, TextBox x, TextBox y, TextBox z, TextBox rz)
+            private static GroupBox BuildXyzRzGroup(string title, string hint, TextBox x, TextBox y, TextBox z, TextBox rz)
 
             {
 
-                var g = new GroupBox
+                var group = CreateIndustrialGroup(title, twoRows: true);
+
+                var table = new TableLayoutPanel
+
+                {
+
+                    Dock = DockStyle.Fill,
+
+                    ColumnCount = 4,
+
+                    RowCount = 2,
+
+                    Padding = Padding.Empty,
+
+                };
+
+                for (int i = 0; i < 4; i++)
+
+                    table.ColumnStyles.Add(new ColumnStyle(i % 2 == 0 ? SizeType.AutoSize : SizeType.Percent, i % 2 == 1 ? 50F : 0));
+
+                table.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
+
+                table.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
+
+                AddCoordCell(table, 0, 0, "X:", x);
+
+                AddCoordCell(table, 2, 0, "Y:", y);
+
+                AddCoordCell(table, 0, 1, "Z:", z);
+
+                AddCoordCell(table, 2, 1, "RZ:", rz);
+
+                group.Controls.Add(table);
+
+                return group;
+
+            }
+
+
+
+            private static GroupBox BuildPlaceCenterRzCard(TextBox rz)
+
+            {
+
+                var group = CreateIndustrialGroup("放料中心点");
+
+                var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
+                AddCoordCell(table, 0, 0, "RZ:", rz);
+
+                group.Controls.Add(table);
+
+                return group;
+
+            }
+
+
+
+            private static GroupBox CreateIndustrialGroup(string title, bool twoRows = false)
+
+            {
+
+                int h = twoRows ? 132 : 80;
+
+                return new GroupBox
 
                 {
 
@@ -538,63 +620,11 @@ namespace 码料机
 
                     Dock = DockStyle.Top,
 
-                    MinimumSize = new Size(0, 80),
+                    Height = h,
 
-                    Padding = new Padding(10, 10, 10, 10),
+                    MinimumSize = new Size(0, h),
 
-                    Font = UiLayoutHelper.Body,
-
-                    Margin = new Padding(0, 0, 0, 8),
-
-                };
-
-                var t = new TableLayoutPanel
-
-                {
-
-                    Dock = DockStyle.Fill,
-
-                    ColumnCount = 8,
-
-                    RowCount = 1,
-
-                };
-
-                for (int i = 0; i < 8; i++)
-
-                    t.ColumnStyles.Add(new ColumnStyle(i % 2 == 0 ? SizeType.AutoSize : SizeType.Percent, i % 2 == 1 ? 25F : 0));
-
-                AddXyzCell(t, 0, "X:", x);
-
-                AddXyzCell(t, 2, "Y:", y);
-
-                AddXyzCell(t, 4, "Z:", z);
-
-                AddXyzCell(t, 6, "RZ:", rz);
-
-                g.Controls.Add(t);
-
-                return g;
-
-            }
-
-
-
-            private static GroupBox BuildPlaceCenterRzGroup(TextBox rz)
-
-            {
-
-                var g = new GroupBox
-
-                {
-
-                    Text = "放料中心点（X/Y/Z 自动计算）",
-
-                    Dock = DockStyle.Top,
-
-                    MinimumSize = new Size(0, 80),
-
-                    Padding = new Padding(10, 10, 10, 10),
+                    Padding = new Padding(10, 14, 10, 10),
 
                     Font = UiLayoutHelper.Body,
 
@@ -602,33 +632,11 @@ namespace 码料机
 
                 };
 
-                var t = new TableLayoutPanel
-
-                {
-
-                    Dock = DockStyle.Fill,
-
-                    ColumnCount = 2,
-
-                    RowCount = 1,
-
-                };
-
-                t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-                t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-
-                AddXyzCell(t, 0, "RZ:", rz);
-
-                g.Controls.Add(t);
-
-                return g;
-
             }
 
 
 
-            private static void AddXyzCell(TableLayoutPanel t, int col, string label, TextBox box)
+            private static void AddCoordCell(TableLayoutPanel table, int col, int row, string label, TextBox box)
 
             {
 
@@ -636,17 +644,17 @@ namespace 码料机
 
                 box.Anchor = AnchorStyles.Left | AnchorStyles.Right;
 
+                box.Font = UiLayoutHelper.Combo;
+
                 box.Margin = new Padding(0, 2, 8, 2);
 
                 box.MinimumSize = new Size(64, 26);
 
-                t.Controls.Add(lbl, col, 0);
+                table.Controls.Add(lbl, col, row);
 
-                t.Controls.Add(box, col + 1, 0);
+                table.Controls.Add(box, col + 1, row);
 
             }
-
-
 
             public void LoadFrom(PhotoPositionConfig c)
 

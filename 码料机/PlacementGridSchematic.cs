@@ -20,6 +20,7 @@ namespace 码料机
         private int _maxRows = 1, _maxCols = 1, _maxLayers = 1;
         private int _currentLayer;
         private int _selectedIndex = -1;
+        public string FilterGroupLabel { get; set; } = "层";
 
         public int SelectedIndex
         {
@@ -77,7 +78,7 @@ namespace 码料机
             var area = new Rectangle(pad, pad + labelH, Width - pad * 2, Height - pad * 2 - labelH);
             if (area.Width < 40 || area.Height < 40) return;
 
-            string title = $"第 {_currentLayer + 1} 层 / 共 {_maxLayers} 层（点击格子选放料位）";
+            string title = $"第 {_currentLayer + 1} {FilterGroupLabel} / 共 {_maxLayers} {FilterGroupLabel}（点击选放料位次）";
             TextRenderer.DrawText(g, title, Font, new Rectangle(pad, pad, Width - pad * 2, labelH),
                 Color.FromArgb(51, 65, 85), TextFormatFlags.Left);
 

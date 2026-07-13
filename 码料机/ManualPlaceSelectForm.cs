@@ -48,7 +48,7 @@ namespace 码料机
             _tabs = new TabControl { Dock = DockStyle.Fill, Font = FormFont, ItemSize = new Size(120, 36) };
             _tabs.TabPages.Add(BuildStationPage("左机台", true, _leftUi));
             _tabs.TabPages.Add(BuildStationPage("右机台", false, _rightUi));
-            _tabs.SelectedIndexChanged += (_, __) => RefreshActiveStationVisual();
+            _tabs.SelectedIndexChanged += (_, __) => RefreshActiveStation();
             root.Controls.Add(_tabs, 0, 1);
 
             root.Controls.Add(BuildBottomBar(), 0, 2);
@@ -73,8 +73,10 @@ namespace 码料机
             public Label LblDetail;
             public ComboBox LayerPicker;
             public List<Form1.ManualPlaceSlotView> AllSlots = new List<Form1.ManualPlaceSlotView>();
-            public int LayerCount = 1;
-            public int PerLayerCapacity = 1;
+            public int ZTierCount = 1;
+            public int GroupCount = 1;
+            public string BatchPattern = "2-2-3";
+            public NumericUpDown StartCycleNum;
             public bool IsLeft;
             public bool SuppressLayerEvent;
         }
@@ -124,7 +126,18 @@ namespace 码料机
                 _main.ClearManualPendingSlot(isLeft);
                 RefreshStation(isLeft);
             };
-            tool.Controls.AddRange(new Control[] { btnPlan, btnSet, btnClear });
+            ui.StartCycleNum = new NumericUpDown
+            {
+                Minimum = 1,
+                Maximum = 9999,
+                Value = 1,
+                Width = 72,
+                Font = FormFont,
+                Margin = new Padding(8, 6, 4, 0)
+            };
+            var btnStart = MakeButton("从第N组起算", Color.FromArgb(100, 116, 139));
+            btnStart.Click += (_, __) => ApplyStartCycle(isLeft, ui);
+            tool.Controls.AddRange(new Control[] { btnPlan, btnSet, btnClear, btnStart, ui.StartCycleNum });
 
             var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1 };
             header.Controls.Add(ui.Enable, 0, 0);
@@ -137,8 +150,8 @@ namespace 码料机
                 SplitterWidth = 10
             };
 
-            ui.Canvas = new PlacementSlotCanvas { Dock = DockStyle.Fill };
-            ui.Grid = new PlacementGridSchematic { Dock = DockStyle.Fill, Visible = false, Font = FormFont };
+            ui.Canvas = new PlacementSlotCanvas { Dock = DockStyle.Fill, FilterGroupLabel = "组" };
+            ui.Grid = new PlacementGridSchematic { Dock = DockStyle.Fill, Visible = false, Font = FormFont, FilterGroupLabel = "组" };
             ui.VisualHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(30, 41, 59) };
             ui.VisualHost.Controls.Add(ui.Grid);
             ui.VisualHost.Controls.Add(ui.Canvas);
@@ -165,7 +178,7 @@ namespace 码料机
 
             var lblHelp = new Label
             {
-                Text = "操作：\r\n• 先选「层数」再看图上圆点\r\n• 单击选中，双击设为下次放料\r\n• 绿=待下发 橙=已下发 灰=已放入",
+                Text = "操作：\r\n• 图上每个点=一组（按竖直批次划分，层数不同批次不同，如 7 层→2-2-3、8 层→2-2-2-2）\r\n• 单击选组，双击设为下次放料\r\n• 流程：选组 → PLC取料 → PLC放料 →「现场放料确认」→ 再选下一组\r\n• 未选组时取料请求保持等待（与自动模式握手兼容）\r\n• 绿=待下发 橙=已下发 灰=已放入",
                 AutoSize = true,
                 Font = FormFont,
                 ForeColor = Color.FromArgb(100, 116, 139),
@@ -190,7 +203,7 @@ namespace 码料机
             layerRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             layerRow.Controls.Add(new Label
             {
-                Text = "层数：",
+                Text = "筛选：",
                 AutoSize = true,
                 Font = TitleFont,
                 ForeColor = Color.FromArgb(51, 65, 85),
@@ -328,17 +341,18 @@ namespace 码料机
                     _txtImage.Text = dlg.FileName;
                 }
             };
-            var btnMain = MakeButton("用主界面图", Color.FromArgb(71, 85, 105));
+            var btnMain = MakeButton("用本工位图", Color.FromArgb(71, 85, 105));
             btnMain.Click += (_, __) =>
             {
-                string p = _main.GetManualPlaceDefaultImagePath();
+                bool isLeft = ActiveIsLeft();
+                string p = _main.GetManualPlaceDefaultImagePath(isLeft);
                 if (string.IsNullOrEmpty(p))
-                    DialogPrompts.ShowInfo("主界面无可用测试图。", "提示");
+                    DialogPrompts.ShowInfo((isLeft ? "左" : "右") + "机台尚无本工位采图，请先海康采图或运行一次该机台取/放料拍照。", "提示");
                 else
                     _txtImage.Text = p;
             };
             var btnHik = MakeButton("海康采图", Color.FromArgb(14, 116, 144));
-            btnHik.Click += async (_, __) => await CaptureHikAsync().ConfigureAwait(true);
+            btnHik.Click += async (_, __) => await CaptureHikAsync(ActiveIsLeft()).ConfigureAwait(true);
 
             row.Controls.Add(lbl, 0, 0);
             row.Controls.Add(_txtImage, 1, 0);
@@ -382,7 +396,7 @@ namespace 码料机
 
         private void OnFormLoad()
         {
-            string img = _main.GetManualPlaceDefaultImagePath();
+            string img = _main.GetManualPlaceDefaultImagePath(ActiveIsLeft());
             if (!string.IsNullOrEmpty(img)) _txtImage.Text = img;
             _leftUi.Enable.Checked = _main.GetManualPlaceStationView(true).Enabled;
             _rightUi.Enable.Checked = _main.GetManualPlaceStationView(false).Enabled;
@@ -426,7 +440,16 @@ namespace 码料机
             }
         }
 
-        private void RefreshActiveStationVisual() => RefreshStation(_tabs.SelectedIndex == 0);
+        private bool ActiveIsLeft() => _tabs == null || _tabs.SelectedIndex == 0;
+
+        private void RefreshActiveStation()
+        {
+            bool isLeft = ActiveIsLeft();
+            string img = _main.GetManualPlaceDefaultImagePath(isLeft);
+            if (!string.IsNullOrEmpty(img))
+                _txtImage.Text = img;
+            RefreshStation(isLeft);
+        }
 
         private void RefreshAllStations()
         {
@@ -439,22 +462,29 @@ namespace 码料机
             var ui = isLeft ? _leftUi : _rightUi;
             var view = _main.GetManualPlaceStationView(isLeft);
 
-            string pending = view.PendingSlotIndex >= 0
-                ? $"下次 PLC：第 {view.PendingSlotIndex + 1} 位"
-                : "下次 PLC：请在图上选位";
-            ui.LblPending.Text = $"{view.StationName}\r\n已放 {view.CompletedCount} / {view.PlanTotal}  ·  {pending}";
+            string pending = view.PendingGroupIndex >= 0
+                ? $"下次 PLC：第 {view.PendingGroupIndex + 1} 组"
+                : "下次 PLC：请在图上选组";
+            ui.LblPending.Text = $"{view.StationName}\r\n已放 {view.CompletedGroupCount}/{view.GroupCount} 组\r\n{pending}";
 
             ui.AllSlots = view.Slots.ToList();
-            ui.LayerCount = view.HasPlan ? Math.Max(1, view.LayerCount) : 1;
-            ui.PerLayerCapacity = Math.Max(1, view.PerLayerCapacity);
+            ui.ZTierCount = view.HasPlan ? Math.Max(1, view.ZTierCount) : 1;
+            ui.GroupCount = view.HasPlan ? Math.Max(1, view.GroupCount) : 1;
+            ui.BatchPattern = view.BatchPattern ?? "2-2-3";
+            if (ui.StartCycleNum != null)
+            {
+                ui.StartCycleNum.Maximum = Math.Max(1, view.GroupCount);
+                ui.StartCycleNum.Value = Math.Min(ui.StartCycleNum.Maximum,
+                    Math.Max(1, view.CompletedGroupCount + 1));
+            }
 
             bool usePixelMap = view.Slots.Any(s => s.HasPixel);
             ui.Canvas.Visible = usePixelMap;
             ui.Grid.Visible = !usePixelMap && view.HasPlan;
 
-            PopulateLayerPicker(ui, view);
+            PopulateZTierPicker(ui, view);
             LoadCanvasImage(ui, view);
-            ApplyLayerFilter(ui, preserveSelection: true);
+            ApplyZTierFilter(ui, preserveSelection: true);
 
             int sel = view.PendingSlotIndex >= 0 ? view.PendingSlotIndex : GetSelectedIndex(ui);
             if (sel < 0 && view.Slots.Count > 0)
@@ -464,7 +494,7 @@ namespace 码料机
             UpdateDetail(ui, view, sel);
         }
 
-        private static void PopulateLayerPicker(StationPageUi ui, Form1.ManualPlaceStationView view)
+        private static void PopulateZTierPicker(StationPageUi ui, Form1.ManualPlaceStationView view)
         {
             ui.SuppressLayerEvent = true;
             int prev = ui.LayerPicker.SelectedIndex;
@@ -480,75 +510,80 @@ namespace 码料机
             }
 
             ui.LayerPicker.Enabled = true;
-            if (ui.LayerCount > 1)
+            if (ui.ZTierCount > 1)
             {
-                ui.LayerPicker.Items.Add("全部层（总览）");
-                for (int i = 0; i < ui.LayerCount; i++)
+                ui.LayerPicker.Items.Add($"全部组（总览 · {view.BatchPattern}）");
+                for (int i = 0; i < ui.ZTierCount; i++)
                 {
-                    int n = ui.AllSlots.Count(s =>
-                        Form1.ResolveDisplayLayer(s.Index, s.Layer, ui.PerLayerCapacity) == i);
-                    ui.LayerPicker.Items.Add($"第 {i + 1} 层（{n} 位）");
+                    int n = ui.AllSlots.Count(s => s.ZTier == i);
+                    int batchQty = ZStackPlacement.GetZTierBatchQty(i, view.MaxLayers);
+                    ZStackPlacement.GetZTierPhysicalLayerRange(i, view.MaxLayers, out int lo, out int hi);
+                    string layerHint = lo == hi ? $"物理第{lo + 1}层" : $"物理第{lo + 1}~{hi + 1}层";
+                    ui.LayerPicker.Items.Add($"第 {i + 1} 档（放{batchQty}件 · {n} 组 · {layerHint}）");
                 }
             }
             else
-                ui.LayerPicker.Items.Add($"第 1 层（{view.PlanTotal} 位）");
+                ui.LayerPicker.Items.Add($"全部组（{view.GroupCount} · {view.BatchPattern}）");
 
-            int pick = prev >= 0 && prev < ui.LayerPicker.Items.Count ? prev : (ui.LayerCount > 1 ? 1 : 0);
+            int pick = prev >= 0 && prev < ui.LayerPicker.Items.Count ? prev : (ui.ZTierCount > 1 ? 1 : 0);
             ui.LayerPicker.SelectedIndex = pick;
             ui.SuppressLayerEvent = false;
-            UpdateLayerInfoLabel(ui);
+            UpdateZTierInfoLabel(ui, view);
         }
 
         private void OnLayerChanged(bool isLeft, StationPageUi ui)
         {
             if (ui.SuppressLayerEvent) return;
-            ApplyLayerFilter(ui, preserveSelection: false);
-            UpdateLayerInfoLabel(ui);
+            ApplyZTierFilter(ui, preserveSelection: false);
             var view = _main.GetManualPlaceStationView(isLeft);
+            UpdateZTierInfoLabel(ui, view);
             int sel = GetSelectedIndex(ui);
             UpdateDetail(ui, view, sel);
         }
 
-        private static void UpdateLayerInfoLabel(StationPageUi ui)
+        private static void UpdateZTierInfoLabel(StationPageUi ui, Form1.ManualPlaceStationView view)
         {
             if (ui.LayerPicker.SelectedIndex < 0 || ui.AllSlots.Count == 0)
             {
-                ui.LblLayerInfo.Text = $"布局 {ui.LayerCount} 层 × 每层约 {ui.PerLayerCapacity} 位";
+                ui.LblLayerInfo.Text = view?.HasPlan == true
+                    ? $"共 {view.GroupCount} 组 · 批次 {view.BatchPattern}（托盘 {view.MaxLayers} 物理层）"
+                    : $"共 {view?.GroupCount ?? ui.GroupCount} 组";
                 return;
             }
-            int filter = GetFilterLayerFromPicker(ui);
+            int filter = GetFilterZTierFromPicker(ui);
             if (filter < 0)
             {
-                ui.LblLayerInfo.Text = $"共 {ui.LayerCount} 层，当前显示全部 {ui.AllSlots.Count} 位";
+                ui.LblLayerInfo.Text = $"全部组 · 批次 {view.BatchPattern}（托盘共 {view.MaxLayers} 物理层）";
                 return;
             }
-            int n = ui.AllSlots.Count(s =>
-                Form1.ResolveDisplayLayer(s.Index, s.Layer, ui.PerLayerCapacity) == filter);
-            ui.LblLayerInfo.Text = $"共 {ui.LayerCount} 层 · 当前第 {filter + 1} 层 · 本层 {n} 位";
+            int n = ui.AllSlots.Count(s => s.ZTier == filter);
+            int batchQty = ZStackPlacement.GetZTierBatchQty(filter, view.MaxLayers);
+            ZStackPlacement.GetZTierPhysicalLayerRange(filter, view.MaxLayers, out int lo, out int hi);
+            string layerHint = lo == hi ? $"物理第 {lo + 1} 层" : $"物理第 {lo + 1}~{hi + 1} 层";
+            ui.LblLayerInfo.Text = $"第 {filter + 1} 档 · 本档放 {batchQty} 件 · {n} 组 · {layerHint}";
         }
 
-        private static int GetFilterLayerFromPicker(StationPageUi ui)
+        private static int GetFilterZTierFromPicker(StationPageUi ui)
         {
-            if (ui.LayerCount <= 1) return 0;
+            if (ui.ZTierCount <= 1) return 0;
             int idx = ui.LayerPicker.SelectedIndex;
             if (idx <= 0) return -1;
             return idx - 1;
         }
 
-        private static void ApplyLayerFilter(StationPageUi ui, bool preserveSelection)
+        private static void ApplyZTierFilter(StationPageUi ui, bool preserveSelection)
         {
-            int filterLayer = GetFilterLayerFromPicker(ui);
-            ui.Canvas.FilterLayer = filterLayer;
+            int filterZTier = GetFilterZTierFromPicker(ui);
+            ui.Canvas.FilterLayer = filterZTier;
 
             var markers = ui.AllSlots
-                .Where(s => s.HasPixel && (filterLayer < 0 ||
-                    Form1.ResolveDisplayLayer(s.Index, s.Layer, ui.PerLayerCapacity) == filterLayer))
+                .Where(s => s.HasPixel && (filterZTier < 0 || s.ZTier == filterZTier))
                 .Select(s => new PlacementSlotCanvas.SlotMarker
                 {
                     Index = s.Index,
                     PixelX = s.PixelX,
                     PixelY = s.PixelY,
-                    Layer = Form1.ResolveDisplayLayer(s.Index, s.Layer, ui.PerLayerCapacity),
+                    Layer = s.ZTier,
                     Row = s.Row,
                     Col = s.Col,
                     HasPixel = true,
@@ -559,15 +594,17 @@ namespace 码料机
             if (!ui.Grid.Visible) return;
             int maxR = ui.AllSlots.Count > 0 ? ui.AllSlots.Max(s => s.Row) + 1 : 1;
             int maxC = ui.AllSlots.Count > 0 ? ui.AllSlots.Max(s => s.Col) + 1 : 1;
-            ui.Grid.CurrentLayer = filterLayer < 0 ? 0 : filterLayer;
-            ui.Grid.SetCells(ui.AllSlots.Select(s => new PlacementGridSchematic.GridCell
-            {
-                Index = s.Index,
-                Layer = Form1.ResolveDisplayLayer(s.Index, s.Layer, ui.PerLayerCapacity),
-                Row = s.Row,
-                Col = s.Col,
-                State = ToVisualState(s)
-            }), maxR, maxC, ui.LayerCount);
+            ui.Grid.CurrentLayer = filterZTier < 0 ? 0 : filterZTier;
+            ui.Grid.SetCells(ui.AllSlots
+                .Where(s => filterZTier < 0 || s.ZTier == filterZTier)
+                .Select(s => new PlacementGridSchematic.GridCell
+                {
+                    Index = s.Index,
+                    Layer = s.ZTier,
+                    Row = s.Row,
+                    Col = s.Col,
+                    State = ToVisualState(s)
+                }), maxR, maxC, ui.ZTierCount);
 
             if (!preserveSelection)
             {
@@ -609,19 +646,35 @@ namespace 码料机
             if (s == null)
             {
                 ui.LblDetail.Text = view.HasPlan
-                    ? "点击图上圆点选择放料位"
+                    ? "点击图上圆点选择放料组"
                     : "请先点击「算法识别放料位」";
                 return;
             }
-            int dispLayer = Form1.ResolveDisplayLayer(s.Index, s.Layer, ui.PerLayerCapacity);
+            ZStackPlacement.GetZTierPhysicalLayerRange(s.ZTier, view.MaxLayers, out int tierLo, out int tierHi);
+            string tierLayerHint = tierLo == tierHi
+                ? $"物理第 {tierLo + 1} 层"
+                : $"物理第 {tierLo + 1}~{tierHi + 1} 层";
             ui.LblDetail.Text =
-                $"【第 {s.Index + 1} 位】 {s.Status}\r\n\r\n" +
-                $"层 / 行 / 列：  第 {dispLayer + 1} 层    第 {s.Row + 1} 行    第 {s.Col + 1} 列\r\n\r\n" +
+                $"【第 {s.GroupIndex + 1} 组】 {s.Status}\r\n\r\n" +
+                $"竖直第 {s.ZTier + 1} 档（本组放 {s.BatchQty} 件 · {tierLayerHint}）\r\n" +
+                $"托盘代表位：第 {s.Layer + 1} 层  第 {s.Row + 1} 行  第 {s.Col + 1} 列\r\n\r\n" +
                 $"机械坐标 (mm)\r\n" +
                 $"  X = {s.WorldX:F2}\r\n" +
                 $"  Y = {s.WorldY:F2}\r\n" +
                 $"  Z = {s.Z:F2}\r\n" +
                 $"  Rz = {s.Rz:F2}°";
+        }
+
+        private void ApplyStartCycle(bool isLeft, StationPageUi ui)
+        {
+            int n = (int)ui.StartCycleNum.Value;
+            if (!_main.TryApplyManualStartCycle(isLeft, n, out string err))
+            {
+                if (!string.IsNullOrEmpty(err))
+                    MessageBox.Show(this, err, "从第N组起算", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            RefreshStation(isLeft);
         }
 
         private static int GetSelectedIndex(StationPageUi ui) =>
@@ -631,7 +684,7 @@ namespace 码料机
         {
             if (slotIndex < 0)
             {
-                DialogPrompts.ShowInfo("请先在可视化图上点击选择一个放料位。", "提示");
+                DialogPrompts.ShowInfo("请先在可视化图上点击选择一个放料组。", "提示");
                 return;
             }
             if (!_main.TrySetManualPendingSlot(isLeft, slotIndex, out string err))
@@ -648,6 +701,11 @@ namespace 码料机
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
                 DialogPrompts.ShowInfo("请先选择存在的空箱图像。", "提示");
+                return;
+            }
+            if (!_main.CanUseManualPlaceImageForSide(isLeft, path, out string reason))
+            {
+                DialogPrompts.ShowInfo($"该图像不能用于{(isLeft ? "左" : "右")}机台：{reason}", "图像工位不匹配");
                 return;
             }
             Enabled = false;
@@ -669,16 +727,16 @@ namespace 码料机
             }
         }
 
-        private async Task CaptureHikAsync()
+        private async Task CaptureHikAsync(bool isLeft)
         {
             Enabled = false;
             try
             {
-                if (!await _main.ManualPlaceTryHikCaptureAsync().ConfigureAwait(true))
+                if (!await _main.ManualPlaceTryHikCaptureAsync(isLeft).ConfigureAwait(true))
                     DialogPrompts.ShowInfo("海康采图失败。", "采图");
                 else
                 {
-                    string p = _main.GetManualPlaceDefaultImagePath();
+                    string p = _main.GetManualPlaceDefaultImagePath(isLeft);
                     if (!string.IsNullOrEmpty(p)) _txtImage.Text = p;
                 }
             }

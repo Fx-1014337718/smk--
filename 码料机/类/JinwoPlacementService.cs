@@ -243,6 +243,7 @@ namespace 码料机
             return cfg;
         }
 
+        /// <summary>向 DLL 查询有效行列与容量（确认产品时行/列/层=0 则用此结果作为参考网格）。</summary>
         public bool TryGetEffectiveGrid(ref JinwoNative.JinwoTrayConfig cfg, out int rows, out int cols, out int capacity)
         {
             rows = cols = capacity = 0;
@@ -252,6 +253,26 @@ namespace 码料机
                 int r = RequireOkRet(_dll.GetEffectiveGrid(ref cfg, out rows, out cols, out capacity));
                 return r != 0;
             }
+        }
+
+        public bool TrySetTrayGrid(ref JinwoNative.JinwoTrayConfig cfg, int rows, int cols, int layers)
+        {
+            if (_dll == null || rows < 1 || cols < 1 || layers < 1) return false;
+            lock (_sync)
+            {
+                return RequireOkRet(_dll.SetTrayGrid(ref cfg, rows, cols, layers)) != 0;
+            }
+        }
+
+        /// <summary>将识箱后的托盘网格写入内存配置与 金沃算法.ini。</summary>
+        public bool PersistTrayGrid(bool isLeft, int rows, int cols, int layers)
+        {
+            var ini = StationIni(isLeft);
+            if (ini == null) return false;
+            ini.TrayRows = rows;
+            ini.TrayCols = cols;
+            ini.TrayLayers = layers;
+            return JinwoAlgorithmConfig.SaveTrayGrid(isLeft, rows, cols, layers);
         }
 
         /// <summary>

@@ -7,11 +7,17 @@ using System.Windows.Forms;
 
 namespace 码料机
 {
+    /// <summary>
+    /// 海康 MVS 采图分部：按左右工位独立连接/采图缓存，避免左右共用 Feed.bmp 互相覆盖。
+    /// </summary>
     public partial class Form1
     {
         private HikvisionMvsCamera _hikCamera;
         private bool _hikCameraConnected;
         private bool? _hikConnectedIsLeft;
+        private bool? _activeHikCaptureTargetIsLeft;
+        private bool? _lastAlgorithmCaptureIsLeft;
+        private string _lastAlgorithmCapturePath;
         private Button _btnHikGrab;
 
         private bool ShouldUseHikCamera(bool isLeft)
@@ -19,6 +25,104 @@ namespace 码料机
 
         private bool ShouldUseHikCamera()
             => ShouldUseHikCamera(true) || ShouldUseHikCamera(false);
+
+        private bool CanUseHikCameraForCapture(bool isLeft) =>
+            ShouldUseHikCamera(isLeft) || _hikCameraConnected || ShouldUseHikCamera();
+
+        private void MarkAlgorithmCaptureForSide(bool isLeft, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return;
+            string fullPath = Path.GetFullPath(path);
+            _lastAlgorithmCaptureIsLeft = isLeft;
+            _lastAlgorithmCapturePath = fullPath;
+            var st = isLeft ? leftStation : rightStation;
+            st.LastAlgorithmCaptureImagePath = PersistStationCaptureImage(isLeft, fullPath);
+        }
+
+        /// <summary>将采图复制到本工位独立缓存，避免左右共用 Feed.bmp 时互相覆盖。</summary>
+        private static string PersistStationCaptureImage(bool isLeft, string sourcePath)
+        {
+            string dir = Path.Combine(Parameters.IniDir, "工位采图");
+            Directory.CreateDirectory(dir);
+            string dest = Path.Combine(dir, (isLeft ? "左机台" : "右机台") + "_last.bmp");
+            try
+            {
+                File.Copy(sourcePath, dest, overwrite: true);
+                return dest;
+            }
+            catch
+            {
+                return sourcePath;
+            }
+        }
+
+        private StationData StationByCaptureSide(bool isLeft) => isLeft ? leftStation : rightStation;
+
+        private bool CanUseAlgorithmCaptureForSide(bool isLeft, string path, out string reason)
+        {
+            reason = null;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                reason = "采图不存在";
+                return false;
+            }
+
+            var st = StationByCaptureSide(isLeft);
+            var other = StationByCaptureSide(!isLeft);
+            if (!string.IsNullOrWhiteSpace(st.LastAlgorithmCaptureImagePath)
+                && IsSameCapturePath(path, st.LastAlgorithmCaptureImagePath))
+                return true;
+            if (!string.IsNullOrWhiteSpace(other.LastAlgorithmCaptureImagePath)
+                && IsSameCapturePath(path, other.LastAlgorithmCaptureImagePath))
+            {
+                reason = "该采图属于" + other.Name;
+                return false;
+            }
+
+            if (IsAlgorithmCaptureForSide(isLeft, path))
+                return true;
+            if (IsSameCapturePath(path, _lastAlgorithmCapturePath))
+            {
+                reason = "该采图属于" + StationNameForSide(_lastAlgorithmCaptureIsLeft == true);
+                return false;
+            }
+            if (IsDefaultFeedPath(path))
+            {
+                reason = "默认 Feed.bmp 未标记为当前工位采图";
+                return false;
+            }
+            return true;
+        }
+
+        private bool IsAlgorithmCaptureForSide(bool isLeft, string path)
+        {
+            if (_lastAlgorithmCaptureIsLeft != isLeft) return false;
+            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(_lastAlgorithmCapturePath)) return false;
+            try
+            {
+                return string.Equals(Path.GetFullPath(path), _lastAlgorithmCapturePath, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsSameCapturePath(string a, string b)
+        {
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
+            try { return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase); }
+            catch { return false; }
+        }
+
+        private bool IsDefaultFeedPath(string path)
+        {
+            string feed = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, OfflineCaptureHelper.DefaultOfflineFeedFileName);
+            return IsSameCapturePath(path, feed);
+        }
+
+        private string StationNameForSide(bool isLeft) => isLeft ? "左机台" : "右机台";
 
         private void TryInitHikCameraOnLoad()
         {
@@ -39,6 +143,8 @@ namespace 码料机
                     TEXT(ok ? "[海康] " + detail : "[海康] 连接失败: " + detail);
                     RefreshCameraStatusUi();
                 });
+                if (!ok)
+                    ReportHikCameraFault(isLeft, "CAMERA_CONNECT_FAIL", "启动连接", detail);
             });
         }
 
@@ -50,6 +156,19 @@ namespace 码料机
                 return true;
             }
             return TryConnectHikCamera(isLeft, out detail);
+        }
+
+        private bool EnsureHikCameraForCapture(bool targetIsLeft, out string detail)
+        {
+            if (_hikCameraConnected && _hikCamera != null)
+            {
+                detail = "";
+                return true;
+            }
+            bool connectSide = ShouldUseHikCamera(targetIsLeft)
+                ? targetIsLeft
+                : (ShouldUseHikCamera(true) ? true : false);
+            return EnsureHikCameraForSide(connectSide, out detail);
         }
 
         private bool TryConnectHikCamera(bool isLeft, out string detail)
@@ -172,6 +291,9 @@ namespace 码料机
                 return;
             _offlineTestImagePath = path;
             _jinwo.SetCaptureImageOverride(path);
+            bool? side = _activeHikCaptureTargetIsLeft ?? _hikConnectedIsLeft;
+            if (side.HasValue)
+                MarkAlgorithmCaptureForSide(side.Value, path);
         }
 
         private void ShowOfflinePreviewBitmap(Bitmap bmp)
@@ -197,18 +319,27 @@ namespace 码料机
 
         private async Task<bool> TryHikvisionCaptureAsync(bool isLeft, bool archiveCopy = false)
         {
-            if (!EnsureHikCameraForSide(isLeft, out string connectErr))
+            if (!EnsureHikCameraForCapture(isLeft, out string connectErr))
             {
                 if (!string.IsNullOrEmpty(connectErr))
                     TEXT("[海康] " + connectErr);
+                if (CanUseHikCameraForCapture(isLeft))
+                    ReportHikCameraFault(isLeft, "CAMERA_CONNECT_FAIL", "采图前连接", connectErr);
                 return false;
             }
 
             string path = _jinwo.ResolveHikCaptureSavePath(isLeft);
-            string mode = _jinwo.HikTriggerMode(isLeft) ?? "";
-            bool isContinuous = mode.Equals("Continuous", StringComparison.OrdinalIgnoreCase);
+            bool cameraConfigIsLeft = _hikConnectedIsLeft ?? isLeft;
+            _activeHikCaptureTargetIsLeft = isLeft;
+            _hikCamera.ConfigureAutoSave(_jinwo.HikSaveEveryFrame(cameraConfigIsLeft), path);
+            _hikCamera.ConfigurePreview(_jinwo.HikLivePreview(cameraConfigIsLeft), _jinwo.HikPreviewIntervalMs(cameraConfigIsLeft));
 
-            if (!_jinwo.HikSaveEveryFrame(isLeft))
+            string mode = _jinwo.HikTriggerMode(cameraConfigIsLeft) ?? "";
+            bool isContinuous = mode.Equals("Continuous", StringComparison.OrdinalIgnoreCase);
+            DateTime captureStartUtc = DateTime.UtcNow;
+            try { if (File.Exists(path)) File.Delete(path); } catch { }
+
+            if (!_jinwo.HikSaveEveryFrame(cameraConfigIsLeft))
                 _hikCamera.ArmSingleFrameSave();
 
             if (!isContinuous)
@@ -216,31 +347,33 @@ namespace 码料机
                 if (!_hikCamera.TriggerSoftware())
                 {
                     TEXT("[海康] 软触发失败: " + (_hikCamera.LastError ?? ""));
+                    ReportHikCameraFault(isLeft, "CAMERA_CAPTURE_FAIL", "软触发", _hikCamera.LastError ?? "软触发失败");
                     return false;
                 }
                 await Task.Delay(120).ConfigureAwait(false);
             }
 
             DateTime waitStart = DateTime.UtcNow;
+            bool hasFreshImage = false;
             while ((DateTime.UtcNow - waitStart).TotalMilliseconds < 2000)
             {
-                if (File.Exists(path))
+                if (IsFreshReadableImage(path, captureStartUtc))
                 {
-                    try
-                    {
-                        if (new FileInfo(path).Length > 0)
-                            break;
-                    }
-                    catch { }
+                    hasFreshImage = true;
+                    break;
                 }
                 await Task.Delay(40).ConfigureAwait(false);
             }
 
-            if (!File.Exists(path))
+            if (!hasFreshImage)
+            {
+                ReportHikCameraFault(isLeft, "CAMERA_CAPTURE_FAIL", "采图落盘", "采图超时或未生成图像文件：" + path);
                 return false;
+            }
 
             _offlineTestImagePath = path;
             _jinwo.SetCaptureImageOverride(path);
+            MarkAlgorithmCaptureForSide(isLeft, path);
 
             if (archiveCopy)
             {
@@ -253,13 +386,52 @@ namespace 码料机
             return true;
         }
 
+        private static bool IsFreshReadableImage(string path, DateTime captureStartUtc)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
+            try
+            {
+                var info = new FileInfo(path);
+                if (info.Length <= 0 || info.LastWriteTimeUtc < captureStartUtc.AddMilliseconds(-200))
+                    return false;
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (var img = Image.FromStream(fs, useEmbeddedColorManagement: false, validateImageData: true))
+                {
+                    return img.Width > 0 && img.Height > 0;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void ReportHikCameraFault(bool isLeft, string code, string phase, string detail)
+        {
+            if (!CanUseHikCameraForCapture(isLeft)) return;
+            string side = isLeft ? "左机台" : "右机台";
+            string msg = $"{side}海康相机{phase}失败";
+            if (!string.IsNullOrWhiteSpace(detail))
+                msg += "：" + detail.Trim();
+
+            SafeInvoke(() =>
+            {
+                TEXT("[故障] " + msg);
+                RefreshCameraStatusUi();
+                if (_machine.IsFault) return;
+                _machine.EnterFault(code, msg);
+                SyncMachineStateToPlc();
+                RefreshMachineStateUi();
+            });
+        }
+
         private Task<bool> TryHikvisionCaptureAsync(bool archiveCopy = false)
             => TryHikvisionCaptureAsync(IsLeftStation(currentStation), archiveCopy);
 
         private async Task GrabHikFrameAndShowAsync(bool runJinwoAfterSave)
         {
             bool isLeft = IsLeftStation(currentStation);
-            if (!ShouldUseHikCamera(isLeft))
+            if (!CanUseHikCameraForCapture(isLeft))
             {
                 TEXT("[海康] 当前机台未启用海康相机");
                 return;

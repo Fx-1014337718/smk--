@@ -218,7 +218,7 @@ namespace 码料机
             this.toolStrip1.Location = new System.Drawing.Point(0, 0);
             this.toolStrip1.Name = "toolStrip1";
             this.toolStrip1.Padding = new System.Windows.Forms.Padding(6, 4, 6, 4);
-            this.toolStrip1.Size = new System.Drawing.Size(1907, 37);
+            this.toolStrip1.Size = new System.Drawing.Size(1907, 38);
             this.toolStrip1.TabIndex = 0;
             this.toolStrip1.Text = "toolStrip1";
             // 
@@ -226,58 +226,58 @@ namespace 码料机
             // 
             this.toolStripLabel1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(203)))), ((int)(((byte)(213)))), ((int)(((byte)(225)))));
             this.toolStripLabel1.Name = "toolStripLabel1";
-            this.toolStripLabel1.Size = new System.Drawing.Size(76, 24);
+            this.toolStripLabel1.Size = new System.Drawing.Size(81, 25);
             this.toolStripLabel1.Text = "[工具栏]";
             // 
             // toolStripSeparator2
             // 
             this.toolStripSeparator2.Name = "toolStripSeparator2";
-            this.toolStripSeparator2.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparator2.Size = new System.Drawing.Size(6, 30);
             // 
             // toolStripLabel2
             // 
             this.toolStripLabel2.ForeColor = System.Drawing.Color.White;
             this.toolStripLabel2.Name = "toolStripLabel2";
-            this.toolStripLabel2.Size = new System.Drawing.Size(100, 24);
+            this.toolStripLabel2.Size = new System.Drawing.Size(107, 25);
             this.toolStripLabel2.Text = "机械臂控制";
             // 
             // toolStripSeparator3
             // 
             this.toolStripSeparator3.Name = "toolStripSeparator3";
-            this.toolStripSeparator3.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparator3.Size = new System.Drawing.Size(6, 30);
             // 
             // toolStripLabel13
             // 
             this.toolStripLabel13.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabel13.Name = "toolStripLabel13";
-            this.toolStripLabel13.Size = new System.Drawing.Size(82, 24);
+            this.toolStripLabel13.Size = new System.Drawing.Size(88, 25);
             this.toolStripLabel13.Text = "产品参数";
             this.toolStripLabel13.Click += new System.EventHandler(this.toolStripLabel13_Click);
             // 
             // toolStripSeparator1
             // 
             this.toolStripSeparator1.Name = "toolStripSeparator1";
-            this.toolStripSeparator1.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparator1.Size = new System.Drawing.Size(6, 30);
             // 
             // toolStripLabel3
             // 
             this.toolStripLabel3.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabel3.Name = "toolStripLabel3";
-            this.toolStripLabel3.Size = new System.Drawing.Size(118, 24);
+            this.toolStripLabel3.Size = new System.Drawing.Size(126, 25);
             this.toolStripLabel3.Text = "箱体参数设置";
             this.toolStripLabel3.Click += new System.EventHandler(this.toolStripLabel3_Click);
             // 
             // toolStripSeparatorZAxis
             // 
             this.toolStripSeparatorZAxis.Name = "toolStripSeparatorZAxis";
-            this.toolStripSeparatorZAxis.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparatorZAxis.Size = new System.Drawing.Size(6, 30);
             this.toolStripSeparatorZAxis.Visible = false;
             // 
             // toolStripLabelZAxis
             // 
             this.toolStripLabelZAxis.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabelZAxis.Name = "toolStripLabelZAxis";
-            this.toolStripLabelZAxis.Size = new System.Drawing.Size(111, 24);
+            this.toolStripLabelZAxis.Size = new System.Drawing.Size(119, 25);
             this.toolStripLabelZAxis.Text = "Z轴参数设定";
             this.toolStripLabelZAxis.Visible = false;
             this.toolStripLabelZAxis.Click += new System.EventHandler(this.toolStripLabelZAxis_Click);
@@ -285,40 +285,40 @@ namespace 码料机
             // toolStripSeparatorPhotoPos
             // 
             this.toolStripSeparatorPhotoPos.Name = "toolStripSeparatorPhotoPos";
-            this.toolStripSeparatorPhotoPos.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparatorPhotoPos.Size = new System.Drawing.Size(6, 30);
             // 
             // toolStripLabelPhotoPos
             // 
             this.toolStripLabelPhotoPos.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabelPhotoPos.Name = "toolStripLabelPhotoPos";
-            this.toolStripLabelPhotoPos.Size = new System.Drawing.Size(82, 24);
+            this.toolStripLabelPhotoPos.Size = new System.Drawing.Size(88, 25);
             this.toolStripLabelPhotoPos.Text = "位置设定";
             this.toolStripLabelPhotoPos.Click += new System.EventHandler(this.toolStripLabelPhotoPos_Click);
             // 
             // toolStripSeparatorJinwo
             // 
             this.toolStripSeparatorJinwo.Name = "toolStripSeparatorJinwo";
-            this.toolStripSeparatorJinwo.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparatorJinwo.Size = new System.Drawing.Size(6, 30);
             // 
             // toolStripLabelJinwo
             // 
             this.toolStripLabelJinwo.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabelJinwo.Name = "toolStripLabelJinwo";
-            this.toolStripLabelJinwo.Size = new System.Drawing.Size(118, 24);
+            this.toolStripLabelJinwo.Size = new System.Drawing.Size(126, 25);
             this.toolStripLabelJinwo.Text = "金沃算法设定";
             this.toolStripLabelJinwo.Click += new System.EventHandler(this.toolStripLabelJinwo_Click);
             // 
             // toolStripSeparatorNinePoint
             // 
             this.toolStripSeparatorNinePoint.Name = "toolStripSeparatorNinePoint";
-            this.toolStripSeparatorNinePoint.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparatorNinePoint.Size = new System.Drawing.Size(6, 30);
             this.toolStripSeparatorNinePoint.Visible = false;
             // 
             // toolStripLabelNinePoint
             // 
             this.toolStripLabelNinePoint.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabelNinePoint.Name = "toolStripLabelNinePoint";
-            this.toolStripLabelNinePoint.Size = new System.Drawing.Size(118, 24);
+            this.toolStripLabelNinePoint.Size = new System.Drawing.Size(126, 25);
             this.toolStripLabelNinePoint.Text = "九点标定工具";
             this.toolStripLabelNinePoint.Visible = false;
             this.toolStripLabelNinePoint.Click += new System.EventHandler(this.toolStripLabelNinePoint_Click);
@@ -326,41 +326,41 @@ namespace 码料机
             // toolStripSeparatorAlgoTest
             // 
             this.toolStripSeparatorAlgoTest.Name = "toolStripSeparatorAlgoTest";
-            this.toolStripSeparatorAlgoTest.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparatorAlgoTest.Size = new System.Drawing.Size(6, 30);
             // 
             // toolStripLabelAlgoTest
             // 
             this.toolStripLabelAlgoTest.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabelAlgoTest.Name = "toolStripLabelAlgoTest";
-            this.toolStripLabelAlgoTest.Size = new System.Drawing.Size(82, 24);
+            this.toolStripLabelAlgoTest.Size = new System.Drawing.Size(88, 25);
             this.toolStripLabelAlgoTest.Text = "算法测试";
             this.toolStripLabelAlgoTest.Click += new System.EventHandler(this.toolStripLabelAlgoTest_Click);
             // 
             // toolStripSeparatorManualPlace
             // 
             this.toolStripSeparatorManualPlace.Name = "toolStripSeparatorManualPlace";
-            this.toolStripSeparatorManualPlace.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparatorManualPlace.Size = new System.Drawing.Size(6, 30);
             // 
             // toolStripLabelManualPlace
             // 
             this.toolStripLabelManualPlace.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabelManualPlace.Name = "toolStripLabelManualPlace";
-            this.toolStripLabelManualPlace.Size = new System.Drawing.Size(118, 24);
+            this.toolStripLabelManualPlace.Size = new System.Drawing.Size(126, 25);
             this.toolStripLabelManualPlace.Text = "手动指定放料";
             this.toolStripLabelManualPlace.Click += new System.EventHandler(this.toolStripLabelManualPlace_Click);
             // 
             // toolStripSeparatorStartPiece
             // 
             this.toolStripSeparatorStartPiece.Name = "toolStripSeparatorStartPiece";
-            this.toolStripSeparatorStartPiece.Size = new System.Drawing.Size(6, 29);
+            this.toolStripSeparatorStartPiece.Size = new System.Drawing.Size(6, 30);
             // 
             // toolStripLabelStartPiece
             // 
             this.toolStripLabelStartPiece.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabelStartPiece.Name = "toolStripLabelStartPiece";
-            this.toolStripLabelStartPiece.Size = new System.Drawing.Size(118, 24);
-            this.toolStripLabelStartPiece.Text = "指定开始件";
-            this.toolStripLabelStartPiece.ToolTipText = "左/右机台分别空箱离线规划并指定起始件；首次放料请求现场拍照算位，之后与正常流程相同";
+            this.toolStripLabelStartPiece.Size = new System.Drawing.Size(107, 25);
+            this.toolStripLabelStartPiece.Text = "指定开始组";
+            this.toolStripLabelStartPiece.ToolTipText = "左/右机台空箱离线规划并指定起始组；确认后自动补全进度，后续与自动模式相同直至满料";
             this.toolStripLabelStartPiece.Click += new System.EventHandler(this.toolStripLabelStartPiece_Click);
             // 
             // statusStripBottom
@@ -570,7 +570,7 @@ namespace 码料机
             // toolStripStatusLabelSpring
             // 
             this.toolStripStatusLabelSpring.Name = "toolStripStatusLabelSpring";
-            this.toolStripStatusLabelSpring.Size = new System.Drawing.Size(509, 26);
+            this.toolStripStatusLabelSpring.Size = new System.Drawing.Size(402, 26);
             this.toolStripStatusLabelSpring.Spring = true;
             // 
             // toolStripLabel15
@@ -598,11 +598,11 @@ namespace 码料机
             this.tableLayoutPanel1.Controls.Add(this.tableLayoutPanel2, 2, 0);
             this.tableLayoutPanel1.Controls.Add(this.splitContainer2, 1, 0);
             this.tableLayoutPanel1.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.tableLayoutPanel1.Location = new System.Drawing.Point(0, 37);
+            this.tableLayoutPanel1.Location = new System.Drawing.Point(0, 38);
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
             this.tableLayoutPanel1.RowCount = 1;
             this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.tableLayoutPanel1.Size = new System.Drawing.Size(1907, 770);
+            this.tableLayoutPanel1.Size = new System.Drawing.Size(1907, 769);
             this.tableLayoutPanel1.TabIndex = 2;
             // 
             // splitContainer1
@@ -619,8 +619,8 @@ namespace 码料机
             // splitContainer1.Panel2
             // 
             this.splitContainer1.Panel2.Controls.Add(this.groupBox2);
-            this.splitContainer1.Size = new System.Drawing.Size(527, 764);
-            this.splitContainer1.SplitterDistance = 375;
+            this.splitContainer1.Size = new System.Drawing.Size(527, 763);
+            this.splitContainer1.SplitterDistance = 374;
             this.splitContainer1.SplitterWidth = 6;
             this.splitContainer1.TabIndex = 0;
             // 
@@ -656,7 +656,7 @@ namespace 码料机
             this.groupBox1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox1.Location = new System.Drawing.Point(0, 0);
             this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(527, 375);
+            this.groupBox1.Size = new System.Drawing.Size(527, 374);
             this.groupBox1.TabIndex = 0;
             this.groupBox1.TabStop = false;
             this.groupBox1.Text = "工位一";
@@ -1128,7 +1128,7 @@ namespace 码料机
             this.tableLayoutPanel2.RowCount = 2;
             this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
             this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
-            this.tableLayoutPanel2.Size = new System.Drawing.Size(568, 764);
+            this.tableLayoutPanel2.Size = new System.Drawing.Size(568, 763);
             this.tableLayoutPanel2.TabIndex = 1;
             // 
             // groupBox4
@@ -1148,7 +1148,7 @@ namespace 码料机
             this.groupBox4.Dock = System.Windows.Forms.DockStyle.Fill;
             this.groupBox4.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F, System.Drawing.FontStyle.Bold);
             this.groupBox4.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
-            this.groupBox4.Location = new System.Drawing.Point(3, 385);
+            this.groupBox4.Location = new System.Drawing.Point(3, 384);
             this.groupBox4.Name = "groupBox4";
             this.groupBox4.Size = new System.Drawing.Size(562, 376);
             this.groupBox4.TabIndex = 2;
@@ -1294,7 +1294,7 @@ namespace 码料机
             this.groupBox3.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox3.Location = new System.Drawing.Point(3, 3);
             this.groupBox3.Name = "groupBox3";
-            this.groupBox3.Size = new System.Drawing.Size(562, 376);
+            this.groupBox3.Size = new System.Drawing.Size(562, 375);
             this.groupBox3.TabIndex = 1;
             this.groupBox3.TabStop = false;
             this.groupBox3.Text = "左机台";
@@ -1414,7 +1414,7 @@ namespace 码料机
             this.button3.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.button3.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
             this.button3.ForeColor = System.Drawing.Color.White;
-            this.button3.Location = new System.Drawing.Point(11, 318);
+            this.button3.Location = new System.Drawing.Point(11, 317);
             this.button3.Name = "button3";
             this.button3.Size = new System.Drawing.Size(545, 44);
             this.button3.TabIndex = 10;
@@ -1436,8 +1436,8 @@ namespace 码料机
             // splitContainer2.Panel2
             // 
             this.splitContainer2.Panel2.Controls.Add(this.listBox1);
-            this.splitContainer2.Size = new System.Drawing.Size(794, 764);
-            this.splitContainer2.SplitterDistance = 538;
+            this.splitContainer2.Size = new System.Drawing.Size(794, 763);
+            this.splitContainer2.SplitterDistance = 537;
             this.splitContainer2.SplitterWidth = 6;
             this.splitContainer2.TabIndex = 2;
             // 
@@ -1452,7 +1452,7 @@ namespace 码料机
             // 
             this.splitContainer3.Panel1.Controls.Add(this.groupBox6);
             this.splitContainer3.Panel2Collapsed = true;
-            this.splitContainer3.Size = new System.Drawing.Size(794, 538);
+            this.splitContainer3.Size = new System.Drawing.Size(794, 537);
             this.splitContainer3.SplitterDistance = 300;
             this.splitContainer3.SplitterWidth = 6;
             this.splitContainer3.TabIndex = 0;
@@ -1466,7 +1466,7 @@ namespace 码料机
             this.groupBox6.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox6.Location = new System.Drawing.Point(0, 0);
             this.groupBox6.Name = "groupBox6";
-            this.groupBox6.Size = new System.Drawing.Size(794, 538);
+            this.groupBox6.Size = new System.Drawing.Size(794, 537);
             this.groupBox6.TabIndex = 0;
             this.groupBox6.TabStop = false;
             this.groupBox6.Text = "木箱定位";
@@ -1481,7 +1481,7 @@ namespace 码料机
             this.tableLayoutPanel3.Name = "tableLayoutPanel3";
             this.tableLayoutPanel3.RowCount = 1;
             this.tableLayoutPanel3.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.tableLayoutPanel3.Size = new System.Drawing.Size(788, 501);
+            this.tableLayoutPanel3.Size = new System.Drawing.Size(788, 500);
             this.tableLayoutPanel3.TabIndex = 0;
             // 
             // panelVmPreviewHost
@@ -1490,7 +1490,7 @@ namespace 码料机
             this.panelVmPreviewHost.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelVmPreviewHost.Location = new System.Drawing.Point(3, 3);
             this.panelVmPreviewHost.Name = "panelVmPreviewHost";
-            this.panelVmPreviewHost.Size = new System.Drawing.Size(782, 495);
+            this.panelVmPreviewHost.Size = new System.Drawing.Size(782, 494);
             this.panelVmPreviewHost.TabIndex = 2;
             // 
             // listBox1

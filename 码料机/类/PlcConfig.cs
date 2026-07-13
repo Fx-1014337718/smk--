@@ -207,6 +207,10 @@ namespace 码料机
         public byte SlaveId = 1;
         public PlcFloatWordOrder FloatWordOrder = PlcFloatWordOrder.CDAB;
         public int WriteSpacingMs = 20;
+        /// <summary>TCP 连接建立超时（毫秒）。</summary>
+        public int ConnectTimeoutMs = 1500;
+        /// <summary>Modbus TCP 收发超时（毫秒）。</summary>
+        public int IoTimeoutMs = 800;
         /// <summary>通信断开后是否周期性自动重连。</summary>
         public bool AutoReconnectEnabled = true;
         /// <summary>两次重连尝试之间的间隔（毫秒）。</summary>
@@ -238,6 +242,8 @@ namespace 码料机
                 PlcIniReader.ReadInt(iniPath, conn, "站号", "Connection", "SlaveId", c.SlaveId)));
             c.FloatWordOrder = ParseOrder(PlcIniReader.ReadString(iniPath, conn, "浮点字序", "Connection", "FloatWordOrder", "CDAB"));
             c.WriteSpacingMs = Math.Max(0, PlcIniReader.ReadInt(iniPath, conn, "写入间隔毫秒", "Connection", "WriteSpacingMs", c.WriteSpacingMs));
+            c.ConnectTimeoutMs = Math.Max(200, PlcIniReader.ReadInt(iniPath, conn, "连接超时毫秒", "Connection", "ConnectTimeoutMs", c.ConnectTimeoutMs));
+            c.IoTimeoutMs = Math.Max(200, PlcIniReader.ReadInt(iniPath, conn, "收发超时毫秒", "Connection", "IoTimeoutMs", c.IoTimeoutMs));
             c.AutoReconnectEnabled = PlcIniReader.ReadBool(iniPath, conn, "自动重连启用", "Connection", "AutoReconnectEnabled", c.AutoReconnectEnabled);
             c.ReconnectIntervalMs = Math.Max(1000,
                 PlcIniReader.ReadInt(iniPath, conn, "重连间隔毫秒", "Connection", "ReconnectIntervalMs", c.ReconnectIntervalMs));

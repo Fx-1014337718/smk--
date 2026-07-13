@@ -103,8 +103,19 @@ namespace 码料机
         {
             Disconnect();
             if (!Config.Enabled) return;
-            var tcp = new TcpClient { NoDelay = true };
-            tcp.Connect(Config.Ip, Config.Port);
+            var tcp = new TcpClient
+            {
+                NoDelay = true,
+                ReceiveTimeout = Math.Max(200, Config.IoTimeoutMs),
+                SendTimeout = Math.Max(200, Config.IoTimeoutMs)
+            };
+            var ar = tcp.BeginConnect(Config.Ip, Config.Port, null, null);
+            if (!ar.AsyncWaitHandle.WaitOne(Math.Max(200, Config.ConnectTimeoutMs)))
+            {
+                try { tcp.Close(); } catch { }
+                throw new TimeoutException($"PLC 连接超时 {Config.ConnectTimeoutMs}ms");
+            }
+            tcp.EndConnect(ar);
             lock (_sync) { _tcp = tcp; _master = new ModbusFactory().CreateMaster(tcp); }
             ClearReadChangeCache();
         }

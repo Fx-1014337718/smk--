@@ -56,14 +56,26 @@ namespace 码料机
 
         private enum LayoutType { Matrix, Frame } // 箱内排布：矩阵满铺或木框周圈
 
+        /// <summary>
+        /// 单侧工位运行时状态：箱体/产品几何、放料进度与规划表、手动选位、
+        /// PLC 握手标志（满料等待、本箱是否已识箱等）。
+        /// </summary>
         private class StationData
         {
             public string Name; // 界面显示用机台名
             public int PickQty = 2, PlaceQty = 2; // 本周期 PLC 取/放个数（由竖直档 2,2,…,3 决定，如总高 9→2+2+2+3）
             public bool IsFull; // 当前箱是否已满（矩阵层满或木框走完）
             public int Layer, Row, Col; // 矩阵模式：层、行、列下标；木框模式复用 Col 为槽索引
-            /// <summary>本箱已确认放入件数（顺序模式唯一进度源；Layer/Row/Col 仅作显示与算位辅助）。</summary>
+            /// <summary>本箱已确认放料握手次数（规划格/顺序序号，与单次 PlaceQty 颗数无关）。</summary>
             public int ConfirmedPlacedCount;
+            /// <summary>本箱已确认放入轴承总颗数（各次 PlaceQty 累加；满箱判据）。</summary>
+            public int ConfirmedBearingCount;
+            /// <summary>「确认产品与数量」时锁定的满箱轴承总数（= 行×列×层）。</summary>
+            public int ConfirmedBearingCapacity;
+            /// <summary>确认参数时锁定的托盘网格，识箱后不随 DLL 扩格。</summary>
+            public int ProductGridRows, ProductGridCols, ProductGridLayers;
+            /// <summary>最近一次下发 PLC 的放料颗数（确认进度时累加）。</summary>
+            public int LastIssuedPlaceQty;
             public double BoxLength, BoxWidth, BoxHeight, OuterDiam, SingleProductHeight; // 箱与产品几何（mm）
             public LayoutType Layout; // 矩阵或木框
             public StackMode StackMode = StackMode.Parallel; // 层内平行或交叉摆
@@ -76,8 +88,8 @@ namespace 码料机
             public List<PointF> FramePositions; // 木框模式：每槽圆心箱内局部坐标列表
             /// <summary>当前箱放料视觉是否已完成：false=下次放料请求需拍照识箱；true=仅下发下一放料目标。换箱/确认参数时清零。</summary>
             public bool PlcPlaceBoxVisionDone;
-            /// <summary>指定开始件：空箱已离线规划，待首次放料请求至拍照位现场采图并按已放件数对齐坐标。</summary>
-            public bool StartPieceAwaitingLivePlacePhoto;
+            /// <summary>指定开始组：进度已补全，待首次放料请求（与自动模式相同握手）现场采图对齐坐标。</summary>
+            public bool SequentialStartPendingLiveAlign;
             /// <summary>已向 PLC 发满料=1，等待人工换箱后 PLC 将该位清 0；清 0 后下次放料请求重新拍照。</summary>
             public bool PlcAwaitingBoxChangeAfterFull;
             /// <summary>金沃 DLL 托盘配置（由工位箱体/产品与 金沃算法.ini 托盘节合成；确认参数或自动恢复后有效）。</summary>
@@ -91,10 +103,14 @@ namespace 码料机
             public bool RequireWorkerConfirmForLastIssue;
             /// <summary>手动指定放料：由算法规划表选位，非顺序下发。</summary>
             public bool ManualSlotSelectEnabled;
-            /// <summary>手动指定：下一发 PLC 的规划表序号（0 基），-1 表示尚未选择。</summary>
+            /// <summary>手动指定：下一发 PLC 的握手序号（0 基，与竖直档 2+2+3 顺序一致），-1 表示尚未选择。</summary>
             public int ManualPendingSlotIndex = -1;
-            /// <summary>手动指定：已确认放入的规划表序号（按确认顺序）。</summary>
+            /// <summary>手动指定：本周期取料请求已应答，在放料下发前拒绝再次取料。</summary>
+            public bool ManualPickAckedForPending;
+            /// <summary>手动指定（兼容）：已确认序号列表；进度以 ConfirmedPlacedCount 为准。</summary>
             public readonly List<int> ManualCompletedOrder = new List<int>();
+            /// <summary>本工位最近一次算法用采图（独立缓存路径，避免左右共用 Feed.bmp 串图）。</summary>
+            public string LastAlgorithmCaptureImagePath;
 
             public PointF GetNextPosition()
             {
@@ -1091,7 +1107,6 @@ namespace 码料机
         private void timer_Tick(object sender, EventArgs e)
         {
             toolStripLabel16.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            PlcHeartbeatTick();
         }
 
         /// <summary>打开「参数」子窗体，维护产品 INI。</summary>
@@ -1173,6 +1188,7 @@ namespace 码料机
             X(() => timer.Stop());
             X(() => timer.Tick -= timer_Tick);
             X(() => (timer as IDisposable)?.Dispose());
+            StopPlcHeartbeatWorker();
             StopPlcHandshakeTimer();
             TryPcRun(0);
 
@@ -1296,6 +1312,10 @@ namespace 码料机
             }
         }
 
+        /// <summary>
+        /// 「确定产品与数量」：按箱体/产品重建托盘网格，清空本箱进度与规划，
+        /// 复位放料识箱周期，并向 PLC 下发取/放个数与满料=0。
+        /// </summary>
         private void ApplyProductAndQty(bool left)
         {
             StationData s = left ? leftStation : rightStation;
@@ -1329,6 +1349,12 @@ namespace 码料机
             s.IsFull = false;
             s.Layer = s.Row = s.Col = 0;
             s.ConfirmedPlacedCount = 0;
+            s.ConfirmedBearingCount = 0;
+            s.ConfirmedBearingCapacity = totalCap;
+            s.ProductGridRows = s.MaxRows;
+            s.ProductGridCols = s.MaxCols;
+            s.ProductGridLayers = s.MaxLayers;
+            s.LastIssuedPlaceQty = 0;
             s.PickCenterX = s.PickCenterY = 0;
             s.PlaceOffsetLocalX = s.PlaceOffsetLocalY = 0;
             SyncPickPlaceQtyFromZTier(s, tbP, tbQ);
@@ -1343,14 +1369,14 @@ namespace 码料机
             PersistStationUiSelection(left);
         }
 
+        /// <summary>按下一发竖直档刷新工位与界面取/放个数显示。</summary>
         private static void SyncPickPlaceQtyFromZTier(StationData station, TextBox pickBox, TextBox placeBox)
         {
             int qty = ZStackPlacement.DefaultBatchSize;
             if (station != null && station.MaxLayers > 0)
             {
-                int planIndex = GetPlacedCount(station);
-                qty = ZStackPlacement.GetPickPlaceQtyForPlanIndex(
-                    planIndex, station.MaxRows, station.MaxCols, station.MaxLayers);
+                int planIndex = ResolveNextPlacementPlanIndex(station);
+                qty = GetPlanBatchQty(planIndex, station.MaxRows, station.MaxCols, station.MaxLayers);
             }
             station.PickQty = station.PlaceQty = qty;
             if (pickBox != null) pickBox.Text = qty.ToString();
@@ -1417,20 +1443,30 @@ namespace 码料机
         {
             if (toolStripLabel18 != null && currentStation != null)
             {
-                int n = GetPlacedCount(currentStation);
-                int cap = currentStation.BoxPlan?.Slots?.Count
-                    ?? Math.Max(1, currentStation.MaxCols * currentStation.MaxRows * currentStation.MaxLayers);
+                int placeCount = GetPlacedCount(currentStation);
+                int placeCap = GetPlaceSlotCapacity(currentStation);
+                int bearing = GetConfirmedBearingCount(currentStation);
+                int bearingCap = GetBearingCapacity(currentStation);
                 string suffix = currentStation.IsFull
                     ? " | 等待换箱"
                     : (currentStation.LastIssuedPlanIndex >= 0 ? " | 待确认上一件" : "");
                 if (!currentStation.IsFull && currentStation.LastIssuedPlanIndex < 0
                     && !currentStation.ManualSlotSelectEnabled)
-                    suffix += $" | 下一发第{n + 1}件";
+                    suffix += $" | 下一发第{placeCount + 1}组";
                 if (_runtimeOp.HasManualPlaceMode || _runtimeOp.HasManualSlotSelectMode)
                     suffix += " | " + DescribeManualPlaceMode();
                 if (currentStation.ManualSlotSelectEnabled && currentStation.ManualPendingSlotIndex >= 0)
-                    suffix += $" | 待放位{currentStation.ManualPendingSlotIndex + 1}";
-                toolStripLabel18.Text = $"当前：{currentStation.Name} 已放{n}/{cap}{suffix}";
+                {
+                    int physicalCap = currentStation.BoxPlan?.Slots?.Count > 0
+                        ? currentStation.BoxPlan.Slots.Count
+                        : GetBearingCapacity(currentStation);
+                    int gi = ResolveGroupIndex(currentStation.ManualPendingSlotIndex,
+                        physicalCap,
+                        currentStation.MaxRows, currentStation.MaxCols, currentStation.MaxLayers);
+                    suffix += $" | 待放第{gi + 1}组";
+                }
+                toolStripLabel18.Text =
+                    $"当前：{currentStation.Name} 轴承{bearing}/{bearingCap} 放料{placeCount}/{placeCap}组{suffix}";
                 toolStripLabel18.ForeColor = currentStation.IsFull
                     ? Color.FromArgb(197, 48, 48)
                     : (currentStation == leftStation ? Color.Green : Color.Orange);
@@ -1441,13 +1477,10 @@ namespace 码料机
         private static string FormatZTierProgress(StationData st)
         {
             if (st == null || st.MaxLayers < 1) return "—";
-            int planIndex = GetPlacedCount(st);
-            int perLayer = Math.Max(1, st.MaxRows * st.MaxCols);
-            int stackHeight = planIndex / perLayer;
-            int tier = ZStackPlacement.GetZTierFromStackHeight(stackHeight, st.MaxLayers);
+            int planIndex = ResolveNextPlacementPlanIndex(st);
+            int tier = ResolvePlanZTier(planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
             int tierCount = ZStackPlacement.GetZTierCount(st.MaxLayers);
-            int qty = ZStackPlacement.GetPickPlaceQtyForPlanIndex(
-                planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
+            int qty = GetPlanBatchQty(planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
             return $"{tier + 1}/{tierCount} (放{qty})";
         }
 
@@ -2451,7 +2484,7 @@ namespace 码料机
 
         private bool ShouldSkipVisionIntroForStation(StationData st) =>
             st != null && (_runtimeOp.UseConfiguredPlace(IsLeftStation(st))
-                || (st.PlcPlaceBoxVisionDone && !st.StartPieceAwaitingLivePlacePhoto
+                || (st.PlcPlaceBoxVisionDone && !st.SequentialStartPendingLiveAlign
                     && st.BoxPlan?.IsValid == true && GetPlacedCount(st) > 0));
 
         private string DescribeManualPlaceMode()
@@ -2819,6 +2852,7 @@ namespace 码料机
                 string feedPath = await Task.Run(() => OfflineCaptureHelper.StageOfflineCaptureImage(sourcePath)).ConfigureAwait(true);
                 _offlineTestImagePath = feedPath;
                 _jinwo.SetCaptureImageOverride(feedPath);
+                MarkAlgorithmCaptureForSide(IsLeftStation(currentStation), feedPath);
                 ProcessPipelineLog.ImageLoaded("[离线]", sourcePath, feedPath, "金沃 DLL 采图");
                 RefreshCameraStatusUi();
                 if (_jinwo.IsEnabled && _jinwo.IsLoaded)

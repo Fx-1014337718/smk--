@@ -6,7 +6,7 @@ using System.Windows.Forms;
 
 namespace 码料机
 {
-    /// <summary>顺序放料：左/右机台分别空箱拍照规划后，指定下一发从第几件开始。</summary>
+    /// <summary>顺序放料：左/右机台分别空箱拍照规划后，指定下一发从第几组开始（按竖直档 2+2+3 分组）。</summary>
     public sealed class StartPlaceFromPieceDialog : Form
     {
         private readonly Form1 _main;
@@ -14,10 +14,11 @@ namespace 码料机
         private readonly StationPageUi _leftUi = new StationPageUi { IsLeft = true };
         private readonly StationPageUi _rightUi = new StationPageUi { IsLeft = false };
 
+        /// <summary>构建左右机台「指定开始组」页（空箱图路径 + 起始组号）。</summary>
         public StartPlaceFromPieceDialog(Form1 main)
         {
             _main = main ?? throw new ArgumentNullException(nameof(main));
-            Text = "指定开始放料件";
+            Text = "指定开始放料组";
             StartPosition = FormStartPosition.CenterParent;
             Font = UiLayoutHelper.DialogBase;
             ClientSize = new Size(760, 520);
@@ -71,7 +72,7 @@ namespace 码料机
             {
                 AutoSize = false,
                 Dock = DockStyle.Top,
-                Height = 88,
+                Height = 100,
                 ForeColor = Color.FromArgb(100, 116, 139),
                 Margin = new Padding(0, 0, 0, 10)
             };
@@ -93,7 +94,7 @@ namespace 码料机
 
             root.Controls.Add(ui.LblHint, 0, 0);
             root.Controls.Add(BuildImageSection(ui), 0, 1);
-            root.Controls.Add(BuildPieceSection(ui), 0, 2);
+            root.Controls.Add(BuildGroupSection(ui), 0, 2);
             root.Controls.Add(ui.BtnApply, 0, 3);
             page.Controls.Add(root);
             return page;
@@ -136,7 +137,7 @@ namespace 码料机
                         ui.TxtImage.Text = dlg.FileName;
                 }
             };
-            var btnMain = MakeButton("用主界面图", Color.FromArgb(71, 85, 105));
+            var btnMain = MakeButton("用本工位图", Color.FromArgb(71, 85, 105));
             btnMain.Click += (_, __) =>
             {
                 string p = _main.GetManualPlaceDefaultImagePath(ui.IsLeft);
@@ -157,7 +158,7 @@ namespace 码料机
             return panel;
         }
 
-        private static Control BuildPieceSection(StationPageUi ui)
+        private static Control BuildGroupSection(StationPageUi ui)
         {
             var panel = new FlowLayoutPanel
             {
@@ -178,7 +179,7 @@ namespace 码料机
             panel.Controls.Add(ui.NumStart);
             panel.Controls.Add(new Label
             {
-                Text = "件开始顺序放料（下一发 PLC 坐标）",
+                Text = "组开始顺序放料（按竖直批次自动划分）",
                 AutoSize = true,
                 ForeColor = Color.FromArgb(51, 65, 85),
                 Margin = new Padding(0, 12, 0, 0)
@@ -246,28 +247,27 @@ namespace 码料机
         private void RefreshStation(StationPageUi ui)
         {
             var view = _main.GetStartPieceStationView(ui.IsLeft);
-            int cap = Math.Max(1, view.PlanTotal);
-            ui.NumStart.Maximum = cap;
-            ui.NumStart.Value = Math.Max(1, Math.Min(cap, view.SuggestedStartPiece));
+            int groupCap = Math.Max(1, view.GroupCount);
+            ui.NumStart.Maximum = groupCap;
+            ui.NumStart.Value = Math.Max(1, Math.Min(groupCap, view.SuggestedStartGroup));
             ui.BtnApply.Enabled = view.CanApply;
             ui.TxtImage.Enabled = view.CanApply;
             ui.NumStart.Enabled = view.CanApply;
 
-            string side = ui.IsLeft ? "左" : "右";
             if (!view.CanApply)
             {
                 ui.LblHint.Text =
                     $"{view.StationName} 当前不可用：{view.BlockReason}\n" +
-                    $"本箱容量约 {cap} 件；当前已确认 {view.PlacedCount} 件。";
+                    $"本箱共 {groupCap} 组（{view.BatchPattern}）；已确认 {view.CompletedGroupCount} 组 / {view.CompletedBearingCount} 件。";
                 return;
             }
 
             ui.LblHint.Text =
-                $"{view.StationName} — 指定开始件（须先空箱拍照）\n" +
-                $"本箱容量约 {cap} 件；当前已确认 {view.PlacedCount} 件。\n" +
-                "• 此处空箱图用于离线生成整箱规划表（件序与容量）。\n" +
-                "• 箱内前面已有料时，请确认跳过件数与现场一致。\n" +
-                "• 设定后 PLC 取料/放料握手与正常相同；首次放料请求须至拍照位现场采图，才能算出下一发坐标。";
+                $"{view.StationName} — 指定开始组\n" +
+                $"本箱共 {groupCap} 组（{view.BatchPattern}）；已确认 {view.CompletedGroupCount} 组 / {view.CompletedBearingCount} 件。\n" +
+                "• 确认后自动补全所选位置前的组数/件数，后续与自动模式相同（取料→放料→满料）。\n" +
+                "• 箱内前面已有料时，请现场确认与所选组号一致。\n" +
+                "• 首次放料请求须至拍照位现场采图对齐坐标。";
 
             if (string.IsNullOrWhiteSpace(ui.TxtImage.Text))
             {
@@ -276,27 +276,30 @@ namespace 码料机
             }
         }
 
+        /// <summary>调用主窗 <see cref="Form1.TryApplyStartPieceAsync"/> 完成规划并设定起始组。</summary>
         private async Task ApplyStationAsync(StationPageUi ui)
         {
             var view = _main.GetStartPieceStationView(ui.IsLeft);
             if (!view.CanApply)
             {
-                DialogPrompts.ShowWarning(view.BlockReason ?? "当前机台不可用", "指定开始件");
+                DialogPrompts.ShowWarning(view.BlockReason ?? "当前机台不可用", "指定开始组");
                 return;
             }
 
-            int startPiece = (int)ui.NumStart.Value;
+            int startGroup = (int)ui.NumStart.Value;
             string imagePath = ui.TxtImage.Text?.Trim();
             Enabled = false;
             try
             {
-                var result = await _main.TryApplyStartPieceAsync(ui.IsLeft, startPiece, imagePath, this)
+                var result = await _main.TryApplyStartPieceAsync(ui.IsLeft, startGroup, imagePath, this)
                     .ConfigureAwait(true);
                 if (result.Error != null)
-                    DialogPrompts.ShowWarning(result.Error, "指定开始件");
+                    DialogPrompts.ShowWarning(result.Error, "指定开始组");
                 else if (result.Ok)
                 {
-                    DialogPrompts.ShowInfo($"{view.StationName} 已设定从第 {startPiece} 件开始。", "指定开始件");
+                    DialogPrompts.ShowInfo(
+                        $"{view.StationName} 已设定从第 {startGroup} 组开始；进度已补全，请由 PLC 发取料/放料请求。",
+                        "指定开始组");
                     RefreshAllStations();
                 }
             }

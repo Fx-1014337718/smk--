@@ -86,7 +86,7 @@ namespace 码料机
                     ret = _device.Open();
                     if (ret != MvError.MV_OK)
                     {
-                        LastError = $"打开相机失败: 0x{ret:X8}";
+                        LastError = $"打开相机失败: 0x{ret:X8}（请确认未被 MVS 客户端或其它程序占用）";
                         DisposeDevice();
                         return false;
                     }
@@ -288,9 +288,11 @@ namespace 码料机
                     string dir = Path.GetDirectoryName(path);
                     if (!string.IsNullOrEmpty(dir))
                         Directory.CreateDirectory(dir);
-                    TrySaveBitmap(path, copy, w, h, pixelType);
-                    _saveNextFrame = false;
-                    FrameSaved?.Invoke(path, frameNo);
+                    if (TrySaveBitmap(path, copy, w, h, pixelType))
+                    {
+                        _saveNextFrame = false;
+                        FrameSaved?.Invoke(path, frameNo);
+                    }
                 }
 
                 if (_previewEnabled && ShouldEmitPreview())
@@ -300,9 +302,9 @@ namespace 码料机
                         PreviewFrame?.Invoke(bmp);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // 回调线程不抛异常
+                LastError = "相机帧保存/预览失败: " + ex.Message;
             }
             finally
             {
@@ -319,16 +321,24 @@ namespace 码料机
             return true;
         }
 
-        private static void TrySaveBitmap(string path, byte[] data, int width, int height, MvGvspPixelType pixelType)
+        private static bool TrySaveBitmap(string path, byte[] data, int width, int height, MvGvspPixelType pixelType)
         {
             using (var bmp = TryCreateBitmap(data, width, height, pixelType))
             {
                 if (bmp == null)
-                    return;
+                    return false;
                 string ext = Path.GetExtension(path);
                 if (string.IsNullOrEmpty(ext))
                     path += ".bmp";
-                bmp.Save(path, ImageFormat.Bmp);
+                string dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+                string tmp = path + ".tmp";
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+                bmp.Save(tmp, ImageFormat.Bmp);
+                try { if (File.Exists(path)) File.Delete(path); } catch { }
+                File.Move(tmp, path);
+                return true;
             }
         }
 

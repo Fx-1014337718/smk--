@@ -31,9 +31,12 @@ namespace 码料机
         private readonly List<SlotMarker> _slots = new List<SlotMarker>();
         private int _selectedIndex = -1;
         private int _hoverIndex = -1;
-        /// <summary>-1 显示全部层；否则只显示该层。</summary>
+        /// <summary>-1 显示全部分组；否则只显示该竖直档/层分组。</summary>
         private int _filterLayer = -1;
         private readonly ToolTip _tip = new ToolTip { AutoPopDelay = 8000, InitialDelay = 200 };
+
+        /// <summary>筛选分组标题，如「竖直档」或「层」。</summary>
+        public string FilterGroupLabel { get; set; } = "层";
 
         /// <summary>筛选显示的层（0 基），-1 为全部。</summary>
         public int FilterLayer
@@ -174,7 +177,7 @@ namespace 码料机
                 using (var font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold))
                 using (var br = new SolidBrush(Color.FromArgb(230, 250, 204, 21)))
                 {
-                    string t = $"第 {_filterLayer + 1} 层  ·  {visible.Count} 个放料位";
+                    string t = $"第 {_filterLayer + 1} {FilterGroupLabel}  ·  {visible.Count} 个放料位";
                     g.DrawString(t, font, br, bounds.Left, Math.Max(8, bounds.Top - 22));
                 }
             }

@@ -349,6 +349,18 @@ namespace 码料机
             target.HikSaveEveryFrame = src.HikSaveEveryFrame;
         }
 
+        public static bool SaveTrayGrid(bool isLeft, int rows, int cols, int layers, string iniPath = null)
+        {
+            string path = iniPath ?? IniPath;
+            Directory.CreateDirectory(Parameters.IniDir);
+            string tray = StationSection(isLeft, "托盘");
+            bool ok = true;
+            ok &= IniAPI.INIWriteValue(path, tray, "每层行数", Math.Max(0, rows).ToString());
+            ok &= IniAPI.INIWriteValue(path, tray, "每层列数", Math.Max(0, cols).ToString());
+            ok &= IniAPI.INIWriteValue(path, tray, "层数", Math.Max(0, layers).ToString());
+            return ok;
+        }
+
         public static bool SaveBoth(JinwoAlgorithmConfig left, JinwoAlgorithmConfig right, string iniPath = null)
         {
             string path = iniPath ?? IniPath;

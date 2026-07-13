@@ -134,12 +134,14 @@ namespace 码料机
             Close();
         }
 
-        public void BindStation(string stationName, int confirmedCount, int planTotal, int pendingIndex, bool pendingRequired)
+        /// <summary>按工位进度/待确认件刷新文案与按钮可用性。</summary>
+        public void BindStation(string stationName, int placeCount, int placeCap,
+            int bearingCount, int bearingCap, int pendingIndex, bool pendingRequired)
         {
             _lblTitle.Text = stationName + " — 放料确认";
-            _lblProgress.Text = planTotal > 0
-                ? $"本箱已确认放入：{confirmedCount} / {planTotal} 件"
-                : $"本箱已确认放入：{confirmedCount} 件（尚未生成规划表）";
+            _lblProgress.Text = placeCap > 0
+                ? $"放料 {placeCount}/{placeCap} 次 · 轴承 {bearingCount}/{bearingCap} 颗"
+                : $"放料 {placeCount} 次 · 轴承 {bearingCount} 颗（尚未生成规划表）";
             if (pendingIndex >= 0)
             {
                 _lblPending.Text = pendingRequired
@@ -158,19 +160,22 @@ namespace 码料机
                 "• 能摆回原位：扶正后继续。\n" +
                 "• 不能确认原位：拿走受影响料，用「回退」或「换箱重来」。\n" +
                 "• 算法只支持空箱图规划，半箱不能重新算位。";
-            int rbMax = Math.Max(1, confirmedCount);
+            int rbMax = Math.Max(1, placeCount);
             _numRollback.Maximum = rbMax;
-            _numRollback.Value = Math.Min(_numRollback.Maximum, Math.Max(1, confirmedCount));
+            _numRollback.Value = Math.Min(_numRollback.Maximum, Math.Max(1, placeCount));
         }
 
-        public static bool TryShow(IWin32Window owner, string stationName, int confirmedCount, int planTotal,
-            int pendingIndex, bool pendingRequired, out WorkerAssistAction action, out int rollbackIndex)
+        /// <summary>模态弹出工人确认窗（已放入/重试/回退/换箱重来），返回所选动作与回退序号。</summary>
+        public static bool TryShow(IWin32Window owner, string stationName, int placeCount, int placeCap,
+            int bearingCount, int bearingCap, int pendingIndex, bool pendingRequired,
+            out WorkerAssistAction action, out int rollbackIndex)
         {
             action = WorkerAssistAction.None;
             rollbackIndex = 0;
             using (var dlg = new WorkerAssistDialog())
             {
-                dlg.BindStation(stationName, confirmedCount, planTotal, pendingIndex, pendingRequired);
+                dlg.BindStation(stationName, placeCount, placeCap, bearingCount, bearingCap,
+                    pendingIndex, pendingRequired);
                 if (dlg.ShowDialog(owner) != DialogResult.OK) return false;
                 action = dlg.SelectedAction;
                 rollbackIndex = dlg.RollbackIndex;

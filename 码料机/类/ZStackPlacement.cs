@@ -9,7 +9,9 @@ namespace 码料机
     /// </summary>
     public static class ZStackPlacement
     {
+        /// <summary>默认每档取/放颗数（偶数总层或非末档）。</summary>
         public const int DefaultBatchSize = 2;
+        /// <summary>奇数总层时末档取/放颗数（如 5/7/9 层末档为 3）。</summary>
         public const int OddLastTierBatchSize = 3;
 
         /// <summary>竖直取放档位数（如总高 9 → 4 档：2、2、2、3）。</summary>
@@ -19,13 +21,46 @@ namespace 码料机
             return BuildBatchSizes(maxStackHeights).Length;
         }
 
-        /// <summary>水平托盘层（0 起）对应的竖直取放档（0 起）；层 i 取 batches[min(i, 档数-1)]。</summary>
+        /// <summary>水平托盘物理层（0 起）所属的竖直取放档（0 起）；按批次累加层数划分，如 7 层→档0=层0-1、档1=层2-3、档2=层4-6。</summary>
         public static int GetZTierFromStackHeight(int trayLayer, int maxStackHeights)
         {
             if (maxStackHeights < 1) return 0;
             var batches = BuildBatchSizes(maxStackHeights);
             if (batches.Length < 1) return 0;
-            return Math.Max(0, Math.Min(Math.Max(0, trayLayer), batches.Length - 1));
+            int layer = Math.Max(0, trayLayer);
+            int startLayer = 0;
+            for (int tier = 0; tier < batches.Length; tier++)
+            {
+                int batchLayers = Math.Max(1, batches[tier]);
+                if (layer < startLayer + batchLayers)
+                    return tier;
+                startLayer += batchLayers;
+            }
+            return batches.Length - 1;
+        }
+
+        /// <summary>竖直档对应的物理层范围（0 起，含首尾）。</summary>
+        public static void GetZTierPhysicalLayerRange(int zTier, int maxStackHeights, out int firstLayer, out int lastLayer)
+        {
+            firstLayer = lastLayer = 0;
+            if (maxStackHeights < 1) return;
+            var batches = BuildBatchSizes(maxStackHeights);
+            if (batches.Length < 1) return;
+            int tier = Math.Max(0, Math.Min(zTier, batches.Length - 1));
+            firstLayer = 0;
+            for (int i = 0; i < tier; i++)
+                firstLayer += Math.Max(1, batches[i]);
+            lastLayer = firstLayer + Math.Max(1, batches[tier]) - 1;
+        }
+
+        /// <summary>竖直档本批取/放个数。</summary>
+        public static int GetZTierBatchQty(int zTier, int maxStackHeights)
+        {
+            if (maxStackHeights < 1) return DefaultBatchSize;
+            var batches = BuildBatchSizes(maxStackHeights);
+            if (batches.Length < 1) return DefaultBatchSize;
+            int tier = Math.Max(0, Math.Min(zTier, batches.Length - 1));
+            return batches[tier];
         }
 
         /// <summary>本水平层应对 PLC 下发的取/放个数（如总高 5 层→第 1 层 2、第 2 层 3）。</summary>
@@ -38,27 +73,13 @@ namespace 码料机
             return batches[tier];
         }
 
-        /// <summary>
-        /// 按规划序号（0 起）解析本周期取/放个数。
-        /// 末档为 3 件时，最后一组须从「末档水平层」首件前一位起即为 3（避免层边界处首件仍发 2）。
-        /// </summary>
+        /// <summary>按规划槽位序号解析本周期取/放个数（由槽位所在物理层所属竖直档决定）。</summary>
         public static int GetPickPlaceQtyForPlanIndex(int planIndex, int maxRows, int maxCols, int maxProductHeights)
         {
             if (maxProductHeights < 1 || planIndex < 0) return DefaultBatchSize;
             int perLayer = Math.Max(1, maxRows * maxCols);
-            var batches = BuildBatchSizes(maxProductHeights);
-            if (batches.Length < 1) return DefaultBatchSize;
-
-            int lastTierLayer = batches.Length - 1;
-            int lastQty = batches[lastTierLayer];
-            if (lastQty == OddLastTierBatchSize)
-            {
-                int early = perLayer > 2 ? 1 : 0;
-                if (planIndex >= lastTierLayer * perLayer - early)
-                    return lastQty;
-            }
-
-            return GetPickPlaceQty(planIndex / perLayer, maxProductHeights);
+            int physicalLayer = planIndex / perLayer;
+            return GetPickPlaceQty(physicalLayer, maxProductHeights);
         }
 
         /// <summary>放料 Z 抬高量：已完成产品高度层数 × 单件高度（与取放个数无关）。</summary>
@@ -72,24 +93,28 @@ namespace 码料机
         /// <summary>工位中心点避让裕量（相对单件高的层分数，默认半层）。</summary>
         public const double CenterClearanceLayerFraction = 0.5;
 
+        /// <summary>工位中心点 Z 避让高度（默认半层产品高）。</summary>
         public static double ComputePlaceCenterClearance(double productHeight, double layerFraction = CenterClearanceLayerFraction)
             => productHeight * layerFraction;
 
         /// <summary>
-        /// 按平面层（Layer）计算放料 Z：累加「取放个数×单件高度」，同一次抓放件之间无间隙；
-        /// placeLiftGap 为放料抬高间隙，在最终位姿上只加一次（非层与层/批与批之间的累加间隙）。
+        /// 按物理高度层计算放料 Z：只累加目标层之前已经完成的竖直批次高度。
+        /// 例如 5 层拆为 2+3，则物理第 1/2 层目标 Z 为 base，第 3/4/5 层目标 Z 为 base+2H。
+        /// placeLiftGap 为放料抬高间隙，在最终位姿上只加一次。
         /// </summary>
         public static double ComputePlaceZForHorizontalLayer(double baseZ, int horizontalLayer, int maxLayers, double productHeight, double placeLiftGap = 0)
         {
             double z = baseZ;
             if (horizontalLayer > 0)
             {
-                for (int l = 0; l < horizontalLayer; l++)
+                int remainingLayersBeforeTarget = horizontalLayer;
+                foreach (int batchSizeRaw in BuildBatchSizes(maxLayers))
                 {
-                    int pitchLayers = maxLayers > 0
-                        ? Math.Max(1, GetPickPlaceQty(l, maxLayers))
-                        : DefaultBatchSize;
-                    z += pitchLayers * productHeight;
+                    int batchSize = Math.Max(1, batchSizeRaw);
+                    if (remainingLayersBeforeTarget < batchSize)
+                        break;
+                    z += batchSize * productHeight;
+                    remainingLayersBeforeTarget -= batchSize;
                 }
             }
             if (placeLiftGap > 1e-9)
@@ -97,6 +122,7 @@ namespace 码料机
             return z;
         }
 
+        /// <summary>已放件数换算已完成的水平托盘物理层数（整层）。</summary>
         public static int GetStackHeightFromPlacedCount(int placedCount, int maxRows, int maxCols)
         {
             int perLayer = Math.Max(1, maxRows * maxCols);

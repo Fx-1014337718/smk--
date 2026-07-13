@@ -7,6 +7,7 @@ using System.Collections.Generic; // List 等集合
 using System.Drawing; // PointF（首件理论位）
 using System.IO; // PLC 配置 ini 模板
 using System.Net.Sockets; // SocketException
+using System.Threading; // 心跳后台循环取消
 using System.Threading.Tasks; // 握手与 VM 异步（含 Task.Delay）
 using System.Windows.Forms; // Timer、MessageBox（间接）
 using static 码料机.JinwoNative;
@@ -32,11 +33,12 @@ namespace 码料机
         public static PlcPeekPlacementResult Fail => new PlcPeekPlacementResult(false, PlcPlacementTarget.Empty); // 失败常量
     }
 
-    /// <summary>PLC 相关成员所在分部（Modbus、握手、对外脚本 API）。</summary>
+    /// <summary>PLC 相关成员所在分部（Modbus、握手 Timer/心跳 Task、取放料、满料与换框、对外脚本 API）。</summary>
     public partial class Form1
     {
         private PlcConfig _plcConfig = new PlcConfig(); // 从 PLC配置.ini 加载的运行时配置
         private PlcModbusSession _plcSession; // Modbus TCP 会话（连接后非 null）
+        /// <summary>约 150ms 周期轮询 PLC 取/放料请求字；实际读写在 Tick 内 Task.Run 后台执行。</summary>
         private System.Windows.Forms.Timer _plcHandshakeTimer; // 周期性轮询 PLC 请求字并写坐标
         private volatile bool _plcHandshakeBusy; // 防止 Tick 重入
         private readonly object _plcDisconnectLock = new object();
@@ -44,6 +46,12 @@ namespace 码料机
         private volatile bool _plcReconnectBusy;
         private DateTime _plcNextReconnectUtc = DateTime.MinValue;
         private const int PlcReconnectIntervalMsMin = 1000;
+        private const int PlcHeartbeatIntervalMs = 1000;
+        private const int PlcReconnectFirstDelayMs = 500;
+        /// <summary>心跳后台 Task 取消源；与握手 Timer 分离，避免断线重连占满 UI。</summary>
+        private CancellationTokenSource _plcHeartbeatCts;
+        /// <summary>后台心跳 Task：周期写 D_PC心跳、触发自动重连。</summary>
+        private Task _plcHeartbeatTask;
         private ushort _plcHeartbeatValue; // D_PC心跳：0/1 交替写入
         private ushort _lastPlcInterruptRequestValue; // PLC 中断请求上次值，用于避免刷屏
         private ushort _lastPlcContinueRequestValue; // PLC 继续请求上次值，用于避免刷屏
@@ -51,6 +59,10 @@ namespace 码料机
         private readonly HashSet<int> _activePlcAlarmBits = new HashSet<int>(); // 当前置位的 PLC 报警位索引
         /// <summary>放料请求拍照 D 地址 → 上次读值，用于 0→非0 上升沿检测（取料请求为电平 1，不在此表判沿）。</summary>
         private readonly Dictionary<int, ushort> _lastPlcPhotoRequestValue = new Dictionary<int, ushort>();
+        /// <summary>放料识箱/对齐失败后锁存，PLC 将请求字清 0 前不再重复弹窗。</summary>
+        private readonly Dictionary<int, bool> _plcPlaceRequestFailedLatch = new Dictionary<int, bool>();
+        /// <summary>手动模式取料因未选组/待确认而暂缓时锁存，避免握手轮询刷屏；选组或 PLC 清 0 后解除。</summary>
+        private readonly Dictionary<int, bool> _plcPickRequestWaitLatch = new Dictionary<int, bool>();
         private bool _positionLimitAlarmActive;
         private bool _visionRecognizeFailAlarmActive;
         private bool _foreignObjectAlarmActive;
@@ -67,7 +79,7 @@ namespace 码料机
         private static void ResetPlcPlaceBoxCycle(StationData s)
         {
             s.PlcPlaceBoxVisionDone = false;
-            s.StartPieceAwaitingLivePlacePhoto = false;
+            s.SequentialStartPendingLiveAlign = false;
             s.VisionBoxPose = BoxPose.Identity;
         }
 
@@ -81,8 +93,150 @@ namespace 码料机
             ClearManualSlotState(s);
         }
 
+        /// <summary>本箱轴承容量：优先「确认产品」时锁定值，否则行×列×层。</summary>
+        private static int GetBearingCapacity(StationData st)
+        {
+            if (st == null) return 1;
+            if (st.ConfirmedBearingCapacity > 0) return st.ConfirmedBearingCapacity;
+            return Math.Max(1, st.MaxCols * st.MaxRows * st.MaxLayers);
+        }
+
+        /// <summary>自动顺序放料时本箱预计握手次数（竖直档累加至轴承容量）。</summary>
+        private static int ComputeHandshakeCountToFillBox(StationData st)
+        {
+            int bearingCap = GetBearingCapacity(st);
+            if (st == null || bearingCap < 1) return 1;
+            int sum = 0, n = 0;
+            while (sum < bearingCap && n < 100000)
+            {
+                sum += SumPlaceQtyForPlanIndex(st, n);
+                n++;
+            }
+            return Math.Max(1, n);
+        }
+
+        /// <summary>放料次数上限：自动模式为预计握手次数；手动选位为竖直档组数。</summary>
+        private static int GetPlaceSlotCapacity(StationData st)
+        {
+            if (st == null) return 1;
+            if (st.ManualSlotSelectEnabled && st.BoxPlan?.Slots?.Count > 0)
+                return EnumerateGroupStartIndices(
+                    st.BoxPlan.Slots.Count, st.MaxRows, st.MaxCols, st.MaxLayers).Count;
+            return ComputeHandshakeCountToFillBox(st);
+        }
+
+        private static int GetConfirmedBearingCount(StationData st) =>
+            Math.Max(0, st?.ConfirmedBearingCount ?? 0);
+
+        /// <summary>已确认轴承颗数是否已达本箱容量。</summary>
+        private static bool IsBearingBoxFull(StationData st) =>
+            st != null && GetBearingCapacity(st) > 0
+            && GetConfirmedBearingCount(st) >= GetBearingCapacity(st);
+
+        /// <summary>若再放下 placeQty 颗，本箱轴承是否达到容量（放料下发时写满料=1 的判据）。</summary>
+        private static bool WillBoxBeFullAfterPlace(StationData st, int placeQty)
+        {
+            if (st == null) return false;
+            int cap = GetBearingCapacity(st);
+            if (cap < 1) return false;
+            return GetConfirmedBearingCount(st) + Math.Max(1, placeQty) >= cap;
+        }
+
+        private static int SumPlaceQtyForPlanIndex(StationData st, int planIndex)
+        {
+            if (st == null || planIndex < 0 || st.MaxLayers < 1) return ZStackPlacement.DefaultBatchSize;
+            return ZStackPlacement.GetPickPlaceQtyForPlanIndex(
+                planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
+        }
+
+        /// <summary>前 groupCount 组（握手组序号）已放轴承累计个数。</summary>
+        private static int SumPlaceQtyForSequentialGroups(StationData st, int groupCount)
+        {
+            if (st == null || groupCount < 1) return 0;
+            int sum = 0;
+            for (int g = 0; g < groupCount; g++)
+            {
+                int planSlot = ResolveHandshakePlanSlotIndex(st, g);
+                sum += GetPlanBatchQty(planSlot, st.MaxRows, st.MaxCols, st.MaxLayers);
+            }
+            return sum;
+        }
+
+        private static int SumPlaceQtyForManualSlots(StationData st)
+        {
+            if (st?.ManualCompletedOrder == null) return 0;
+            int sum = 0;
+            foreach (int idx in st.ManualCompletedOrder)
+                sum += GetPlanBatchQty(idx, st.MaxRows, st.MaxCols, st.MaxLayers);
+            return sum;
+        }
+
+        /// <summary>顺序/指定开始组模式的握手组序号 → 规划表代表槽位。</summary>
+        private static int ResolveSequentialBoxPlanSlotIndex(StationData st, int groupIndex) =>
+            ResolveHandshakePlanSlotIndex(st, groupIndex);
+
+        /// <summary>下一发顺序放料的握手组序号（0 基）及规划代表槽位。</summary>
+        private static int ResolveNextSequentialHandshakeIndex(StationData st)
+        {
+            if (st == null) return 0;
+            if (st.LastIssuedPlanIndex >= 0)
+                return st.LastIssuedPlanIndex + 1;
+            return GetPlacedCount(st);
+        }
+
+        /// <summary>下一发规划代表槽：手动待选组优先，否则按顺序握手组映射到槽索引。</summary>
+        private static int ResolveNextPlacementPlanIndex(StationData st)
+        {
+            if (st == null) return 0;
+            if (st.ManualSlotSelectEnabled && st.ManualPendingSlotIndex >= 0)
+                return GetGroupStartPlanIndex(st.ManualPendingSlotIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
+            return ResolveHandshakePlanSlotIndex(st, ResolveNextSequentialHandshakeIndex(st));
+        }
+
+        private static void SyncFullFromBearingCount(StationData st)
+        {
+            if (st == null) return;
+            st.IsFull = IsBearingBoxFull(st);
+        }
+
+        private void ApplyAlgorithmGridFromRecognition(StationData st, ref JinwoNative.JinwoTrayConfig cfg, bool persistIni)
+        {
+            if (st == null) return;
+            bool isLeft = IsLeftStation(st);
+
+            if (_jinwo.TryGetEffectiveGrid(ref cfg, out int effRows, out int effCols, out _))
+            {
+                if (effRows > 0) st.MaxRows = effRows;
+                if (effCols > 0) st.MaxCols = effCols;
+            }
+
+            int totalCap = Math.Max(1, st.MaxRows * st.MaxCols * st.MaxLayers);
+            st.ProductGridRows = st.MaxRows;
+            st.ProductGridCols = st.MaxCols;
+            st.ProductGridLayers = st.MaxLayers;
+            st.ConfirmedBearingCapacity = totalCap;
+
+            _jinwo.TrySetTrayGrid(ref cfg, st.MaxRows, st.MaxCols, st.MaxLayers);
+            st.JinwoTray = cfg;
+
+            if (persistIni)
+                _jinwo.PersistTrayGrid(isLeft, st.MaxRows, st.MaxCols, st.MaxLayers);
+
+            string traversal = JinwoPlacementOrder.DescribeTraversal(st.MaxRows, st.MaxCols);
+            string stationName = st.Name;
+            int logRows = st.MaxRows, logCols = st.MaxCols, logLayers = st.MaxLayers;
+            SafeInvoke(() =>
+            {
+                RefreshStationPickPlaceQtyUi(st);
+                UpdateProgressDisplay();
+                if (currentStation == st) UpdateStationUI();
+                TEXT($"[规划] {stationName} 识箱网格：{logCols}列×{logRows}行×{logLayers}层，{traversal}，容量{totalCap}" +
+                    (persistIni ? "（已写入 配置文件\\金沃算法.ini）" : ""));
+            });
+        }
+
         private static int GetBoxPlanTotal(StationData st) =>
-            st?.BoxPlan?.Slots?.Count ?? Math.Max(1, (st?.MaxCols ?? 0) * (st?.MaxRows ?? 0) * (st?.MaxLayers ?? 0));
+            st?.BoxPlan?.Slots?.Count ?? GetPlaceSlotCapacity(st);
 
         private void PromptBoxChangeRequired(StationData st)
         {
@@ -115,6 +269,7 @@ namespace 码料机
                     int layerFloor = GetTrayLayerCountFloor(st);
                     SyncStationGridFromCenters(st, centers);
                     ApplyTrayLayerCountFloor(st, layerFloor);
+                    ApplyAlgorithmGridFromRecognition(st, ref cfg, persistIni: placedCount < 1);
                     SyncStationProgressFromCount(st, placedCount);
                     JinwoPlacementOrder.SortCenters(centers, st.MaxRows, st.MaxCols);
                     int effRows = 0, effCols = 0, capacity = 0;
@@ -214,17 +369,9 @@ namespace 码料机
 
         private static void SyncProgressAndFullFromConfirmedCount(StationData st, int confirmedCount)
         {
-            int cap = GetBoxPlanTotal(st);
-            if (confirmedCount >= cap)
-            {
-                SyncStationProgressFromCount(st, cap);
-                st.IsFull = true;
-            }
-            else
-            {
-                SyncStationProgressFromCount(st, confirmedCount);
-                st.IsFull = false;
-            }
+            SyncStationProgressFromCount(st, confirmedCount);
+            st.ConfirmedBearingCount = SumPlaceQtyForSequentialGroups(st, confirmedCount);
+            SyncFullFromBearingCount(st);
         }
 
         private void ConfirmLastIssuedPlaced(StationData st)
@@ -236,13 +383,14 @@ namespace 码料机
                 ConfirmManualSlotPlaced(st, slotIndex);
                 st.LastIssuedPlanIndex = -1;
                 st.RequireWorkerConfirmForLastIssue = false;
-                int newCount = st.ManualCompletedOrder.Count;
+                int newCount = GetPlacedCount(st);
                 SafeInvoke(() =>
                 {
                     RefreshStationPickPlaceQtyUi(st);
                     UpdateProgressDisplay();
                     if (currentStation == st) UpdateStationUI();
-                    TEXT($"[确认] {st.Name} 规划位第 {slotIndex + 1} 件已计入（已确认 {newCount}/{GetBoxPlanTotal(st)}）");
+                    int physicalCap = st.BoxPlan?.Slots?.Count > 0 ? st.BoxPlan.Slots.Count : GetBearingCapacity(st);
+                    TEXT($"[确认] {st.Name} 第 {ResolveGroupIndex(slotIndex, physicalCap, st.MaxRows, st.MaxCols, st.MaxLayers) + 1} 组已计入（放料{newCount}/{GetPlaceSlotCapacity(st)} 轴承{GetConfirmedBearingCount(st)}/{GetBearingCapacity(st)}）");
                     if (st.IsFull) PromptBoxChangeRequired(st);
                 });
                 return;
@@ -256,7 +404,8 @@ namespace 码料机
                 RefreshStationPickPlaceQtyUi(st);
                 UpdateProgressDisplay();
                 if (currentStation == st) UpdateStationUI();
-                TEXT($"[确认] {st.Name} 第 {newCountSeq} 件已计入本箱进度（已确认 {newCountSeq}/{GetBoxPlanTotal(st)}）");
+                TEXT($"[确认] {st.Name} 第 {newCountSeq} 组已计入（放料{newCountSeq}/{GetPlaceSlotCapacity(st)} 组，" +
+                     $"轴承{GetConfirmedBearingCount(st)}/{GetBearingCapacity(st)}）");
                 if (st.IsFull) PromptBoxChangeRequired(st);
             });
         }
@@ -289,7 +438,11 @@ namespace 码料机
                         int retrySlot = st.LastIssuedPlanIndex;
                         ClearLastIssuedPending(st);
                         st.ManualPendingSlotIndex = retrySlot;
-                        TEXT($"[确认] {st.Name} 上一件未放入，下次将重发规划位第 {retrySlot + 1} 件。");
+                        st.ManualPickAckedForPending = false;
+                        ClearPlcPickWaitLatchForStation(st);
+                        int physicalCap = st.BoxPlan?.Slots?.Count > 0 ? st.BoxPlan.Slots.Count : GetBearingCapacity(st);
+                        TEXT($"[确认] {st.Name} 上一件未放入，下次将重发第 {ResolveGroupIndex(retrySlot, physicalCap, st.MaxRows, st.MaxCols, st.MaxLayers) + 1} 组。");
+                        KickPlcHandshakeAfterManualSlotPending(st, IsLeftStation(st));
                     }
                     else
                     {
@@ -316,8 +469,12 @@ namespace 码料机
                     st.IsFull = false;
                     st.PlcAwaitingBoxChangeAfterFull = false;
                     st.ManualPendingSlotIndex = -1;
+                    st.ManualPickAckedForPending = false;
                     st.Layer = st.Row = st.Col = 0;
                     st.ConfirmedPlacedCount = 0;
+                    st.ConfirmedBearingCount = 0;
+                    st.LastIssuedPlaceQty = 0;
+                    st.ManualPickAckedForPending = false;
                     st.PickCenterX = st.PickCenterY = 0;
                     st.PlaceOffsetLocalX = st.PlaceOffsetLocalY = 0;
                     UpdateProgressDisplay();
@@ -356,7 +513,8 @@ namespace 码料机
             bool ok = false;
             SafeInvoke(() =>
             {
-                if (WorkerAssistDialog.TryShow(this, st.Name, GetPlacedCount(st), GetBoxPlanTotal(st),
+                if (WorkerAssistDialog.TryShow(this, st.Name, GetPlacedCount(st), GetPlaceSlotCapacity(st),
+                    GetConfirmedBearingCount(st), GetBearingCapacity(st),
                     st.LastIssuedPlanIndex, required, out WorkerAssistAction action, out int rb))
                     ok = ApplyWorkerAssistAction(st, action, rb);
             });
@@ -371,7 +529,8 @@ namespace 码料机
             bool ok = false;
             SafeInvoke(() =>
             {
-                if (WorkerAssistDialog.TryShow(this, st.Name, GetPlacedCount(st), GetBoxPlanTotal(st),
+                if (WorkerAssistDialog.TryShow(this, st.Name, GetPlacedCount(st), GetPlaceSlotCapacity(st),
+                    GetConfirmedBearingCount(st), GetBearingCapacity(st),
                     st.LastIssuedPlanIndex, pendingRequired, out WorkerAssistAction action, out int rb))
                     ok = ApplyWorkerAssistAction(st, action, rb);
             });
@@ -391,6 +550,8 @@ FloatWordOrder=CDAB
 WriteSpacingMs=20
 AutoReconnectEnabled=1
 ReconnectIntervalMs=3000
+ConnectTimeoutMs=1500
+IoTimeoutMs=800
 [Handshake]
 HandshakeEnabled=1
 [连接]
@@ -402,6 +563,8 @@ IP=192.168.5.65
 写入间隔毫秒=20
 自动重连启用=1
 重连间隔毫秒=3000
+连接超时毫秒=1500
+收发超时毫秒=800
 [寄存器]
 取料圆心X=-1
 取料圆心Y=-1
@@ -492,11 +655,13 @@ D_机器人运动中=-1
             catch { }
         }
 
+        /// <summary>启动时初始化 PLC：尝试连接；失败则预约自动重连，并启动心跳后台 Task。</summary>
         private void InitPlcSession()
         {
             _plcNextReconnectUtc = DateTime.MinValue;
             if (!TryConnectPlcSession(isStartup: true))
-                SchedulePlcAutoReconnect();
+                SchedulePlcAutoReconnect(PlcReconnectFirstDelayMs);
+            StartPlcHeartbeatWorker();
         }
 
         /// <summary>建立 Modbus 连接并恢复握手；失败时标记断线并安排自动重连。</summary>
@@ -520,6 +685,7 @@ D_机器人运动中=-1
                 TEXT("[流水线] 采图处理日志: 界面列表 + log\\ImageProcess.log");
                 TEXT($"[PLC] 启用={_plcConfig.Enabled} 握手={_plcConfig.Handshake.HandshakeEnabled} " +
                      $"自动重连={_plcConfig.AutoReconnectEnabled} 间隔={_plcConfig.ReconnectIntervalMs}ms " +
+                     $"连接超时={_plcConfig.ConnectTimeoutMs}ms 收发超时={_plcConfig.IoTimeoutMs}ms " +
                      $"REAL字序={_plcConfig.FloatWordOrder} → {_plcConfig.Ip}:{_plcConfig.Port} 站{_plcConfig.SlaveId}");
             }
 
@@ -556,6 +722,59 @@ D_机器人运动中=-1
 
         private int EffectivePlcReconnectIntervalMs() =>
             Math.Max(PlcReconnectIntervalMsMin, _plcConfig?.ReconnectIntervalMs ?? 3000);
+
+        /// <summary>
+        /// 启动 PLC 心跳后台 Task（独立于握手 Timer）：周期写心跳字、检测断线并触发自动重连。
+        /// </summary>
+        private void StartPlcHeartbeatWorker()
+        {
+            if (_plcHeartbeatTask != null && !_plcHeartbeatTask.IsCompleted) return;
+
+            _plcHeartbeatCts?.Dispose();
+            _plcHeartbeatCts = new CancellationTokenSource();
+            CancellationToken token = _plcHeartbeatCts.Token;
+            // 后台线程：约 1s 一轮，不阻塞 UI；取消令牌在 StopPlcHeartbeatWorker 中触发
+            _plcHeartbeatTask = Task.Run(async () =>
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        PlcHeartbeatTick();
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        SafeInvoke(() => TEXT("[PLC心跳] 后台循环异常: " + ex.Message));
+                    }
+
+                    try { await Task.Delay(PlcHeartbeatIntervalMs, token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { break; }
+                }
+            }, token);
+        }
+
+        /// <summary>取消并等待心跳后台 Task 结束（关闭窗体 / 重连前清理）。</summary>
+        private void StopPlcHeartbeatWorker()
+        {
+            var cts = _plcHeartbeatCts;
+            var task = _plcHeartbeatTask;
+            _plcHeartbeatCts = null;
+            _plcHeartbeatTask = null;
+            if (cts == null) return;
+
+            try { cts.Cancel(); } catch { }
+            try
+            {
+                if (task != null && !task.IsCompleted)
+                    task.Wait(1000);
+            }
+            catch { }
+            try { cts.Dispose(); } catch { }
+        }
 
         private void ApplyPlcSessionAfterConnect(bool isStartup)
         {
@@ -595,13 +814,14 @@ D_机器人运动中=-1
                 System.Threading.Thread.Sleep(50);
         }
 
-        private void SchedulePlcAutoReconnect()
+        private void SchedulePlcAutoReconnect(int delayMs = -1)
         {
             if (_plcConfig == null || !_plcConfig.Enabled || !_plcConfig.AutoReconnectEnabled) return;
-            _plcNextReconnectUtc = DateTime.UtcNow.AddMilliseconds(EffectivePlcReconnectIntervalMs());
+            int ms = delayMs >= 0 ? delayMs : EffectivePlcReconnectIntervalMs();
+            _plcNextReconnectUtc = DateTime.UtcNow.AddMilliseconds(Math.Max(0, ms));
         }
 
-        /// <summary>主界面 timer 每秒调用：断线后按间隔后台尝试重连。</summary>
+        /// <summary>心跳后台循环调用：断线后按间隔后台尝试重连。</summary>
         private void PlcTryAutoReconnectTick()
         {
             if (_plcConfig == null || !_plcConfig.Enabled || !_plcConfig.AutoReconnectEnabled) return;
@@ -650,7 +870,7 @@ D_机器人运动中=-1
         {
             for (var cur = ex; cur != null; cur = cur.InnerException)
             {
-                if (cur is SocketException || cur is IOException || cur is ObjectDisposedException)
+                if (cur is SocketException || cur is IOException || cur is ObjectDisposedException || cur is TimeoutException)
                     return true;
                 if (cur is InvalidOperationException op
                     && op.Message != null
@@ -704,9 +924,9 @@ D_机器人运动中=-1
 
                 TEXT("[PLC] 连接断开: " + detail);
                 if (_plcConfig.AutoReconnectEnabled)
-                    TEXT($"[PLC] 已启用自动重连，{EffectivePlcReconnectIntervalMs()}ms 后尝试恢复连接…");
+                    TEXT($"[PLC] 已启用自动重连，{PlcReconnectFirstDelayMs}ms 后首次尝试恢复连接…");
             });
-            SchedulePlcAutoReconnect();
+            SchedulePlcAutoReconnect(PlcReconnectFirstDelayMs);
         }
 
         private void RefreshBuzzerMuteControlEnabled()
@@ -806,6 +1026,9 @@ D_机器人运动中=-1
         private static readonly Color FrameAllowOnBack = Color.FromArgb(34, 197, 94);
         private static readonly Color FrameAllowOffBack = Color.FromArgb(148, 163, 184);
 
+        /// <summary>
+        /// 握手周期读换框操作字 D4003，刷新左右「换框/换框完成」按钮高亮与「允许取框」指示（与满料字无关）。
+        /// </summary>
         private void PollPlcFrameChangeBits()
         {
             if (!_plcConfig.Enabled || !Hs.HandshakeEnabled || !IsConfiguredPlcD(Hs.D_PC换框操作)
@@ -825,6 +1048,7 @@ D_机器人运动中=-1
             }
         }
 
+        /// <summary>将换框操作字各位映射到左右机台换框按钮高亮与允许取框指示。</summary>
         private void ApplyFrameChangeWordToUi(ushort word)
         {
             ApplyFrameBitUi(_leftFrameUi, word,
@@ -873,6 +1097,7 @@ D_机器人运动中=-1
             PulsePlcFrameBit(bit, btn.Text);
         }
 
+        /// <summary>向换框字 D4003 指定位写短脉冲（约 80ms），用于「换框」「换框完成」；不清满料、不复位规划。</summary>
         private void PulsePlcFrameBit(int bitIndex, string name)
         {
             if (!_plcConfig.Enabled || !IsConfiguredPlcD(Hs.D_PC换框操作))
@@ -901,6 +1126,7 @@ D_机器人运动中=-1
             }
         }
 
+        /// <summary>在 UI 线程停止并释放握手轮询 Timer。</summary>
         private void StopPlcHandshakeTimer() => InvokeOnUiThread(StopPlcHandshakeTimerCore);
 
         private void StopPlcHandshakeTimerCore()
@@ -910,6 +1136,7 @@ D_机器人运动中=-1
             _plcHandshakeTimer = null;
         }
 
+        /// <summary>在 UI 线程重建约 150ms 握手 Timer，并同步放料请求上升沿状态。</summary>
         private void RestartPlcHandshakeTimer() => InvokeOnUiThread(RestartPlcHandshakeTimerCore);
 
         private void RestartPlcHandshakeTimerCore()
@@ -1032,6 +1259,9 @@ D_机器人运动中=-1
             KickPlcHandshakeAfterPlaceArm(st, isLeft, "请连接 PLC 后由现场发取料/放料请求。");
         }
 
+        /// <summary>
+        /// 握手 Timer 回调（UI 线程）：防重入后投递后台 Task 执行 <see cref="PlcHsProcessAsync"/>，避免阻塞界面。
+        /// </summary>
         private void PlcHsTick(object s, EventArgs e)
         {
             if (_plcHandshakeBusy || !_plcConfig.Enabled || !_plcConfig.Handshake.HandshakeEnabled || _plcSession == null) return;
@@ -1041,6 +1271,7 @@ D_机器人运动中=-1
                 return;
             }
             _plcHandshakeBusy = true;
+            // 后台线程处理 Modbus 读写与识箱/取放料，结果经 SafeInvoke 回写 UI
             Task.Run(async () =>
             {
                 try { await PlcHsProcessAsync().ConfigureAwait(false); }
@@ -1081,14 +1312,61 @@ D_机器人运动中=-1
             return rising;
         }
 
-        /// <summary>放料请求：指定开始件/手动选位待下发时 D=1 即处理（与取料相同，便于重试）；否则 0→1 上升沿。</summary>
+        private void ClearPlcPlaceFailedLatch(int d)
+        {
+            if (d != 0) _plcPlaceRequestFailedLatch[d] = false;
+        }
+
+        private bool IsPlcPlaceFailedLatched(int d, ushort value)
+        {
+            if (value == 0)
+            {
+                ClearPlcPlaceFailedLatch(d);
+                return false;
+            }
+            return _plcPlaceRequestFailedLatch.TryGetValue(d, out bool latched) && latched;
+        }
+
+        private void LatchPlcPlaceRequestFailed(int d)
+        {
+            if (d != 0) _plcPlaceRequestFailedLatch[d] = true;
+        }
+
+        private void ClearPlcPickWaitLatch(int d)
+        {
+            if (d != 0) _plcPickRequestWaitLatch[d] = false;
+        }
+
+        private void ClearPlcPickWaitLatchForStation(StationData st)
+        {
+            if (st == null) return;
+            int d = IsLeftStation(st) ? Hs.D_PC_A取料请求拍照 : Hs.D_PC_B取料请求拍照;
+            ClearPlcPickWaitLatch(d);
+        }
+
+        private bool IsPlcPickWaitLatched(int d, ushort value)
+        {
+            if (value == 0)
+            {
+                ClearPlcPickWaitLatch(d);
+                return false;
+            }
+            return _plcPickRequestWaitLatch.TryGetValue(d, out bool latched) && latched;
+        }
+
+        private void LatchPlcPickRequestWait(int d)
+        {
+            if (d != 0) _plcPickRequestWaitLatch[d] = true;
+        }
+
+        /// <summary>放料请求：手动选位待下发时 D=1 即处理（便于重试）；否则 0→1 上升沿。失败后锁存至 PLC 清 0。</summary>
         private bool TryReadPlcPlaceRequest(StationData st, int d, out ushort value)
         {
             value = _plcSession.ReadUInt16(Hs.Holding(d));
+            if (IsPlcPlaceFailedLatched(d, value))
+                return false;
             if (st != null && value == 1)
             {
-                if (st.StartPieceAwaitingLivePlacePhoto)
-                    return true;
                 if (ShouldUseManualSlotSelect(st, IsLeftStation(st)) && st.ManualPendingSlotIndex >= 0)
                     return true;
             }
@@ -1100,6 +1378,30 @@ D_机器人运动中=-1
         {
             value = _plcSession.ReadUInt16(Hs.Holding(d));
             return value == 1;
+        }
+
+        /// <summary>
+        /// 手动指定放料：取料必须已选下一组，且个数只按该组批次计算（与自动模式「先定目标再取料」一致）。
+        /// 未选组或上一组待确认时不应答，D 保持 1，等选组/确认后再处理。
+        /// </summary>
+        private bool TryBeginManualPickOrDefer(StationData st, bool isLeft, int dReq, ushort reqVal, out string deferReason)
+        {
+            deferReason = null;
+            if (!ShouldUseManualSlotSelect(st, isLeft))
+                return true;
+
+            if (st.LastIssuedPlanIndex >= 0 && st.ManualPendingSlotIndex < 0)
+            {
+                deferReason = "上一组已下发待确认，请先在「现场放料确认」中确认后再选下一组取料";
+                return false;
+            }
+            if (st.ManualPendingSlotIndex < 0)
+            {
+                deferReason = "请先在「手动指定放料」界面选择下一组，再发取料请求";
+                return false;
+            }
+            ClearPlcPickWaitLatch(dReq);
+            return true;
         }
 
         /// <summary>PLC 当前是否有取料请求（D4018 或 D4020=1）；用于九点标定文件选择。</summary>
@@ -1223,7 +1525,10 @@ D_机器人运动中=-1
             return true;
         }
 
-        /// <summary>轮询：A/B 取料请求（读到 1，各工位独立识料）→ A/B 放料请求（0→1 上升沿），处理完写 0。</summary>
+        /// <summary>
+        /// 握手轮询主体（后台 Task）：报警/满料清零/换框指示/产量后，
+        /// 依次处理 A/B 取料（电平=1）与 A/B 放料（0→1 上升沿），每轮最多应答一个请求。
+        /// </summary>
         private async Task PlcHsProcessAsync()
         {
             PollPlcAlarmBits("握手轮询");
@@ -1663,13 +1968,19 @@ D_机器人运动中=-1
                 throw new OperationCanceledException("已进入现场暂停，等待继续运行");
         }
 
-        /// <summary>按规划序号解析本周期取/放个数（如 9 层末档 3 件时，最后一组首件不再误发 2）。</summary>
-        private static void GetCyclePickPlaceCounts(StationData st, int planIndex, out int pickQty, out int placeQty)
+        /// <summary>按握手组序号解析本周期取/放个数（与手动指定放料相同，按竖直档批次）。</summary>
+        private static void GetCyclePickPlaceCounts(StationData st, int handshakeIndex, out int pickQty, out int placeQty)
         {
             pickQty = placeQty = DefaultPickPlaceQty;
-            if (st == null || st.MaxLayers < 1 || planIndex < 0) return;
+            if (st == null || st.MaxLayers < 1 || handshakeIndex < 0) return;
+            if (!st.ManualSlotSelectEnabled)
+            {
+                int planIdx = ResolveHandshakePlanSlotIndex(st, handshakeIndex);
+                pickQty = placeQty = GetPlanBatchQty(planIdx, st.MaxRows, st.MaxCols, st.MaxLayers);
+                return;
+            }
             pickQty = placeQty = ZStackPlacement.GetPickPlaceQtyForPlanIndex(
-                planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
+                handshakeIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
         }
 
         /// <summary>当前规划位所在取料批次的起始序号（同批共用一个 PlaceQty）。</summary>
@@ -1690,12 +2001,27 @@ D_机器人运动中=-1
             float zAfterBatch = targetZ;
             if (st?.BoxPlan != null && st.BoxPlan.IsValid)
             {
-                int batchStart = GetGripBatchStartIndex(st, planIndex, placeQty);
-                int batchEnd = Math.Min(st.BoxPlan.Slots.Count - 1, batchStart + placeQty - 1);
-                for (int i = batchStart; i <= batchEnd; i++)
+                if (st.ManualSlotSelectEnabled)
                 {
-                    if (st.BoxPlan.TryGetSlot(i, out BoxPlanSlot s))
-                        zAfterBatch = Math.Max(zAfterBatch, s.Z);
+                    int perLayer = Math.Max(1, st.MaxRows * st.MaxCols);
+                    int startLayer = planIndex / perLayer;
+                    int pos = planIndex % perLayer;
+                    for (int k = 0; k < placeQty; k++)
+                    {
+                        int slotIndex = (startLayer + k) * perLayer + pos;
+                        if (st.BoxPlan.TryGetSlot(slotIndex, out BoxPlanSlot s))
+                            zAfterBatch = Math.Max(zAfterBatch, s.Z);
+                    }
+                }
+                else
+                {
+                    int batchStart = GetGripBatchStartIndex(st, planIndex, placeQty);
+                    int batchEnd = Math.Min(st.BoxPlan.Slots.Count - 1, batchStart + placeQty - 1);
+                    for (int i = batchStart; i <= batchEnd; i++)
+                    {
+                        if (st.BoxPlan.TryGetSlot(i, out BoxPlanSlot s))
+                            zAfterBatch = Math.Max(zAfterBatch, s.Z);
+                    }
                 }
             }
             return zAfterBatch
@@ -1718,6 +2044,7 @@ D_机器人运动中=-1
             _plcSession.WriteInt16(Hs.Holding(dPlaceCnt), (short)placeQty);
         }
 
+        /// <summary>写工位满料字（D4010/D4012），并锁存「等待 PLC 换箱后清零」；与 D4003 允许取框指示无联动。</summary>
         private void WritePlcFullMaterialFlag(StationData st, bool isLeft, bool isFull)
         {
             if (st != null)
@@ -1740,12 +2067,16 @@ D_机器人运动中=-1
             OnPlcFullMaterialClearedByPlc(st, isLeft, dFull);
         }
 
+        /// <summary>PLC 将满料字清 0：复位本箱进度与规划，下次放料请求重新拍照识箱。</summary>
         private void OnPlcFullMaterialClearedByPlc(StationData st, bool isLeft, int dFull)
         {
             st.PlcAwaitingBoxChangeAfterFull = false;
             st.IsFull = false;
             st.Layer = st.Row = st.Col = 0;
             st.ConfirmedPlacedCount = 0;
+            st.ConfirmedBearingCount = 0;
+            st.LastIssuedPlaceQty = 0;
+            st.ManualPickAckedForPending = false;
             ClearBoxPlacementState(st);
             ResetPlcPlaceBoxCycle(st);
             ClearLastIssuedPending(st);
@@ -1780,13 +2111,37 @@ D_机器人运动中=-1
             try
             {
                 ThrowIfMachineInterrupted($"{st.Name} 取料请求");
+                if (!TryBeginManualPickOrDefer(st, isLeft, dReq, reqVal, out string deferReason))
+                {
+                    if (!IsPlcPickWaitLatched(dReq, reqVal))
+                    {
+                        LatchPlcPickRequestWait(dReq);
+                        SafeInvoke(() => TEXT($"[PLC] {st.Name} 取料暂缓：{deferReason}（D{dReq} 保持=1，选组/确认后自动继续）"));
+                    }
+                    return true;
+                }
+
                 await RunVmStAsync(st, async () =>
                 {
                     if (st.MaxCols < 1 || st.MaxRows < 1 || st.MaxLayers < 1)
                         throw new InvalidOperationException("请先「确认产品与数量」以生成放料布局");
 
-                    int idx = GetPlacedCount(st);
-                    GetCyclePickPlaceCounts(st, idx, out pickQty, out int placeQty);
+                    if (IsBearingBoxFull(st))
+                        throw new InvalidOperationException("本箱轴承已满，请换箱后再取料");
+
+                    // 自动模式：按下一发握手组批次；手动模式：仅按已选待放组批次（与自动「目标已定再取料」一致）。
+                    int idx;
+                    int placeQty;
+                    if (ShouldUseManualSlotSelect(st, isLeft))
+                    {
+                        idx = GetGroupStartPlanIndex(st.ManualPendingSlotIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
+                        pickQty = placeQty = GetPlanBatchQty(idx, st.MaxRows, st.MaxCols, st.MaxLayers);
+                    }
+                    else
+                    {
+                        idx = ResolveNextHandshakeIndex(st);
+                        GetCyclePickPlaceCounts(st, idx, out pickQty, out placeQty);
+                    }
                     st.PickQty = pickQty;
                     st.PlaceQty = placeQty;
 
@@ -1819,6 +2174,7 @@ D_机器人运动中=-1
                 await Task.Delay(PlcPickAckDelayMs).ConfigureAwait(false);
                 ThrowIfMachineInterrupted($"{st.Name} 取料请求清零前");
                 PlcClr0(dReq);
+                ClearPlcPickWaitLatch(dReq);
                 int ackPick = pickQty;
                 int dPickCntAck = isLeft ? Hs.D_PC_A工位取料个数 : Hs.D_PC_B工位取料个数;
                 SafeInvoke(() => TEXT($"[PLC] {st.Name} 取料请求已应答：D{dPickCntAck}={ackPick}，D{dReq}=0"));
@@ -1944,29 +2300,34 @@ D_机器人运动中=-1
                         SafeInvoke(() => TEXT($"[PLC] {st.Name} 本箱已满，请换箱；PLC 清满料位后下次放料将自动拍照。"));
                         throw new InvalidOperationException("当前箱已满，请换箱（等待 PLC 清满料标识）");
                     }
+                    if (IsBearingBoxFull(st))
+                    {
+                        st.IsFull = true;
+                        SafeInvoke(() => PromptBoxChangeRequired(st));
+                        throw new InvalidOperationException("本箱轴承已满，请换箱");
+                    }
                     if (st.MaxCols < 1 || st.MaxRows < 1 || st.MaxLayers < 1)
                         throw new InvalidOperationException("请先「确认产品与数量」以生成放料布局");
 
-                    int cap = GetBoxPlanTotal(st);
+                    int placeCap = GetPlaceSlotCapacity(st);
                     int idx;
                     if (useManualSlot)
                     {
-                        if (st.ManualCompletedOrder.Count >= cap)
-                        {
-                            st.IsFull = true;
-                            SafeInvoke(() => PromptBoxChangeRequired(st));
-                            throw new InvalidOperationException("放料位已用完");
-                        }
                         idx = st.ManualPendingSlotIndex;
                         if (idx < 0)
-                            throw new InvalidOperationException("请先在「手动指定放料」界面选择下一个放料位");
+                            throw new InvalidOperationException("请先在「手动指定放料」界面选择下一组");
+                        idx = GetGroupStartPlanIndex(idx, st.MaxRows, st.MaxCols, st.MaxLayers);
+                        st.ManualPendingSlotIndex = idx;
                         if (ManualSlotIsCompleted(st, idx))
-                            throw new InvalidOperationException($"规划位第 {idx + 1} 件已确认放入，请另选放料位");
+                        {
+                            int physicalCap = st.BoxPlan?.Slots?.Count > 0 ? st.BoxPlan.Slots.Count : GetBearingCapacity(st);
+                            throw new InvalidOperationException($"第 {ResolveGroupIndex(idx, physicalCap, st.MaxRows, st.MaxCols, st.MaxLayers) + 1} 组已确认放入，请另选组");
+                        }
                     }
                     else
                     {
                         idx = GetPlacedCount(st);
-                        if (idx >= cap)
+                        if (idx >= placeCap)
                         {
                             st.IsFull = true;
                             SafeInvoke(() => PromptBoxChangeRequired(st));
@@ -1974,41 +2335,74 @@ D_机器人运动中=-1
                         }
                     }
 
-                    GetCyclePickPlaceCounts(st, useManualSlot ? st.ManualCompletedOrder.Count : idx, out int pickQty, out int placeQty);
+                    int pickQty, placeQty;
+                    if (useManualSlot)
+                        pickQty = placeQty = GetPlanBatchQty(idx, st.MaxRows, st.MaxCols, st.MaxLayers);
+                    else
+                        GetCyclePickPlaceCounts(st, idx, out pickQty, out placeQty);
                     st.PickQty = pickQty;
                     st.PlaceQty = placeQty;
-                    bool willBeFull = useManualSlot
-                        ? st.ManualCompletedOrder.Count + 1 >= cap
-                        : idx + 1 >= cap;
+                    if (!WillBoxBeFullAfterPlace(st, placeQty)
+                        && GetConfirmedBearingCount(st) + placeQty > GetBearingCapacity(st))
+                        throw new InvalidOperationException("本箱剩余容量不足，请换箱");
+
+                    bool willBeFull = WillBoxBeFullAfterPlace(st, placeQty);
 
                     ThrowIfMachineInterrupted($"{st.Name} 放料坐标下发前");
-                    if (!TryIssuePlaceTargetToPlc(st, isLeft, idx, out string err, out float wx, out float wy, out float wz, out float wrz))
+                    if (!TryIssuePlaceTargetToPlc(st, isLeft, idx, willBeFull, out string err, out float wx, out float wy, out float wz, out float wrz))
                         throw new InvalidOperationException(err ?? "无放料目标");
 
                     if (useManualSlot)
+                    {
                         st.ManualPendingSlotIndex = -1;
+                        st.ManualPickAckedForPending = false;
+                        st.RequireWorkerConfirmForLastIssue = true;
+                    }
                     ThrowIfMachineInterrupted($"{st.Name} 放料坐标已下发");
-                    int sent = useManualSlot ? st.ManualCompletedOrder.Count + 1 : idx + 1;
+                    int sent = idx + 1;
                     float logX = wx, logY = wy, logZ = wz, logRz = wrz;
                     int logPlace = placeQty;
                     bool logFull = willBeFull;
                     int issuedSlot = st.LastIssuedPlanIndex;
-                    SafeInvoke(() => TEXT($"[PLC] {st.Name} 下发第{sent}/{cap}件" +
-                        (useManualSlot ? $"（规划位第{issuedSlot + 1}）" : "") +
+                    int logBearing = GetConfirmedBearingCount(st);
+                    int logBearingCap = GetBearingCapacity(st);
+                    int physicalLogCap = st.BoxPlan?.Slots?.Count > 0 ? st.BoxPlan.Slots.Count : GetBearingCapacity(st);
+                    int logGroup = useManualSlot
+                        ? ResolveGroupIndex(issuedSlot, physicalLogCap, st.MaxRows, st.MaxCols, st.MaxLayers) + 1
+                        : sent;
+                    SafeInvoke(() => TEXT($"[PLC] {st.Name} 下发" +
+                        $"第{logGroup}/{placeCap}组放料" +
                         $" 放{logPlace}个" +
                         (logFull ? "，满料=1" : "") +
+                        $" 轴承{logBearing}+{logPlace}/{logBearingCap}" +
                         $" X={logX:F2} Y={logY:F2} Z={logZ:F2} RZ={logRz:F2}° → D{dPlace}" +
-                        (logFull ? "（本件放完后请确认已放入，随后换箱）" : "（待机器人放完后自动确认或暂停后人工确认）")));
+                        (useManualSlot
+                            ? "（请在「现场放料确认」中确认上一组后再选下一组）"
+                            : (logFull ? "（本件放完后请确认已放入，随后换箱）" : "（待机器人放完后自动确认或暂停后人工确认）"))));
                 }).ConfigureAwait(false);
 
                 await Task.Delay(PlcPickAckDelayMs).ConfigureAwait(false);
                 ThrowIfMachineInterrupted($"{st.Name} 放料请求清零前");
                 PlcClr0(dReq);
+                ClearPlcPlaceFailedLatch(dReq);
+
+                // 手动模式：放料应答完成后弹确认窗（与自动模式「先清 D 再处理后续」一致，不挡 PLC 清零）。
+                if (useManualSlot && st.LastIssuedPlanIndex >= 0)
+                {
+                    SafeInvoke(() =>
+                    {
+                        TEXT($"[确认] {st.Name} 本组坐标已下发，请确认现场是否已放入后再选下一组。");
+                        ShowWorkerAssistForStation(st, pendingRequired: true);
+                        UpdateProgressDisplay();
+                        if (currentStation == st) UpdateStationUI();
+                    });
+                }
             }
             catch (OperationCanceledException ex) { SafeInvoke(() => TEXT($"[PLC] {st.Name} 放料已中断：{ex.Message}，D{dReq} 保持等待 PLC 处理。")); }
             catch (Exception ex)
             {
                 SafeInvoke(() => TEXT($"[PLC] {st.Name} 放料失败: {ex.Message}"));
+                LatchPlcPlaceRequestFailed(dReq);
                 ArmPlcPlaceRequestEdgeForStation(isLeft);
             }
             return true;
@@ -2020,20 +2414,18 @@ D_机器人运动中=-1
             if (_jinwo.IsEnabled && _jinwo.IsLoaded && st.HasJinwoTrayConfig)
             {
                 int count = GetPlacedCount(st) + 1;
-                int cap = Math.Max(1, st.MaxCols * st.MaxRows * st.MaxLayers);
-                if (count >= cap)
-                    st.IsFull = true;
-                else
+                st.ConfirmedBearingCount = SumPlaceQtyForSequentialGroups(st, count);
+                SyncFullFromBearingCount(st);
+                if (!st.IsFull)
                     SyncStationProgressFromCount(st, count);
                 return;
             }
             st.Advance();
-            if (st.Layout == LayoutType.Matrix && st.Layer >= st.MaxLayers)
-                st.IsFull = true;
+            SyncFullFromBearingCount(st);
         }
 
         /// <summary>将规划表第 planIndex 件（0 基）的放料目标写入 PLC 寄存器。</summary>
-        private bool TryIssuePlaceTargetToPlc(StationData st, bool isLeft, int planIndex, out string error,
+        private bool TryIssuePlaceTargetToPlc(StationData st, bool isLeft, int planIndex, bool willBeFull, out string error,
             out float wx, out float wy, out float wz, out float wrz)
         {
             wx = wy = wz = wrz = 0f;
@@ -2044,19 +2436,24 @@ D_机器人运动中=-1
                 return false;
             }
             int idx = planIndex;
-            int cap = GetBoxPlanTotal(st);
-            if (idx >= cap)
+            int placeCap = GetPlaceSlotCapacity(st);
+            if (idx >= placeCap && !st.ManualSlotSelectEnabled)
             {
                 st.IsFull = true;
                 error = "放料位已用完";
                 return false;
             }
             int dPlace = isLeft ? Hs.D_A放料目标坐标X : Hs.D_B放料目标坐标X;
-            GetCyclePickPlaceCounts(st, idx, out int pickQty, out int placeQty);
+            int pickQty, placeQty;
+            if (st.ManualSlotSelectEnabled)
+                pickQty = placeQty = GetPlanBatchQty(idx, st.MaxRows, st.MaxCols, st.MaxLayers);
+            else
+                GetCyclePickPlaceCounts(st, idx, out pickQty, out placeQty);
             st.PickQty = pickQty;
             st.PlaceQty = placeQty;
+            st.LastIssuedPlaceQty = placeQty;
             WritePlcPickPlaceCounts(isLeft, pickQty, placeQty);
-            WritePlcFullMaterialFlag(st, isLeft, idx + 1 >= cap);
+            WritePlcFullMaterialFlag(st, isLeft, willBeFull);
             if (!TryWritePlaceTargetToPlc(st, isLeft, dPlace, idx, out wx, out wy, out wz, out wrz, out error))
                 return false;
             st.LastIssuedPlanIndex = idx;
@@ -2069,14 +2466,23 @@ D_机器人运动中=-1
             wx = wy = wz = wrz = 0f;
             error = null;
             int dCenter = isLeft ? Hs.D_A工位中心点X : Hs.D_B工位中心点X;
-            int cap = GetBoxPlanTotal(st);
-            if (placedCount >= cap)
+            if (!st.ManualSlotSelectEnabled)
             {
-                st.IsFull = true;
-                error = "放料位已用完";
+                int placeCap = GetPlaceSlotCapacity(st);
+                if (placedCount >= placeCap)
+                {
+                    st.IsFull = true;
+                    error = "放料位已用完";
+                    return false;
+                }
+            }
+            else if (st.BoxPlan != null && !st.BoxPlan.TryGetSlot(placedCount, out _))
+            {
+                error = "放料位无效";
                 return false;
             }
 
+            int cap = GetBoxPlanTotal(st);
             if (ShouldUseConfiguredPlace(st, isLeft))
             {
                 if (!TryResolveConfiguredPlaceWorld(isLeft, st, out wx, out wy, out wz, out wrz, out error))
@@ -2089,20 +2495,21 @@ D_机器人运动中=-1
                 return true;
             }
 
-            if (st.StartPieceAwaitingLivePlacePhoto)
+            if (st.SequentialStartPendingLiveAlign)
             {
-                error = "指定开始件须先完成首次放料请求现场拍照对齐坐标";
+                error = "指定开始组须先完成首次放料请求现场拍照对齐坐标";
                 return false;
             }
 
-            if (st.BoxPlan != null && st.BoxPlan.TryGetSlot(placedCount, out BoxPlanSlot slot))
+            int boxPlanIndex = ResolveSequentialBoxPlanSlotIndex(st, placedCount);
+            if (st.BoxPlan != null && st.BoxPlan.TryGetSlot(boxPlanIndex, out BoxPlanSlot slot))
             {
                 wx = slot.WorldX;
                 wy = slot.WorldY;
                 wz = slot.Z;
                 wrz = slot.Rz;
                 TryResolvePlaceCenterXY(st, isLeft, wx, wy, out float cx, out float cy);
-                PlcWritePlaceCenterThenTarget(st, isLeft, dCenter, dTarget, placedCount, cx, cy, wx, wy, wz, wrz);
+                PlcWritePlaceCenterThenTarget(st, isLeft, dCenter, dTarget, boxPlanIndex, cx, cy, wx, wy, wz, wrz);
                 string stationName = st.Name;
                 string slotLabel = slot.Label;
                 float logX = wx, logY = wy, logZ = wz, logRz = wrz;
@@ -2165,7 +2572,7 @@ D_机器人运动中=-1
             finally { currentStation = bak; }
         }
 
-        /// <summary>向 D_PC心跳 交替写入 0、1（每秒一次，与界面 timer 同步）。</summary>
+        /// <summary>向 D_PC心跳 交替写入 0、1；由后台心跳循环调用，不占用界面 timer。</summary>
         private void PlcHeartbeatTick()
         {
             if (!_plcConfig.Enabled) return;
@@ -2184,7 +2591,6 @@ D_机器人运动中=-1
             if (!Hs.HandshakeEnabled) return;
             try
             {
-                PollPlcFieldInterruptSignals("心跳");
                 _plcHeartbeatValue = (ushort)(_plcHeartbeatValue == 0 ? 1 : 0);
                 _plcSession.WriteUInt16(Hs.Holding(Hs.D_PC心跳), _plcHeartbeatValue, logSend: false);
             }
@@ -2231,6 +2637,8 @@ D_机器人运动中=-1
                 case "PLC_INTRO": return 1202;
                 case "MALIAO_EXCEPTION": return 1301;
                 case "PLC_DISCONNECT": return 1401;
+                case "CAMERA_CONNECT_FAIL": return 1501;
+                case "CAMERA_CAPTURE_FAIL": return 1502;
                 default: return 1999;
             }
         }
@@ -2587,17 +2995,7 @@ D_机器人运动中=-1
         public void Plc_AdvanceAfterPlace()
         {
             if (currentStation == null) return;
-            if (_jinwo.IsEnabled && _jinwo.IsLoaded && currentStation.HasJinwoTrayConfig)
-            {
-                int count = GetPlacedCount(currentStation) + 1;
-                int cap = Math.Max(1, currentStation.MaxCols * currentStation.MaxRows * currentStation.MaxLayers);
-                if (count >= cap)
-                    currentStation.IsFull = true;
-                else
-                    SyncStationProgressFromCount(currentStation, count);
-            }
-            else
-                currentStation.Advance();
+            AdvanceStationAfterPlcPlace(currentStation);
             RefreshStationPickPlaceQtyUi(currentStation);
             UpdateProgressDisplay();
         }
@@ -2633,8 +3031,8 @@ D_机器人运动中=-1
             });
         }
 
-        /// <summary>指定开始件：现场放料拍照后，按已放件数用金沃 DLL 刷新规划表世界坐标。</summary>
-        private bool TryRealignStartPieceBoxPlanFromLiveImage(StationData st, string imagePath, out string error)
+        /// <summary>指定开始组：现场放料拍照后，按已跳过组数用金沃 DLL 刷新规划表世界坐标。</summary>
+        private bool TryRealignSequentialStartBoxPlanFromLiveImage(StationData st, string imagePath, out string error)
         {
             error = null;
             if (st?.BoxPlan == null || !st.BoxPlan.IsValid)
@@ -2648,8 +3046,9 @@ D_机器人运动中=-1
                 return false;
             }
 
-            int placedCount = GetPlacedCount(st);
-            int nextPiece = placedCount + 1;
+            int placedGroups = GetPlacedCount(st);
+            int alignFromPhysical = ResolveHandshakePlanSlotIndex(st, placedGroups);
+            int nextGroup = placedGroups + 1;
             if (!_jinwo.IsEnabled || !_jinwo.IsLoaded || !st.HasJinwoTrayConfig)
             {
                 error = "金沃算法未就绪，无法现场对齐规划坐标";
@@ -2659,25 +3058,26 @@ D_机器人运动中=-1
             try
             {
                 var cfg = st.JinwoTray;
-                var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, placedCount, ResolveNinePointCalibIsLeft(st), out string effectPath);
+                var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, alignFromPhysical, ResolveNinePointCalibIsLeft(st), out string effectPath);
                 st.JinwoTray = cfg;
                 int layerFloor = GetTrayLayerCountFloor(st);
                 SyncStationGridFromCenters(st, centers);
                 ApplyTrayLayerCountFloor(st, layerFloor);
-                // 现场识箱可能改变 MaxRows/MaxCols，须按已放件数重算 Layer/Row/Col，否则 GetPlacedCount 会回到第 1 件。
-                SyncStationProgressFromCount(st, placedCount);
+                ApplyAlgorithmGridFromRecognition(st, ref cfg, persistIni: placedGroups < 1);
+                // 现场识箱可能改变 MaxRows/MaxCols，须按已放组数重算 Layer/Row/Col。
+                SyncStationProgressFromCount(st, placedGroups);
                 JinwoPlacementOrder.SortCenters(centers, st.MaxRows, st.MaxCols);
                 int effRows = 0, effCols = 0, capacity = 0;
                 _jinwo.TryGetEffectiveGrid(ref cfg, out effRows, out effCols, out capacity);
 
-                if (centers == null || centers.Length <= placedCount)
+                if (centers == null || centers.Length <= alignFromPhysical)
                 {
-                    error = $"现场识箱返回 {centers?.Length ?? 0} 个位，不足以下发第 {nextPiece} 件（已放 {placedCount} 件）";
+                    error = $"现场识箱返回 {centers?.Length ?? 0} 个位，不足以下发第 {nextGroup} 组（已跳过 {placedGroups} 组）";
                     return false;
                 }
 
                 int slotCount = st.BoxPlan.Slots.Count;
-                int alignFrom = placedCount;
+                int alignFrom = alignFromPhysical;
                 int updateCount = Math.Min(slotCount - alignFrom, centers.Length - alignFrom);
                 for (int k = 0; k < updateCount; k++)
                 {
@@ -2702,17 +3102,17 @@ D_机器人运动中=-1
                 st.BoxPlan.CenterWorldY = centerY;
                 st.BoxPlan.ImagePath = imagePath;
                 st.BoxPlan.CreatedLocalTime = DateTime.Now;
-                st.StartPieceAwaitingLivePlacePhoto = false;
+                st.SequentialStartPendingLiveAlign = false;
 
                 string stationName = st.Name;
-                int logNext = nextPiece;
-                int logPlaced = placedCount;
+                int logNextGroup = nextGroup;
+                int logSkippedGroups = placedGroups;
                 int logAligned = updateCount;
                 float logCx = centerX, logCy = centerY;
                 string logEffect = effectPath;
                 SafeInvoke(() =>
                 {
-                    TEXT($"[指定开始件] {stationName} 现场放料拍照完成：已按已放 {logPlaced} 件对齐 {logAligned} 个规划位，下一发第 {logNext} 件");
+                    TEXT($"[指定开始组] {stationName} 现场放料拍照完成：已按跳过 {logSkippedGroups} 组对齐 {logAligned} 个规划位，下一发第 {logNextGroup} 组");
                     TEXT($"[规划] {stationName} 工位中心点 X={logCx:F2} Y={logCy:F2}（{slotCount} 位均值）");
                     if (!string.IsNullOrEmpty(logEffect))
                         TryDisplayJinwoEffectImage(logEffect, GetJinwoFallbackPreviewPath(imagePath, IsLeftStation(st)), IsLeftStation(st));
@@ -2733,10 +3133,10 @@ D_机器人运动中=-1
                 return (false, "放料拍照/识箱失败");
 
             string imagePath = _jinwo.ResolveCaptureImagePath(IsLeftStation(st));
-            if (st.StartPieceAwaitingLivePlacePhoto && st.BoxPlan != null && st.BoxPlan.IsValid)
+            if (st.SequentialStartPendingLiveAlign && st.BoxPlan != null && st.BoxPlan.IsValid)
             {
-                if (!TryRealignStartPieceBoxPlanFromLiveImage(st, imagePath, out string alignErr))
-                    return (false, alignErr ?? "指定开始件现场对齐失败");
+                if (!TryRealignSequentialStartBoxPlanFromLiveImage(st, imagePath, out string alignErr))
+                    return (false, alignErr ?? "指定开始组现场对齐失败");
                 return (true, null);
             }
 
@@ -2805,8 +3205,8 @@ D_机器人运动中=-1
             }
         }
 
-        /// <summary>顺序放料：将进度设为「下一发第 startPiece 件」（1 基），后续流程与正常放料一致。</summary>
-        private bool TrySetSequentialStartPiece(StationData st, bool isLeft, int startPiece, out string error)
+        /// <summary>顺序放料：将进度设为「下一发第 startGroup 组」（1 基），后续与正常按组放料一致。</summary>
+        private bool TrySetSequentialStartGroup(StationData st, bool isLeft, int startGroup, out string error)
         {
             error = null;
             if (st == null)
@@ -2816,7 +3216,7 @@ D_机器人运动中=-1
             }
             if (_machine.IsAutoRunning)
             {
-                error = "自动码放运行中不能修改起始件";
+                error = "自动码放运行中不能修改起始组";
                 return false;
             }
             if (st.ManualSlotSelectEnabled)
@@ -2826,12 +3226,12 @@ D_机器人运动中=-1
             }
             if (ShouldUseConfiguredPlace(st, isLeft))
             {
-                error = "设定放料位模式不支持指定开始件";
+                error = "设定放料位模式不支持指定开始组";
                 return false;
             }
             if (st.LastIssuedPlanIndex >= 0)
             {
-                error = "存在待确认的已下发件，请先在「放料确认」处理";
+                error = "存在待确认的已下发组，请先在「放料确认」处理";
                 return false;
             }
             if (st.MaxCols < 1 || st.MaxRows < 1 || st.MaxLayers < 1)
@@ -2841,44 +3241,50 @@ D_机器人运动中=-1
             }
             if (st.BoxPlan == null || !st.BoxPlan.IsValid)
             {
-                error = "尚无规划表，请先在「指定开始件」中空箱拍照识箱";
+                error = "尚无规划表，请先在「指定开始组」中空箱拍照识箱";
                 return false;
             }
 
-            int cap = GetBoxPlanTotal(st);
-            if (startPiece < 1 || startPiece > cap)
+            int groupCount = GetPlacementGroupCount(st);
+            if (startGroup < 1 || startGroup > groupCount)
             {
-                error = $"请指定 1~{cap} 之间的件号";
+                error = $"请指定 1~{groupCount} 之间的组号";
                 return false;
             }
 
-            int confirmedCount = startPiece - 1;
+            int confirmedCount = startGroup - 1;
             int prev = GetPlacedCount(st);
-            if (confirmedCount == prev && !st.IsFull)
+            if (confirmedCount == prev && !st.IsFull && !st.SequentialStartPendingLiveAlign)
             {
-                error = $"当前下一发已是第 {startPiece} 件";
+                error = $"当前下一发已是第 {startGroup} 组";
                 return false;
             }
 
             SyncProgressAndFullFromConfirmedCount(st, confirmedCount);
             ClearLastIssuedPending(st);
             st.ManualPendingSlotIndex = -1;
+            st.SequentialStartPendingLiveAlign = true;
+            st.PlcPlaceBoxVisionDone = false;
 
             TextBox tbP = isLeft ? textBoxLeftPickQty : textBoxRightPickQty;
             TextBox tbQ = isLeft ? textBoxLeftPlaceQty : textBoxRightPlaceQty;
             SyncPickPlaceQtyFromZTier(st, tbP, tbQ);
 
+            int planSlot = ResolveHandshakePlanSlotIndex(st, confirmedCount);
+            int batchQty = GetPlanBatchQty(planSlot, st.MaxRows, st.MaxCols, st.MaxLayers);
+            string pattern = ZStackPlacement.FormatBatchPattern(st.MaxLayers);
             if (confirmedCount > prev)
-                TEXT($"[放料] {st.Name} 已跳过前 {confirmedCount} 件，下一发第 {startPiece} 件（视为箱内已放好）。");
+                TEXT($"[放料] {st.Name} 已补全前 {confirmedCount} 组（{GetConfirmedBearingCount(st)} 件），下一发第 {startGroup} 组（{pattern}，本组放{batchQty}）。");
             else if (confirmedCount < prev)
-                TEXT($"[放料] {st.Name} 已回退到第 {startPiece} 件起放（已确认 {confirmedCount} 件）。");
+                TEXT($"[放料] {st.Name} 已回退到第 {startGroup} 组起放（已确认 {confirmedCount} 组）。");
             else
-                TEXT($"[放料] {st.Name} 下一发第 {startPiece} 件。");
+                TEXT($"[放料] {st.Name} 下一发第 {startGroup} 组（{pattern}，本组放{batchQty}）。");
 
             int dPick = isLeft ? Hs.D_PC_A取料请求拍照 : Hs.D_PC_B取料请求拍照;
             int dPlace = isLeft ? Hs.D_PC_A放料请求拍照 : Hs.D_PC_B放料请求拍照;
-            TEXT($"[PLC] {st.Name} 离线规划已就绪，流程与正常自动相同：取料请求 D{dPick} → 放料请求 D{dPlace}。" +
-                $"首次放料请求将现场拍照并按已放 {confirmedCount} 件算第 {startPiece} 件坐标，之后不再重复拍照。");
+            ClearPlcPlaceFailedLatch(dPlace);
+            TEXT($"[PLC] {st.Name} 指定开始组已就绪（与自动模式相同）：取料 D{dPick} → 放料 D{dPlace}。" +
+                $"已补全前 {confirmedCount} 组进度，下一发第 {startGroup} 组；首次放料请求现场拍照对齐坐标。");
 
             KickPlcHandshakeAfterStartPiece(st, isLeft);
 
@@ -2890,9 +3296,19 @@ D_机器人运动中=-1
         private static int GetPlacedCount(StationData st)
         {
             if (st == null) return 0;
-            if (st.ManualSlotSelectEnabled)
-                return st.ManualCompletedOrder?.Count ?? 0;
             return Math.Max(0, st.ConfirmedPlacedCount);
+        }
+
+        /// <summary>
+        /// 下一发握手的序号（0 基）。取料先于放料且上一件在下次放料门闸才确认，
+        /// 故有待下发件时用 LastIssuedPlanIndex+1，否则用已确认数。
+        /// </summary>
+        private static int ResolveNextHandshakeIndex(StationData st)
+        {
+            if (st == null) return 0;
+            if (st.LastIssuedPlanIndex >= 0)
+                return st.LastIssuedPlanIndex + 1;
+            return GetPlacedCount(st);
         }
 
         private static void SyncStationProgressFromCount(StationData st, int count)
@@ -2944,29 +3360,38 @@ D_机器人运动中=-1
                 return false;
             }
 
-            if (ShouldUseHikCamera(IsLeftStation(currentStation)) && _hikCameraConnected)
+            bool isLeft = IsLeftStation(currentStation);
+            if (CanUseHikCameraForCapture(isLeft))
             {
-                bool ok = await TryHikvisionCaptureAsync(IsLeftStation(currentStation)).ConfigureAwait(false);
+                bool ok = await TryHikvisionCaptureAsync(isLeft).ConfigureAwait(false);
                 SafeInvoke(() => TEXT(ok
                     ? $"[海康→金沃] {step}：MVS 已采图"
-                    : $"[海康→金沃] {step}：MVS 采图失败"));
+                    : $"[海康→金沃] {step}：MVS 采图失败，已禁止使用旧图继续"));
                 return ok;
             }
 
-            string path = _jinwo.ResolveCaptureImagePath(IsLeftStation(currentStation));
+            string path = _jinwo.ResolveCaptureImagePath(isLeft);
             bool exists = File.Exists(path);
-            SafeInvoke(() => TEXT(exists
-                ? $"[金沃] {step}：使用采图 {Path.GetFileName(path)}"
-                : $"[金沃] {step}：无采图，请先海康拍照或加载测试图"));
-            return exists;
+            if (!exists)
+            {
+                SafeInvoke(() => TEXT($"[金沃] {step}：无采图，请先为{(isLeft ? "左" : "右")}机台海康拍照或加载测试图"));
+                return false;
+            }
+            if (!CanUseAlgorithmCaptureForSide(isLeft, path, out string captureReason))
+            {
+                SafeInvoke(() => TEXT($"[金沃] {step}：禁止复用采图 {Path.GetFileName(path)}（{captureReason}），请先为{(isLeft ? "左" : "右")}机台重新采图"));
+                return false;
+            }
+            SafeInvoke(() => TEXT($"[金沃] {step}：使用{(isLeft ? "左" : "右")}机台采图 {Path.GetFileName(path)}"));
+            return true;
         }
 
         private void TryJinwoUpdateBoxPoseFromMarkers(StationData st)
         {
             try
             {
-                // 指定开始件：后续 TryRealignStartPieceBoxPlanFromLiveImage 会按已放件数对齐；此处若用 0 算位会覆盖已跳过进度。
-                if (st.StartPieceAwaitingLivePlacePhoto)
+                // 指定开始组：现场对齐会按已放组数刷新；此处若用 0 算位会覆盖已跳过进度。
+                if (st.SequentialStartPendingLiveAlign)
                     return;
 
                 bool isLeft = IsLeftStation(st);
@@ -3101,7 +3526,8 @@ D_机器人运动中=-1
             target = PlcPlacementTarget.Empty;
             error = null;
             int count = GetPlacedCount(st);
-            if (st.BoxPlan != null && st.BoxPlan.TryGetSlot(count, out BoxPlanSlot slot))
+            int boxPlanIndex = ResolveSequentialBoxPlanSlotIndex(st, count);
+            if (st.BoxPlan != null && st.BoxPlan.TryGetSlot(boxPlanIndex, out BoxPlanSlot slot))
             {
                 target = new PlcPlacementTarget(slot.Col, slot.Row, slot.Z, slot.WorldX, slot.WorldY, slot.Rz, true);
                 return true;
