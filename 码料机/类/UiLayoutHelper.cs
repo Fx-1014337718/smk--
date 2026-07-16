@@ -23,8 +23,9 @@ namespace 码料机
         public static readonly Font DialogTitle = new Font(FontFamily, 15F, FontStyle.Bold, GraphicsUnit.Point);
         public static readonly Font DialogButton = new Font(FontFamily, 12.5F, FontStyle.Bold, GraphicsUnit.Point);
 
-        public const float LabeledComboRowHeight = 46f;
-        public const float QtyInputRowHeight = 48f;
+        /// <summary>机台操作区「标题+下拉」中下拉行高度（须大于 Combo 可视高度，避免点选困难）。</summary>
+        public const float LabeledComboRowHeight = 56f;
+        public const float QtyInputRowHeight = 52f;
         /// <summary>预览区工具栏、换框按钮行统一可视高度（含 12pt 字体与内边距）。</summary>
         public const int PreviewToolbarButtonHeight = 44;
         /// <summary>换框操作区：按钮行、指示条行固定高度，避免 TableLayout 在空间不足时压扁控件。</summary>

@@ -2,7 +2,6 @@
 // BOX.cs — 箱体尺寸设置子窗体：读写箱体 INI、删除节点、保存后通知主窗体刷新
 // =============================================================================
 using System;
-using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 
@@ -21,10 +20,6 @@ namespace 码料机
             InitializeComponent();
             UiLayoutHelper.ApplyDialogChrome(this);
             cc = ms;
-            Size = new Size(480, 580);
-            MaximizeBox = false;
-            StartPosition = FormStartPosition.CenterScreen;
-            Text = "箱体设置";
             _productIniPath = cc.path;
             _boxIniPath = cc.pathBOX;
 

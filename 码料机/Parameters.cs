@@ -1,5 +1,4 @@
 using System;
-using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 
@@ -19,10 +18,6 @@ namespace 码料机
             InitializeComponent();
             UiLayoutHelper.ApplyDialogChrome(this);
             cc = ms;
-            Size = new Size(480, 580);
-            MaximizeBox = false;
-            StartPosition = FormStartPosition.CenterScreen;
-            Text = "产品参数设置";
 
             textBox1.TextChanged += MarkDirty;
             textBox2.TextChanged += MarkDirty;

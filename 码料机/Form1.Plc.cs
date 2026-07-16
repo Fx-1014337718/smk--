@@ -33,7 +33,11 @@ namespace 码料机
         public static PlcPeekPlacementResult Fail => new PlcPeekPlacementResult(false, PlcPlacementTarget.Empty); // 失败常量
     }
 
-    /// <summary>PLC 相关成员所在分部（Modbus、握手 Timer/心跳 Task、取放料、满料与换框、对外脚本 API）。</summary>
+    /// <summary>
+    /// PLC 相关成员所在分部（Modbus、握手定时器、取/放料请求与坐标下发、满料与换框）。
+    /// <para>性能相关：连接/重连与心跳在后台线程；握手 Timer 仅投递 Task；收发明细默认只写 log 文件。</para>
+    /// <para>生命周期：关窗置 <c>_plcLifecycleEnded</c>，禁止后台再启心跳或握手 Timer。</para>
+    /// </summary>
     public partial class Form1
     {
         private PlcConfig _plcConfig = new PlcConfig(); // 从 PLC配置.ini 加载的运行时配置
@@ -41,6 +45,12 @@ namespace 码料机
         /// <summary>约 150ms 周期轮询 PLC 取/放料请求字；实际读写在 Tick 内 Task.Run 后台执行。</summary>
         private System.Windows.Forms.Timer _plcHandshakeTimer; // 周期性轮询 PLC 请求字并写坐标
         private volatile bool _plcHandshakeBusy; // 防止 Tick 重入
+        /// <summary>为 true 时握手 Timer 立即忽略 Tick（停表/重连时用，避免等 UI Invoke）。</summary>
+        private volatile bool _plcHandshakeSuspended;
+        /// <summary>缓存链路是否可用，供 UI 线程 Tick 判断，避免在界面上 Poll 套接字。</summary>
+        private volatile bool _plcLinkAlive;
+        /// <summary>窗体正在关闭或已释放：后台 Init/重连不得再启心跳或 Timer。</summary>
+        private volatile bool _plcLifecycleEnded;
         private readonly object _plcDisconnectLock = new object();
         private bool _plcDisconnectNotified; // 断线后只处理一次，避免日志刷屏
         private volatile bool _plcReconnectBusy;
@@ -658,30 +668,37 @@ D_机器人运动中=-1
         /// <summary>启动时初始化 PLC：尝试连接；失败则预约自动重连，并启动心跳后台 Task。</summary>
         private void InitPlcSession()
         {
+            if (_plcLifecycleEnded) return;
             _plcNextReconnectUtc = DateTime.MinValue;
             if (!TryConnectPlcSession(isStartup: true))
                 SchedulePlcAutoReconnect(PlcReconnectFirstDelayMs);
+            if (_plcLifecycleEnded) return;
             StartPlcHeartbeatWorker();
         }
 
-        /// <summary>建立 Modbus 连接并恢复握手；失败时标记断线并安排自动重连。</summary>
+        /// <summary>建立 Modbus 连接并恢复握手；失败时标记断线并安排自动重连。可在后台线程调用。</summary>
         private bool TryConnectPlcSession(bool isStartup)
         {
+            if (_plcLifecycleEnded) return false;
+            // 连接过程中禁止心跳误判断线、禁止握手 Tick 抢会话
+            _plcHandshakeSuspended = true;
+            _plcLinkAlive = false;
             StopPlcHandshakeTimer();
             WaitPlcHandshakeIdle();
+            if (_plcLifecycleEnded) return false;
             EnsurePlcIni(PlcIniPath);
             _plcConfig = PlcConfig.Load(PlcIniPath);
             _plcSession?.Dispose();
             _plcSession = new PlcModbusSession(_plcConfig);
-            PlcModbusSession.OnSendLog = msg => SafeInvoke(() => TEXT(msg));
-            PlcModbusSession.OnReceiveLog = msg => SafeInvoke(() => TEXT(msg));
+            // 收发明细只写 log 文件，避免重连/握手时 BeginInvoke 刷爆 listBox 卡住界面
+            PlcModbusSession.OnSendLog = null;
+            PlcModbusSession.OnReceiveLog = null;
             ProcessPipelineLog.OnUiLog = msg => SafeInvoke(() => TEXT(msg));
 
             if (isStartup)
             {
                 TEXT($"[PLC] 配置: {PlcIniPath}");
-                TEXT("[PLC] 发送日志: 界面列表 + log\\PlcSend.log");
-                TEXT("[PLC] 接收日志: 界面列表 + log\\PlcReceive.log（PLC 寄存器变化 + 请求拍照等）");
+                TEXT("[PLC] 收发明细: log\\PlcSend.log / PlcReceive.log（界面仅保留关键状态）");
                 TEXT("[流水线] 采图处理日志: 界面列表 + log\\ImageProcess.log");
                 TEXT($"[PLC] 启用={_plcConfig.Enabled} 握手={_plcConfig.Handshake.HandshakeEnabled} " +
                      $"自动重连={_plcConfig.AutoReconnectEnabled} 间隔={_plcConfig.ReconnectIntervalMs}ms " +
@@ -691,6 +708,7 @@ D_机器人运动中=-1
 
             if (!_plcConfig.Enabled)
             {
+                _plcLinkAlive = false;
                 RefreshPlcUi(false, "已禁用");
                 if (isStartup)
                     TEXT("[PLC] 未连接（配置为禁用；请检查 ini 中 Connection/Enabled 或 连接/启用）");
@@ -700,8 +718,15 @@ D_机器人运动中=-1
             try
             {
                 _plcSession.Connect();
+                if (_plcLifecycleEnded)
+                {
+                    try { _plcSession.Dispose(); } catch { }
+                    _plcSession = null;
+                    return false;
+                }
                 lock (_plcDisconnectLock) { _plcDisconnectNotified = false; }
                 _plcNextReconnectUtc = DateTime.MinValue;
+                _plcLinkAlive = true;
                 RefreshPlcUi(true, $"{_plcConfig.Ip}:{_plcConfig.Port}");
                 TEXT($"[PLC] 已连接 {_plcConfig.Ip}:{_plcConfig.Port} 站{_plcConfig.SlaveId}" +
                      (isStartup ? "" : "（自动重连）"));
@@ -710,6 +735,7 @@ D_机器人运动中=-1
             }
             catch (Exception ex)
             {
+                _plcLinkAlive = false;
                 StopPlcHandshakeTimer();
                 lock (_plcDisconnectLock) { _plcDisconnectNotified = true; }
                 RefreshPlcUi(false, _plcConfig.AutoReconnectEnabled ? "重连中…" : "未连接");
@@ -728,6 +754,7 @@ D_机器人运动中=-1
         /// </summary>
         private void StartPlcHeartbeatWorker()
         {
+            if (_plcLifecycleEnded) return;
             if (_plcHeartbeatTask != null && !_plcHeartbeatTask.IsCompleted) return;
 
             _plcHeartbeatCts?.Dispose();
@@ -736,7 +763,7 @@ D_机器人运动中=-1
             // 后台线程：约 1s 一轮，不阻塞 UI；取消令牌在 StopPlcHeartbeatWorker 中触发
             _plcHeartbeatTask = Task.Run(async () =>
             {
-                while (!token.IsCancellationRequested)
+                while (!token.IsCancellationRequested && !_plcLifecycleEnded)
                 {
                     try
                     {
@@ -778,12 +805,19 @@ D_机器人运动中=-1
 
         private void ApplyPlcSessionAfterConnect(bool isStartup)
         {
+            if (_plcLifecycleEnded) return;
             if (_plcConfig.Handshake.HandshakeEnabled)
             {
                 _plcHeartbeatValue = 0;
                 TryPcRun(1);
                 SyncMachineStateToPlc();
-                PlcHeartbeatTick();
+                // 勿再调 PlcHeartbeatTick：其中含重连逻辑，且当前已在连接路径上
+                try
+                {
+                    _plcHeartbeatValue = 1;
+                    _plcSession.WriteUInt16(Hs.Holding(Hs.D_PC心跳), _plcHeartbeatValue, logSend: false);
+                }
+                catch { }
                 PushConfiguredPositionsToPlc();
                 PushTrackBufferCountsToPlc();
                 if (Hs.PlcAlarmPollEnabled && IsConfiguredPlcD(Hs.D_PLC报警字))
@@ -795,8 +829,11 @@ D_机器人运动中=-1
                     }
                     catch { }
                 }
-                SafeInvoke(() =>
+                // 边缘同步在后台完成，UI 只负责启停 Timer
+                SyncPlcPhotoRequestEdgeState();
+                PostToUiThread(() =>
                 {
+                    if (_plcLifecycleEnded) return;
                     RefreshPlcAlarmStatusUi(_lastPlcAlarmWord);
                     RestartPlcHandshakeTimerCore();
                 });
@@ -824,6 +861,7 @@ D_机器人运动中=-1
         /// <summary>心跳后台循环调用：断线后按间隔后台尝试重连。</summary>
         private void PlcTryAutoReconnectTick()
         {
+            if (_plcLifecycleEnded) return;
             if (_plcConfig == null || !_plcConfig.Enabled || !_plcConfig.AutoReconnectEnabled) return;
             if (_plcSession?.IsConnected == true) return;
             if (_plcReconnectBusy) return;
@@ -891,6 +929,7 @@ D_机器人运动中=-1
             }
 
             try { _plcSession?.Disconnect(); } catch { }
+            _plcLinkAlive = false;
             StopPlcHandshakeTimer();
 
             string detail = string.IsNullOrWhiteSpace(reason) ? "通信中断" : reason.Trim();
@@ -1094,10 +1133,15 @@ D_机器人运动中=-1
         {
             if (!(sender is Button btn) || btn.Tag == null) return;
             int bit = (int)btn.Tag;
-            PulsePlcFrameBit(bit, btn.Text);
+            string name = btn.Text;
+            // 读-改-写 + 80ms 脉冲放到后台，避免卡住界面
+            Task.Run(() => PulsePlcFrameBit(bit, name));
         }
 
-        /// <summary>向换框字 D4003 指定位写短脉冲（约 80ms），用于「换框」「换框完成」；不清满料、不复位规划。</summary>
+        /// <summary>
+        /// 向换框字 D4003 指定位写短脉冲（约 80ms），用于「换框」「换框完成」。
+        /// 仅通知 PLC，不清满料、不复位本箱规划/进度（与「换箱重来」无关）。
+        /// </summary>
         private void PulsePlcFrameBit(int bitIndex, string name)
         {
             if (!_plcConfig.Enabled || !IsConfiguredPlcD(Hs.D_PC换框操作))
@@ -1105,7 +1149,7 @@ D_机器人运动中=-1
                 TEXT("[换框] 未配置 D" + Hs.D_PC换框操作);
                 return;
             }
-            if (_plcSession?.IsConnected != true)
+            if (_plcSession?.IsConnected != true || !_plcLinkAlive)
             {
                 TEXT("[换框] PLC 未连接，无法写入 " + name);
                 return;
@@ -1122,12 +1166,19 @@ D_机器人运动中=-1
             }
             catch (Exception ex)
             {
-                TEXT("[换框] 写入失败 " + name + ": " + ex.Message);
+                if (IsPlcCommunicationFailure(ex))
+                    HandlePlcConnectionLost("换框脉冲写入失败", ex);
+                else
+                    TEXT("[换框] 写入失败 " + name + ": " + ex.Message);
             }
         }
 
-        /// <summary>在 UI 线程停止并释放握手轮询 Timer。</summary>
-        private void StopPlcHandshakeTimer() => InvokeOnUiThread(StopPlcHandshakeTimerCore);
+        /// <summary>在 UI 线程停止并释放握手轮询 Timer（异步投递，不阻塞后台重连）。</summary>
+        private void StopPlcHandshakeTimer()
+        {
+            _plcHandshakeSuspended = true;
+            PostToUiThread(StopPlcHandshakeTimerCore);
+        }
 
         private void StopPlcHandshakeTimerCore()
         {
@@ -1136,29 +1187,35 @@ D_机器人运动中=-1
             _plcHandshakeTimer = null;
         }
 
-        /// <summary>在 UI 线程重建约 150ms 握手 Timer，并同步放料请求上升沿状态。</summary>
-        private void RestartPlcHandshakeTimer() => InvokeOnUiThread(RestartPlcHandshakeTimerCore);
+        /// <summary>后台同步请求沿状态后，在 UI 线程重建约 150ms 握手 Timer。</summary>
+        private void RestartPlcHandshakeTimer()
+        {
+            if (!_plcConfig.Enabled || !_plcConfig.Handshake.HandshakeEnabled) return;
+            Task.Run(() =>
+            {
+                SyncPlcPhotoRequestEdgeState();
+                PostToUiThread(RestartPlcHandshakeTimerCore);
+            });
+        }
 
         private void RestartPlcHandshakeTimerCore()
         {
             StopPlcHandshakeTimerCore();
-            if (!_plcConfig.Enabled || !_plcConfig.Handshake.HandshakeEnabled || _plcSession == null || !_plcSession.IsConnected) return;
-            SyncPlcPhotoRequestEdgeState();
+            if (_plcLifecycleEnded) return;
+            if (!_plcConfig.Enabled || !_plcConfig.Handshake.HandshakeEnabled || _plcSession == null || !_plcLinkAlive)
+                return;
+            _plcHandshakeSuspended = false;
             _plcHandshakeTimer = new System.Windows.Forms.Timer { Interval = 150 };
             _plcHandshakeTimer.Tick += PlcHsTick;
             _plcHandshakeTimer.Start();
         }
 
-        /// <summary>WinForms 控件/Timer 须在 UI 线程操作；后台重连等路径同步切回。</summary>
-        private void InvokeOnUiThread(Action action)
+        /// <summary>WinForms 控件/Timer 须在 UI 线程操作；用 BeginInvoke，避免后台重连同步卡住消息泵。</summary>
+        private void PostToUiThread(Action action)
         {
-            if (action == null) return;
-            if (!IsHandleCreated || IsDisposed)
-            {
-                action();
-                return;
-            }
-            if (InvokeRequired) Invoke(action);
+            if (action == null || _plcLifecycleEnded) return;
+            if (!IsHandleCreated || IsDisposed) return;
+            if (InvokeRequired) BeginInvoke(action);
             else action();
         }
 
@@ -1207,26 +1264,35 @@ D_机器人运动中=-1
                 return;
             }
 
-            RestartPlcHandshakeTimer();
-            ArmPlcPlaceRequestEdgeForStation(isLeft);
-
-            int dPlace = isLeft ? Hs.D_PC_A放料请求拍照 : Hs.D_PC_B放料请求拍照;
-            try
-            {
-                ushort placeVal = _plcSession.ReadUInt16(Hs.Holding(dPlace));
-                TEXT($"[PLC] {st.Name} 放料 D{dPlace}={placeVal}（已为 1 时将立即处理）");
-            }
-            catch (Exception ex)
-            {
-                TEXT("[PLC] 读取放料请求字失败: " + ex.Message);
-                return;
-            }
-
+            // 必须先 Sync 再 Arm：若先 Arm 再异步 Sync，会把 last 读回 1，导致保持=1 的放料请求再也看不到上升沿
             Task.Run(async () =>
             {
-                try { await PlcHsProcessAsync().ConfigureAwait(false); }
+                try
+                {
+                    SyncPlcPhotoRequestEdgeState();
+                    ArmPlcPlaceRequestEdgeForStation(isLeft);
+                    PostToUiThread(RestartPlcHandshakeTimerCore);
+
+                    int dPlace = isLeft ? Hs.D_PC_A放料请求拍照 : Hs.D_PC_B放料请求拍照;
+                    try
+                    {
+                        ushort placeVal = _plcSession.ReadUInt16(Hs.Holding(dPlace));
+                        SafeInvoke(() => TEXT($"[PLC] {st.Name} 放料 D{dPlace}={placeVal}（已为 1 时将立即处理）"));
+                    }
+                    catch (Exception ex)
+                    {
+                        SafeInvoke(() => TEXT("[PLC] 读取放料请求字失败: " + ex.Message));
+                        return;
+                    }
+
+                    if (_plcHandshakeBusy) return;
+                    _plcHandshakeBusy = true;
+                    try { await PlcHsProcessAsync().ConfigureAwait(false); }
+                    finally { _plcHandshakeBusy = false; }
+                }
                 catch (Exception ex)
                 {
+                    _plcHandshakeBusy = false;
                     if (IsPlcCommunicationFailure(ex))
                         HandlePlcConnectionLost("放料握手触发", ex);
                     else
@@ -1264,12 +1330,10 @@ D_机器人运动中=-1
         /// </summary>
         private void PlcHsTick(object s, EventArgs e)
         {
-            if (_plcHandshakeBusy || !_plcConfig.Enabled || !_plcConfig.Handshake.HandshakeEnabled || _plcSession == null) return;
-            if (!_plcSession.IsConnected)
-            {
-                HandlePlcConnectionLost("握手前检测到连接已断开");
+            if (_plcHandshakeSuspended || _plcHandshakeBusy || !_plcConfig.Enabled || !_plcConfig.Handshake.HandshakeEnabled || _plcSession == null)
                 return;
-            }
+            // 用缓存标志，避免 UI 线程调用 IsConnected（内部 Poll 可能与后台 Modbus 抢锁卡顿）
+            if (!_plcLinkAlive) return;
             _plcHandshakeBusy = true;
             // 后台线程处理 Modbus 读写与识箱/取放料，结果经 SafeInvoke 回写 UI
             Task.Run(async () =>
@@ -2575,10 +2639,13 @@ D_机器人运动中=-1
         /// <summary>向 D_PC心跳 交替写入 0、1；由后台心跳循环调用，不占用界面 timer。</summary>
         private void PlcHeartbeatTick()
         {
-            if (!_plcConfig.Enabled) return;
+            if (!_plcConfig.Enabled || _plcLifecycleEnded) return;
             PlcTryAutoReconnectTick();
+            // 正在 Connect/Dispose 会话时不要误判断线，也不要写心跳抢锁
+            if (_plcReconnectBusy) return;
             if (_plcSession == null)
             {
+                _plcLinkAlive = false;
                 if (!_plcDisconnectNotified && !_plcConfig.AutoReconnectEnabled)
                     SafeInvoke(() => RefreshPlcUi(false, "未连接"));
                 return;
@@ -2593,6 +2660,7 @@ D_机器人运动中=-1
             {
                 _plcHeartbeatValue = (ushort)(_plcHeartbeatValue == 0 ? 1 : 0);
                 _plcSession.WriteUInt16(Hs.Holding(Hs.D_PC心跳), _plcHeartbeatValue, logSend: false);
+                _plcLinkAlive = true;
             }
             catch (Exception ex)
             {

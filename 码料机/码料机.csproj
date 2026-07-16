@@ -93,6 +93,9 @@
     <Compile Include="WorkerAssistDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="WorkerAssistDialog.Designer.cs">
+      <DependentUpon>WorkerAssistDialog.cs</DependentUpon>
+    </Compile>
     <Compile Include="StartPlaceFromPieceDialog.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -182,8 +185,17 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="StationOperatorPanel.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="StationOperatorPanel.Designer.cs">
+      <DependentUpon>StationOperatorPanel.cs</DependentUpon>
+    </Compile>
     <Compile Include="AlgorithmTestForm.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="AlgorithmTestForm.Designer.cs">
+      <DependentUpon>AlgorithmTestForm.cs</DependentUpon>
     </Compile>
     <Compile Include="ManualPlaceSelectForm.cs">
       <SubType>Form</SubType>
@@ -216,6 +228,15 @@
     </EmbeddedResource>
     <EmbeddedResource Include="PhotoPositionsForm.resx">
       <DependentUpon>PhotoPositionsForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="WorkerAssistDialog.resx">
+      <DependentUpon>WorkerAssistDialog.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="AlgorithmTestForm.resx">
+      <DependentUpon>AlgorithmTestForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="StationOperatorPanel.resx">
+      <DependentUpon>StationOperatorPanel.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>

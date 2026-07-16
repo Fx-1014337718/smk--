@@ -12,7 +12,16 @@ using System.Windows.Forms;
 
 namespace 码料机
 {
-    /// <summary>码料机主界面：左右工位独立参数与进度，与视觉/PLC 协同。</summary>
+    /// <summary>
+    /// 码料机主界面：左右工位独立参数与进度，与视觉/PLC 协同。
+    /// <para>近期维护要点：</para>
+    /// <list type="bullet">
+    /// <item>右侧操作区改为 <see cref="StationOperatorPanel"/>（Designer 可拖拽），运行时挂入 groupBox3/4。</item>
+    /// <item>启动：首帧后再后台加载金沃 DLL 与 PLC，避免 Load 卡住界面。</item>
+    /// <item>PLC：心跳/重连不阻塞 UI；关窗置生命周期结束标志；换框脉冲后台写入。</item>
+    /// <item>左侧工位一/二：摘要区可滚动 + 分割条最小高度，缩放时不再压扁裁切。</item>
+    /// </list>
+    /// </summary>
     public partial class Form1 : Form
     {
         private Timer timer = new Timer(); // 周期 Tick：刷新状态栏时间等
@@ -229,8 +238,7 @@ namespace 码料机
             ReloadZAxisConfig();
             ReloadPhotoPositionConfig();
             JinwoAlgorithmConfig.EnsureDefaultIniFile();
-            _jinwo.ReloadConfig();
-            _bearingPresence.ReloadConfig();
+            // 金沃 DLL / 畸变标定改在首帧后再后台加载，避免构造阶段卡住窗口出现
             EnsureOfflinePreviewControl();
             if (toolStripLabel10 != null)
                 toolStripLabel10.Click += toolStripLabel10_Click;
@@ -350,19 +358,55 @@ namespace 码料机
             listBox1.ItemHeight = Math.Max(26, (int)listBox1.Font.GetHeight() + 6);
             RefreshIniData();
             Boxfresinidata();
-            InitPlcSession();
-            _jinwo.ReloadConfig();
             InitBoxPlacementLabels();
             RefreshVisionStatusUi();
             RefreshCameraStatusUi();
             ApplyVisionPreviewMode();
             UpdateProgressDisplay();
             RefreshMachineStateUi();
-            RefreshJinwoStatusUi();
             TryInitHikCameraOnLoad();
-            RefreshAllStationsJinwoTraySilent();
             if (_runtimeOp.HasManualPlaceMode || _runtimeOp.HasManualSlotSelectMode)
                 TEXT("[放料] " + DescribeManualPlaceMode());
+
+            // 首帧后再后台加载金沃 DLL 与 PLC，避免 Load 同步 Connect/LoadLibrary 卡住界面
+            TEXT("[启动] 界面已就绪，正在后台加载算法与 PLC…");
+            RefreshPlcUi(false, "连接中…");
+            BeginInvoke(new Action(StartHeavyInitAfterFirstPaint));
+        }
+
+        /// <summary>首屏绘制后：后台加载金沃 + 连接 PLC（不阻塞消息泵）。</summary>
+        private void StartHeavyInitAfterFirstPaint()
+        {
+            Task.Run(() =>
+            {
+                if (_plcLifecycleEnded) return;
+                try
+                {
+                    _jinwo.ReloadConfig();
+                    _bearingPresence.ReloadConfig();
+                    if (_plcLifecycleEnded) return;
+                    SafeInvoke(() =>
+                    {
+                        if (_plcLifecycleEnded) return;
+                        RefreshJinwoStatusUi();
+                        RefreshAllStationsJinwoTraySilent();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    SafeInvoke(() => TEXT("[金沃] 后台加载异常: " + ex.Message));
+                }
+
+                if (_plcLifecycleEnded) return;
+                try
+                {
+                    InitPlcSession();
+                }
+                catch (Exception ex)
+                {
+                    SafeInvoke(() => TEXT("[PLC] 后台初始化异常: " + ex.Message));
+                }
+            });
         }
 
         private void RefreshJinwoStatusUi()
@@ -1167,11 +1211,18 @@ namespace 码料机
             {
                 if (listBox1 == null || listBox1.IsDisposed) return;
                 listBox1.Items.Insert(0, mm);
+                // 限制条数，避免 Insert(0) 在日志暴涨时把 UI 拖死
+                const int maxLogItems = 400;
+                while (listBox1.Items.Count > maxLogItems)
+                    listBox1.Items.RemoveAt(listBox1.Items.Count - 1);
             });
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
+            _plcLifecycleEnded = true;
+            StopPlcHeartbeatWorker();
+            StopPlcHandshakeTimer();
             ReleaseHikCamera();
         }
 
@@ -1184,6 +1235,7 @@ namespace 码料机
 
         private void ReleaseAllStationResources()
         {
+            _plcLifecycleEnded = true;
             void X(Action a) { try { a(); } catch { } }
             X(() => timer.Stop());
             X(() => timer.Tick -= timer_Tick);
@@ -1333,6 +1385,12 @@ namespace 码料机
             if (cbProd.SelectedItem == null)
             {
                 MessageBox.Show(left ? "请先选择产品型号！" : "请先选择右机台的产品型号！");
+                return;
+            }
+            if (_jinwo.IsEnabled && !_jinwo.IsLoaded)
+            {
+                MessageBox.Show("金沃算法仍在加载中，请稍候再点「确定产品与数量」。\r\n（状态栏/日志出现金沃就绪提示后再确认）",
+                    "请稍候", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             string prod = cbProd.SelectedItem.ToString();
@@ -1722,6 +1780,10 @@ namespace 码料机
         private static readonly Color UiName = Color.FromArgb(100, 116, 139);
         private static readonly Color UiValue = Color.FromArgb(15, 23, 42);
         private static readonly Color UiSection = Color.FromArgb(51, 65, 85);
+        /// <summary>
+        /// 应用现代布局（仅执行一次）：挂载左侧工位摘要、右侧 <see cref="StationOperatorPanel"/>、中间预览栏。
+        /// 左侧工位内容放入 AutoScroll，并设置 splitContainer1 上下最小高度，避免窗口缩放时控件被挤压显示不全。
+        /// </summary>
         private void ApplyModernUiLayout()
         {
             if (_modernUiApplied) return;
@@ -1740,10 +1802,33 @@ namespace 码料机
 
             splitContainer1.Panel1.BackColor = Color.FromArgb(237, 242, 247);
             splitContainer1.Panel2.BackColor = Color.FromArgb(237, 242, 247);
+            // 工位一/二：缩小时保留最小可视高度，内容靠滚动显示，避免被 Splitter 压扁
+            splitContainer1.Panel1MinSize = 160;
+            splitContainer1.Panel2MinSize = 160;
+            splitContainer1.MinimumSize = new Size(260, 0);
+            try
+            {
+                int half = Math.Max(splitContainer1.Panel1MinSize,
+                    (splitContainer1.Height - splitContainer1.SplitterWidth) / 2);
+                if (half > 0 && half < splitContainer1.Height - splitContainer1.Panel2MinSize)
+                    splitContainer1.SplitterDistance = half;
+            }
+            catch { }
+
             splitContainer2.Panel1.BackColor = Color.FromArgb(237, 242, 247);
             splitContainer2.Panel2.BackColor = Color.FromArgb(237, 242, 247);
             splitContainer3.Panel1.BackColor = Color.FromArgb(237, 242, 247);
             splitContainer3.Panel2.BackColor = Color.FromArgb(237, 242, 247);
+
+            // 左列给足最小宽度，避免名称/数值列被挤成一条缝
+            if (tableLayoutPanel1.ColumnStyles.Count >= 3)
+            {
+                tableLayoutPanel1.ColumnStyles[0] = new ColumnStyle(SizeType.Percent, 26f);
+                tableLayoutPanel1.ColumnStyles[1] = new ColumnStyle(SizeType.Percent, 40f);
+                tableLayoutPanel1.ColumnStyles[2] = new ColumnStyle(SizeType.Percent, 34f);
+            }
+            if (MinimumSize.Width < 1100 || MinimumSize.Height < 700)
+                MinimumSize = new Size(1100, 700);
 
             if (label49 != null) label49.Text = "左机台箱体摆放";
             _labelLeftProductionTotal = new Label();
@@ -1765,12 +1850,8 @@ namespace 码料机
                 _labelRightProductionTotal, isLeft: false,
                 UiLayoutHelper.StationTablePadding);
 
-            MountOperatorPanel(groupBox3, comboBox1, comboBox2, comboBox3,
-                labelLeftPickQty, textBoxLeftPickQty, labelLeftPlaceQty, textBoxLeftPlaceQty, button3,
-                out _leftBoxSpecUi, out _leftProductSpecUi, out _leftFrameUi, out _leftTrackBufferUi, isLeft: true);
-            MountOperatorPanel(groupBox4, comboBox6, comboBox5, comboBox4,
-                labelRightPickQty, textBoxRightPickQty, labelRightPlaceQty, textBoxRightPlaceQty, button1,
-                out _rightBoxSpecUi, out _rightProductSpecUi, out _rightFrameUi, out _rightTrackBufferUi, isLeft: false);
+            MountStationOperatorPanel(groupBox3, isLeft: true);
+            MountStationOperatorPanel(groupBox4, isLeft: false);
             RefreshTrackBufferCountUi();
             WireOperatorDetailEvents();
             UpdateBoxSpecDetailDisplay(true);
@@ -1784,6 +1865,104 @@ namespace 码料机
             RefreshCountResetControlEnabled();
         }
 
+        /// <summary>
+        /// 将设计器可维护的 <see cref="StationOperatorPanel"/> 挂入机台 GroupBox，
+        /// 并把 Form1 原有 combo/按钮字段指向面板控件（业务代码无需大改）。
+        /// </summary>
+        private void MountStationOperatorPanel(GroupBox gb, bool isLeft)
+        {
+            if (gb == null) return;
+            foreach (Control c in gb.Controls.Cast<Control>().ToArray())
+                gb.Controls.Remove(c);
+
+            var panel = new StationOperatorPanel { Dock = DockStyle.Fill };
+            panel.ConfigureSide(isLeft);
+            panel.ApplyComboStyle();
+            gb.Controls.Add(panel);
+
+            panel.BtnFrameChange.Click -= OnFrameChangeButtonClick;
+            panel.BtnFrameChange.Click += OnFrameChangeButtonClick;
+            panel.BtnFrameComplete.Click -= OnFrameChangeButtonClick;
+            panel.BtnFrameComplete.Click += OnFrameChangeButtonClick;
+
+            var frameUi = new FrameChangeUi
+            {
+                BtnChange = panel.BtnFrameChange,
+                BtnComplete = panel.BtnFrameComplete,
+                IndicatorLabel = panel.LblFrameAllow,
+            };
+            var trackUi = new TrackBufferUi
+            {
+                ValueBox = panel.TxtTrackBuffer,
+                SaveBtn = panel.BtnSaveTrackBuffer,
+            };
+            var boxUi = new BoxSpecDetailUi { SpecLine = panel.LblBoxSpec };
+            var productUi = new ProductSpecDetailUi { SpecLine = panel.LblProductSpec };
+
+            if (isLeft)
+            {
+                _leftOpPanel = panel;
+                comboBox1 = panel.ComboProduct;
+                comboBox2 = panel.ComboStackMode;
+                comboBox3 = panel.ComboBoxSpec;
+                labelLeftPickQty = panel.LblPickQty;
+                textBoxLeftPickQty = panel.TxtPickQty;
+                labelLeftPlaceQty = panel.LblPlaceQty;
+                textBoxLeftPlaceQty = panel.TxtPlaceQty;
+                button3 = panel.BtnConfirm;
+                panel.ConfirmClick -= button3_Click;
+                panel.ConfirmClick += button3_Click;
+                panel.SaveTrackBufferClick -= LeftTrackBufferSave;
+                panel.SaveTrackBufferClick += LeftTrackBufferSave;
+                _leftFrameUi = frameUi;
+                _leftTrackBufferUi = trackUi;
+                _leftBoxSpecUi = boxUi;
+                _leftProductSpecUi = productUi;
+                _chkLeftUseConfiguredPlace = panel.ChkUseConfiguredPlace;
+                _chkLeftUseManualSlotSelect = panel.ChkManualSlotSelect;
+                panel.ChkUseConfiguredPlace.Checked = _runtimeOp.LeftUseConfiguredPlace;
+                panel.ChkManualSlotSelect.Checked = _runtimeOp.LeftUseManualSlotSelect;
+                panel.ChkUseConfiguredPlace.CheckedChanged -= OnManualPlaceOptionChanged;
+                panel.ChkUseConfiguredPlace.CheckedChanged += OnManualPlaceOptionChanged;
+                panel.ChkManualSlotSelect.CheckedChanged -= OnManualSlotSelectOptionChanged;
+                panel.ChkManualSlotSelect.CheckedChanged += OnManualSlotSelectOptionChanged;
+            }
+            else
+            {
+                _rightOpPanel = panel;
+                comboBox6 = panel.ComboProduct;
+                comboBox5 = panel.ComboStackMode;
+                comboBox4 = panel.ComboBoxSpec;
+                labelRightPickQty = panel.LblPickQty;
+                textBoxRightPickQty = panel.TxtPickQty;
+                labelRightPlaceQty = panel.LblPlaceQty;
+                textBoxRightPlaceQty = panel.TxtPlaceQty;
+                button1 = panel.BtnConfirm;
+                panel.ConfirmClick -= button1_Click;
+                panel.ConfirmClick += button1_Click;
+                panel.SaveTrackBufferClick -= RightTrackBufferSave;
+                panel.SaveTrackBufferClick += RightTrackBufferSave;
+                _rightFrameUi = frameUi;
+                _rightTrackBufferUi = trackUi;
+                _rightBoxSpecUi = boxUi;
+                _rightProductSpecUi = productUi;
+                _chkRightUseConfiguredPlace = panel.ChkUseConfiguredPlace;
+                _chkRightUseManualSlotSelect = panel.ChkManualSlotSelect;
+                panel.ChkUseConfiguredPlace.Checked = _runtimeOp.RightUseConfiguredPlace;
+                panel.ChkManualSlotSelect.Checked = _runtimeOp.RightUseManualSlotSelect;
+                panel.ChkUseConfiguredPlace.CheckedChanged -= OnManualPlaceOptionChanged;
+                panel.ChkUseConfiguredPlace.CheckedChanged += OnManualPlaceOptionChanged;
+                panel.ChkManualSlotSelect.CheckedChanged -= OnManualSlotSelectOptionChanged;
+                panel.ChkManualSlotSelect.CheckedChanged += OnManualSlotSelectOptionChanged;
+            }
+        }
+
+        private StationOperatorPanel _leftOpPanel;
+        private StationOperatorPanel _rightOpPanel;
+
+        private void LeftTrackBufferSave(object sender, EventArgs e) => SaveTrackBufferCount(true);
+        private void RightTrackBufferSave(object sender, EventArgs e) => SaveTrackBufferCount(false);
+
         private static void SetDoubleBuffered(Control c)
         {
             if (c == null) return;
@@ -1796,6 +1975,10 @@ namespace 码料机
             catch { }
         }
 
+        /// <summary>
+        /// 重建工位一/工位二状态摘要：名称-数值两列表格放入可滚动宿主。
+        /// 行高按 AutoSize 自然排布，窗口变矮时滚动查看，避免 Dock=Fill 把行压扁。
+        /// </summary>
         private static void MountStationSummaryPanel(GroupBox gb, (Label name, Label value)[] headRows, Label section,
             (Label name, Label value)[] statRows, Label boxPoseSection, (Label name, Label value)[] boxPoseRows,
             ProgressBar bar, Padding tablePadding)
@@ -1808,22 +1991,31 @@ namespace 码料机
             int boxPoseCount = boxPoseRows?.Length ?? 0;
             int rowCount = headRows.Length + (section != null ? 1 : 0) + statRows.Length
                 + (boxPoseSection != null ? 1 : 0) + boxPoseCount + (bar != null ? 1 : 0);
-            var t = new TableLayoutPanel
+
+            // 内容按自然高度排布；外层滚动，避免窗口缩小时行被压扁/裁切
+            var scroll = new Panel
             {
                 Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 0, SystemInformation.VerticalScrollBarWidth, 0),
+            };
+            SetDoubleBuffered(scroll);
+
+            var t = new TableLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 2,
                 RowCount = rowCount,
                 Padding = tablePadding,
+                Margin = Padding.Empty,
             };
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, UiLayoutHelper.StationNameColumnWidth));
+            // 名称列随文字自适应，数值列吃剩余宽度（勿用过大 Absolute，窄列时会挤没数值）
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            const float progressSlotRowHeight = 14f;
             for (int i = 0; i < rowCount; i++)
-            {
-                bool last = i == rowCount - 1;
-                bool barRow = bar != null && last;
-                t.RowStyles.Add(barRow ? new RowStyle(SizeType.Absolute, Math.Max(8f, progressSlotRowHeight)) : new RowStyle(SizeType.AutoSize));
-            }
+                t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             SetDoubleBuffered(t);
             int r = 0;
@@ -1881,14 +2073,16 @@ namespace 码料机
 
             if (bar != null)
             {
-                bar.Dock = DockStyle.Fill;
-                const int progressBarMarginTop = 6;
-                bar.Margin = new Padding(0, progressBarMarginTop, 0, 0);
+                bar.Dock = DockStyle.Top;
+                bar.Height = 10;
+                bar.Margin = new Padding(0, 6, 0, 0);
                 t.Controls.Add(bar, 0, r);
                 t.SetColumnSpan(bar, 2);
             }
 
-            gb.Controls.Add(t);
+            scroll.Controls.Add(t);
+            UiLayoutHelper.ConfigureStableAutoScroll(scroll, t);
+            gb.Controls.Add(scroll);
         }
 
         private static void MountStationSummaryWithProductionBanner(GroupBox gb, (Label name, Label value)[] headRows, Label section,
@@ -1898,8 +2092,8 @@ namespace 码料机
             MountStationSummaryPanel(gb, headRows, section, statRows, boxPoseSection, boxPoseRows, bar, tablePadding);
             if (gb == null || productionValue == null || gb.Controls.Count != 1) return;
 
-            var table = gb.Controls[0];
-            gb.Controls.Remove(table);
+            var scroll = gb.Controls[0];
+            gb.Controls.Remove(scroll);
 
             var root = new TableLayoutPanel
             {
@@ -1909,14 +2103,15 @@ namespace 码料机
                 Padding = Padding.Empty,
                 Margin = Padding.Empty,
             };
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             SetDoubleBuffered(root);
 
             var banner = BuildProductionTotalBanner(productionValue, isLeft);
+            banner.Dock = DockStyle.Fill;
             root.Controls.Add(banner, 0, 0);
-            table.Dock = DockStyle.Fill;
-            root.Controls.Add(table, 0, 1);
+            scroll.Dock = DockStyle.Fill;
+            root.Controls.Add(scroll, 0, 1);
             gb.Controls.Add(root);
         }
 
@@ -1987,8 +2182,10 @@ namespace 码料机
         {
             if (l == null) return;
             l.AutoSize = true;
+            l.Dock = DockStyle.None;
+            l.Anchor = AnchorStyles.Left | AnchorStyles.Top;
             l.ForeColor = UiName;
-            l.Margin = new Padding(0, 8, 14, 2);
+            l.Margin = new Padding(0, 6, 12, 2);
             l.Font = UiLayoutHelper.Body;
             l.TextAlign = ContentAlignment.MiddleLeft;
         }
@@ -1996,46 +2193,14 @@ namespace 码料机
         private static void StyleStationValue(Label l)
         {
             if (l == null) return;
-            l.AutoSize = true;
+            l.AutoSize = false;
+            l.Dock = DockStyle.Fill;
+            l.AutoEllipsis = true;
             l.ForeColor = UiValue;
             l.Font = UiLayoutHelper.BodyBold;
-            l.Margin = new Padding(0, 8, 0, 2);
+            l.Margin = new Padding(0, 6, 0, 2);
             l.TextAlign = ContentAlignment.MiddleLeft;
-        }
-
-        private static TableLayoutPanel CreateLabeledComboBlock(string title, ComboBox cb)
-        {
-            var block = new TableLayoutPanel
-            {
-                ColumnCount = 1,
-                RowCount = 2,
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Margin = new Padding(0, 0, 0, 8),
-                BackColor = Color.Transparent,
-            };
-            block.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            // 行高与下拉框可视高度一致即可；勿过大以免占满右侧工位区导致底部按钮被挤出可视区
-            block.RowStyles.Add(new RowStyle(SizeType.Absolute, UiLayoutHelper.LabeledComboRowHeight));
-            SetDoubleBuffered(block);
-
-            var cap = new Label
-            {
-                Text = title,
-                AutoSize = true,
-                // 勿用 Dock=Fill：在 TableLayout 中与 Combo 同列时，标题行可能被算成极高，出现「型号与规格条之间大片空白」
-                Dock = DockStyle.Top,
-                TextAlign = ContentAlignment.TopLeft,
-                ForeColor = UiSection,
-                Font = UiLayoutHelper.Section,
-                Margin = new Padding(0, 0, 0, 6),
-            };
-            cb.Dock = DockStyle.Fill;
-            cb.Margin = Padding.Empty;
-            block.Controls.Add(cap, 0, 0);
-            block.Controls.Add(cb, 0, 1);
-            return block;
+            l.MinimumSize = new Size(40, 24);
         }
 
         private void WireOperatorDetailEvents()
@@ -2107,85 +2272,6 @@ namespace 码料机
             ui.SpecLine.Text = $"外径 {outer:0.#} mm  内径 {inner:0.#} mm  高度 {h:0.#} mm";
         }
 
-        /// <summary>左侧色条 + 单行粗体文字，与产品规格条视觉一致。</summary>
-        private static Panel CreateAccentOneLineSpecCard(out Label specLine, Padding cardMargin)
-        {
-            const int padH = 10;
-            const int padV = 6;
-            const int barW = 4;
-            const int gapAfterBar = 8;
-
-            var card = new Panel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Margin = cardMargin,
-                BackColor = Color.FromArgb(248, 250, 252),
-            };
-            card.Paint += (s, e) =>
-            {
-                var r = card.ClientRectangle;
-                r.Width--;
-                r.Height--;
-                using (var pen = new Pen(Color.FromArgb(226, 232, 240)))
-                    e.Graphics.DrawRectangle(pen, r);
-            };
-
-            var host = new Panel
-            {
-                Dock = DockStyle.Top,
-                BackColor = Color.Transparent,
-            };
-
-            var accent = new Panel
-            {
-                BackColor = Color.FromArgb(37, 99, 235),
-            };
-
-            // 使用局部变量：out 参数不能在本地函数 / lambda 中引用（CS1628）
-            var line = new Label
-            {
-                AutoSize = true,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left,
-                ForeColor = Color.FromArgb(37, 99, 235),
-                Font = UiLayoutHelper.AccentLine,
-                Text = "—",
-                UseMnemonic = false,
-                Padding = Padding.Empty,
-            };
-
-            void SyncStripLayout()
-            {
-                Size textSize = line.GetPreferredSize(new Size(int.MaxValue, int.MaxValue));
-                int h = Math.Max(textSize.Height, 1);
-                int w = Math.Max(textSize.Width, 1);
-                accent.SetBounds(padH, padV, barW, h);
-                line.SetBounds(padH + barW + gapAfterBar, padV, w, h);
-                host.ClientSize = new Size(padH + barW + gapAfterBar + w + padH, padV * 2 + h);
-            }
-
-            host.Controls.Add(accent);
-            host.Controls.Add(line);
-            line.TextChanged += (_, __) => SyncStripLayout();
-            host.HandleCreated += (_, __) => SyncStripLayout();
-
-            card.Controls.Add(host);
-            SyncStripLayout();
-            SetDoubleBuffered(card);
-            SetDoubleBuffered(host);
-            specLine = line;
-            return card;
-        }
-
-        private static Panel CreateProductSpecDetailCard(out ProductSpecDetailUi ui)
-        {
-            ui = new ProductSpecDetailUi();
-            var card = CreateAccentOneLineSpecCard(out Label line, new Padding(0, 2, 0, 6));
-            ui.SpecLine = line;
-            return card;
-        }
-
         private void UpdateBoxSpecDetailDisplay(bool left)
         {
             var ui = left ? _leftBoxSpecUi : _rightBoxSpecUi;
@@ -2213,235 +2299,6 @@ namespace 码料机
             }
 
             ui.SpecLine.Text = $"长 {length:0.#} mm  宽 {width:0.#} mm  高 {height:0.#} mm";
-        }
-
-        private static Panel CreateBoxSpecDetailCard(out BoxSpecDetailUi ui)
-        {
-            ui = new BoxSpecDetailUi();
-            var card = CreateAccentOneLineSpecCard(out Label line, new Padding(0, 2, 0, 6));
-            ui.SpecLine = line;
-            return card;
-        }
-
-        private void MountOperatorPanel(GroupBox gb, ComboBox cBox, ComboBox cMode, ComboBox cBoxType,
-            Label pickCap, TextBox pickVal, Label placeCap, TextBox placeVal, Button okBtn,
-            out BoxSpecDetailUi boxDetailUi, out ProductSpecDetailUi productDetailUi,
-            out FrameChangeUi frameUi, out TrackBufferUi trackBufferUi, bool isLeft)
-        {
-            boxDetailUi = null;
-            productDetailUi = null;
-            frameUi = null;
-            trackBufferUi = null;
-            if (gb == null) return;
-            var scroll = new Panel
-            {
-                Dock = DockStyle.Fill,
-                AutoScroll = true,
-                BackColor = Color.Transparent,
-                // 始终预留纵向滚动条槽位，避免滚动条出现/消失时内容区宽度变化导致高度重算、滚动回弹
-                Padding = new Padding(0, 0, SystemInformation.VerticalScrollBarWidth, 0),
-            };
-            SetDoubleBuffered(scroll);
-            if (okBtn != null && okBtn.Parent != null)
-                okBtn.Parent.Controls.Remove(okBtn);
-            foreach (Control c in gb.Controls.Cast<Control>().ToArray())
-                gb.Controls.Remove(c);
-
-            var t = new TableLayoutPanel
-            {
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 1,
-                RowCount = 11,
-                Padding = UiLayoutHelper.StationTablePadding,
-            };
-            SetDoubleBuffered(t);
-            for (int i = 0; i < 5; i++)
-                t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.RowStyles.Add(new RowStyle(SizeType.Absolute, 24f));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.RowStyles.Add(new RowStyle(SizeType.Absolute, UiLayoutHelper.FrameChangeBlockRowHeight));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            StyleOperatorCombo(cBox);
-            StyleOperatorCombo(cMode);
-            StyleOperatorCombo(cBoxType);
-
-            t.Controls.Add(CreateLabeledComboBlock("产品型号", cBox), 0, 0);
-            t.Controls.Add(CreateProductSpecDetailCard(out productDetailUi), 0, 1);
-            t.Controls.Add(CreateLabeledComboBlock("排料方式", cMode), 0, 2);
-            t.Controls.Add(CreateLabeledComboBlock("箱体规格", cBoxType), 0, 3);
-            t.Controls.Add(CreateBoxSpecDetailCard(out boxDetailUi), 0, 4);
-
-            var divider = new Panel
-            {
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0, 8, 0, 8),
-                BackColor = Color.FromArgb(226, 232, 240),
-            };
-            t.Controls.Add(divider, 0, 5);
-
-            var qtyBlock = new TableLayoutPanel
-            {
-                ColumnCount = 1,
-                RowCount = 2,
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Margin = new Padding(0, 0, 0, 4),
-                BackColor = Color.Transparent,
-            };
-            qtyBlock.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            qtyBlock.RowStyles.Add(new RowStyle(SizeType.Absolute, UiLayoutHelper.QtyInputRowHeight));
-            SetDoubleBuffered(qtyBlock);
-
-            var qtyTitle = new Label
-            {
-                Text = "取放数量（竖直档 2-2-…-3，如总高9层→2+2+2+3）",
-                AutoSize = true,
-                Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.BottomLeft,
-                ForeColor = UiSection,
-                Font = UiLayoutHelper.Section,
-                Margin = new Padding(0, 0, 0, 6),
-            };
-            qtyBlock.Controls.Add(qtyTitle, 0, 0);
-
-            var rowPick = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 4,
-                RowCount = 1,
-                Margin = Padding.Empty,
-            };
-            SetDoubleBuffered(rowPick);
-            rowPick.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            rowPick.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80f));
-            rowPick.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            rowPick.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-
-            var labelFont = UiLayoutHelper.Body;
-            var boxFont = UiLayoutHelper.Combo;
-
-            if (pickCap != null)
-            {
-                pickCap.AutoSize = true;
-                pickCap.ForeColor = UiName;
-                pickCap.Font = labelFont;
-            }
-            if (placeCap != null)
-            {
-                placeCap.AutoSize = true;
-                placeCap.ForeColor = UiName;
-                placeCap.Font = labelFont;
-            }
-            if (pickVal != null)
-            {
-                pickVal.Width = 72;
-                pickVal.MinimumSize = new Size(80, 40);
-                pickVal.Font = boxFont;
-                pickVal.TextAlign = HorizontalAlignment.Center;
-                pickVal.BorderStyle = BorderStyle.FixedSingle;
-                pickVal.BackColor = Color.White;
-            }
-            if (placeVal != null)
-            {
-                placeVal.Width = 72;
-                placeVal.MinimumSize = new Size(80, 40);
-                placeVal.Font = boxFont;
-                placeVal.TextAlign = HorizontalAlignment.Center;
-                placeVal.BorderStyle = BorderStyle.FixedSingle;
-                placeVal.BackColor = Color.White;
-            }
-
-            rowPick.Controls.Add(pickCap, 0, 0);
-            rowPick.Controls.Add(pickVal, 1, 0);
-            rowPick.Controls.Add(placeCap, 2, 0);
-            rowPick.Controls.Add(placeVal, 3, 0);
-            qtyBlock.Controls.Add(rowPick, 0, 1);
-
-            t.Controls.Add(qtyBlock, 0, 6);
-
-            trackBufferUi = BuildTrackBufferBlock(isLeft);
-            t.Controls.Add(trackBufferUi.RootPanel, 0, 7);
-
-            frameUi = BuildFrameChangeBlock(isLeft);
-            t.Controls.Add(frameUi.RootPanel, 0, 8);
-
-            t.Controls.Add(BuildStationDebugOptionsPanel(isLeft), 0, 9);
-
-            if (okBtn != null)
-            {
-                okBtn.Dock = DockStyle.Fill;
-                okBtn.Margin = new Padding(0, 16, 0, 0);
-                okBtn.MinimumSize = new Size(0, 48);
-                okBtn.Font = UiLayoutHelper.BodyBold;
-                okBtn.Padding = new Padding(0, 4, 0, 4);
-                t.Controls.Add(okBtn, 0, 10);
-            }
-
-            scroll.Controls.Add(t);
-            UiLayoutHelper.ConfigureStableAutoScroll(scroll, t);
-            gb.Controls.Add(scroll);
-        }
-
-        private Panel BuildStationDebugOptionsPanel(bool isLeft)
-        {
-            string side = isLeft ? "左" : "右";
-            var host = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                Margin = new Padding(0, 10, 0, 4),
-                Padding = Padding.Empty,
-            };
-            SetDoubleBuffered(host);
-
-            var chk = new CheckBox
-            {
-                Text = $"{side}机台放料用手动设定位置（不用识箱算位）",
-                AutoSize = true,
-                Font = UiLayoutHelper.Body,
-                Margin = Padding.Empty,
-            };
-            if (isLeft)
-            {
-                _chkLeftUseConfiguredPlace = chk;
-                chk.Checked = _runtimeOp.LeftUseConfiguredPlace;
-            }
-            else
-            {
-                _chkRightUseConfiguredPlace = chk;
-                chk.Checked = _runtimeOp.RightUseConfiguredPlace;
-            }
-            chk.CheckedChanged += OnManualPlaceOptionChanged;
-            host.Controls.Add(chk);
-
-            var chkSlot = new CheckBox
-            {
-                Text = $"{side}机台手动指定放料位（算法识位，界面选下一发）",
-                AutoSize = true,
-                Font = UiLayoutHelper.Body,
-                Margin = new Padding(0, 6, 0, 0),
-            };
-            if (isLeft)
-            {
-                _chkLeftUseManualSlotSelect = chkSlot;
-                chkSlot.Checked = _runtimeOp.LeftUseManualSlotSelect;
-            }
-            else
-            {
-                _chkRightUseManualSlotSelect = chkSlot;
-                chkSlot.Checked = _runtimeOp.RightUseManualSlotSelect;
-            }
-            chkSlot.CheckedChanged += OnManualSlotSelectOptionChanged;
-            host.Controls.Add(chkSlot);
-            return host;
         }
 
         private void OnManualPlaceOptionChanged(object sender, EventArgs e)
@@ -2506,60 +2363,8 @@ namespace 码料机
 
         private sealed class TrackBufferUi
         {
-            public TableLayoutPanel RootPanel;
             public TextBox ValueBox;
             public Button SaveBtn;
-        }
-
-        private TrackBufferUi BuildTrackBufferBlock(bool isLeft)
-        {
-            var row = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 3,
-                RowCount = 1,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Margin = new Padding(0, 8, 0, 4),
-            };
-            SetDoubleBuffered(row);
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80f));
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-            var label = new Label
-            {
-                Text = "料道缓存个数",
-                AutoSize = true,
-                ForeColor = UiName,
-                Font = UiLayoutHelper.Body,
-                Anchor = AnchorStyles.Left,
-                Margin = new Padding(0, 10, 8, 4),
-            };
-            var box = new TextBox
-            {
-                Width = 72,
-                MinimumSize = new Size(80, 40),
-                Font = UiLayoutHelper.Combo,
-                TextAlign = HorizontalAlignment.Center,
-                BorderStyle = BorderStyle.FixedSingle,
-                BackColor = Color.White,
-            };
-            var btn = new Button
-            {
-                Text = "保存",
-                AutoSize = true,
-                MinimumSize = new Size(64, 40),
-                Font = UiLayoutHelper.Body,
-                Margin = new Padding(8, 4, 0, 4),
-            };
-            btn.Click += (_, __) => SaveTrackBufferCount(isLeft);
-
-            row.Controls.Add(label, 0, 0);
-            row.Controls.Add(box, 1, 0);
-            row.Controls.Add(btn, 2, 0);
-
-            return new TrackBufferUi { RootPanel = row, ValueBox = box, SaveBtn = btn };
         }
 
         private void RefreshTrackBufferCountUi()
@@ -2592,108 +2397,42 @@ namespace 码料机
 
         private sealed class FrameChangeUi
         {
-            public TableLayoutPanel RootPanel;
             public Button BtnChange;
             public Button BtnComplete;
             public Label IndicatorLabel;
         }
 
-        private FrameChangeUi BuildFrameChangeBlock(bool isLeft)
-        {
-            int bitChange = isLeft ? PlcFrameChangeBits.A换框按钮 : PlcFrameChangeBits.B换框按钮;
-            int bitComplete = isLeft ? PlcFrameChangeBits.A换框完成按钮 : PlcFrameChangeBits.B换框完成按钮;
-
-            var block = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = false,
-                ColumnCount = 2,
-                RowCount = 3,
-                Margin = new Padding(0, 8, 0, 4),
-            };
-            block.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
-            block.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
-            block.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            block.RowStyles.Add(new RowStyle(SizeType.Absolute, UiLayoutHelper.FrameActionButtonRowHeight));
-            block.RowStyles.Add(new RowStyle(SizeType.Absolute, UiLayoutHelper.FrameIndicatorRowHeight));
-            block.MinimumSize = new Size(0, (int)(UiLayoutHelper.FrameActionButtonRowHeight + UiLayoutHelper.FrameIndicatorRowHeight + 32));
-            SetDoubleBuffered(block);
-
-            var title = new Label
-            {
-                Text = "换框操作",
-                AutoSize = true,
-                Dock = DockStyle.Fill,
-                ForeColor = UiSection,
-                Font = UiLayoutHelper.Section,
-                Margin = new Padding(0, 0, 0, 6),
-            };
-            block.Controls.Add(title, 0, 0);
-            block.SetColumnSpan(title, 2);
-
-            var btnChange = MakeFrameActionButton("换框", bitChange);
-            var btnComplete = MakeFrameActionButton("换框完成", bitComplete);
-            block.Controls.Add(btnChange, 0, 1);
-            block.Controls.Add(btnComplete, 1, 1);
-
-            var indicator = new Label
-            {
-                Text = "禁止取框",
-                Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = UiLayoutHelper.BodyBold,
-                Margin = new Padding(0, 6, 0, 0),
-                BackColor = Color.FromArgb(148, 163, 184),
-                ForeColor = Color.White,
-            };
-            int indH = (int)UiLayoutHelper.FrameIndicatorRowHeight;
-            indicator.MinimumSize = new Size(0, indH);
-            indicator.MaximumSize = new Size(8000, indH);
-            block.Controls.Add(indicator, 0, 2);
-            block.SetColumnSpan(indicator, 2);
-
-            return new FrameChangeUi
-            {
-                RootPanel = block,
-                BtnChange = btnChange,
-                BtnComplete = btnComplete,
-                IndicatorLabel = indicator,
-            };
-        }
-
-        private Button MakeFrameActionButton(string text, int plcBitIndex)
-        {
-            int btnH = (int)UiLayoutHelper.FrameActionButtonRowHeight;
-            var btn = new Button
-            {
-                Text = text,
-                Tag = plcBitIndex,
-                Dock = DockStyle.Fill,
-                MinimumSize = new Size(0, btnH),
-                MaximumSize = new Size(8000, btnH),
-                Margin = new Padding(0, 0, 4, 0),
-                FlatStyle = FlatStyle.Flat,
-                Font = UiLayoutHelper.Body,
-                Cursor = Cursors.Hand,
-                UseVisualStyleBackColor = false,
-                TextAlign = ContentAlignment.MiddleCenter,
-            };
-            btn.FlatAppearance.BorderSize = 0;
-            StyleFrameActionButton(btn, false);
-            btn.Click += OnFrameChangeButtonClick;
-            return btn;
-        }
-
         private static void StyleOperatorCombo(ComboBox cb)
         {
             if (cb == null) return;
-            cb.FlatStyle = FlatStyle.Flat;
+            // System 样式下拉箭头更大、更易点；DropDownList 避免误入编辑态导致“切不过去”
+            cb.DropDownStyle = ComboBoxStyle.DropDownList;
+            cb.FlatStyle = FlatStyle.System;
             cb.BackColor = Color.White;
             cb.Margin = new Padding(0, 0, 0, 4);
             cb.Font = UiLayoutHelper.Combo;
-            // 默认 IntegralHeight=true 时，PreferredSize 可能含整份下拉列表高度，会把 MountOperatorPanel 里 TableLayout 撑得极高
+            cb.MinimumSize = new Size(0, 40);
+            // IntegralHeight=true 时 PreferredSize 可能含整份下拉列表高度，撑破 TableLayout
             cb.IntegralHeight = false;
-            cb.DropDownHeight = 240;
+            cb.MaxDropDownItems = 14;
+            cb.DropDownHeight = 280;
+            cb.DropDown -= OperatorCombo_EnsureDropDownWidth;
+            cb.DropDown += OperatorCombo_EnsureDropDownWidth;
+        }
+
+        /// <summary>下拉展开时加宽列表，长箱体名/产品名可完整显示、便于点选。</summary>
+        private static void OperatorCombo_EnsureDropDownWidth(object sender, EventArgs e)
+        {
+            if (!(sender is ComboBox cb) || cb.IsDisposed) return;
+            int w = cb.Width;
+            foreach (object item in cb.Items)
+            {
+                string text = item?.ToString() ?? "";
+                if (text.Length == 0) continue;
+                int tw = TextRenderer.MeasureText(text, cb.Font).Width + SystemInformation.VerticalScrollBarWidth + 24;
+                if (tw > w) w = tw;
+            }
+            cb.DropDownWidth = Math.Max(cb.Width, Math.Min(w, 560));
         }
 
         private void StyleAllComboBoxes()

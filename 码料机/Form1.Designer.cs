@@ -397,7 +397,7 @@ namespace 码料机
             this.toolStripStatusLabelSpring,
             this.toolStripLabel15,
             this.toolStripLabel16});
-            this.statusStripBottom.Location = new System.Drawing.Point(0, 807);
+            this.statusStripBottom.Location = new System.Drawing.Point(0, 837);
             this.statusStripBottom.Name = "statusStripBottom";
             this.statusStripBottom.Padding = new System.Windows.Forms.Padding(1, 0, 1, 0);
             this.statusStripBottom.Size = new System.Drawing.Size(1907, 33);
@@ -591,9 +591,9 @@ namespace 码料机
             // 
             this.tableLayoutPanel1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(237)))), ((int)(((byte)(242)))), ((int)(((byte)(247)))));
             this.tableLayoutPanel1.ColumnCount = 3;
-            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 28F));
-            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 42F));
-            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 30F));
+            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 26F));
+            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 40F));
+            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 34F));
             this.tableLayoutPanel1.Controls.Add(this.splitContainer1, 0, 0);
             this.tableLayoutPanel1.Controls.Add(this.tableLayoutPanel2, 2, 0);
             this.tableLayoutPanel1.Controls.Add(this.splitContainer2, 1, 0);
@@ -602,7 +602,7 @@ namespace 码料机
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
             this.tableLayoutPanel1.RowCount = 1;
             this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.tableLayoutPanel1.Size = new System.Drawing.Size(1907, 769);
+            this.tableLayoutPanel1.Size = new System.Drawing.Size(1907, 799);
             this.tableLayoutPanel1.TabIndex = 2;
             // 
             // splitContainer1
@@ -619,8 +619,8 @@ namespace 码料机
             // splitContainer1.Panel2
             // 
             this.splitContainer1.Panel2.Controls.Add(this.groupBox2);
-            this.splitContainer1.Size = new System.Drawing.Size(527, 763);
-            this.splitContainer1.SplitterDistance = 374;
+            this.splitContainer1.Size = new System.Drawing.Size(489, 793);
+            this.splitContainer1.SplitterDistance = 388;
             this.splitContainer1.SplitterWidth = 6;
             this.splitContainer1.TabIndex = 0;
             // 
@@ -656,7 +656,7 @@ namespace 码料机
             this.groupBox1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox1.Location = new System.Drawing.Point(0, 0);
             this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(527, 374);
+            this.groupBox1.Size = new System.Drawing.Size(489, 388);
             this.groupBox1.TabIndex = 0;
             this.groupBox1.TabStop = false;
             this.groupBox1.Text = "工位一";
@@ -667,7 +667,7 @@ namespace 码料机
             this.label43.BackColor = System.Drawing.Color.White;
             this.label43.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.label43.ForeColor = System.Drawing.Color.Blue;
-            this.label43.Location = new System.Drawing.Point(17, 301);
+            this.label43.Location = new System.Drawing.Point(288, 196);
             this.label43.Name = "label43";
             this.label43.Size = new System.Drawing.Size(116, 31);
             this.label43.TabIndex = 34;
@@ -679,7 +679,7 @@ namespace 码料机
             this.label44.BackColor = System.Drawing.Color.White;
             this.label44.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.label44.ForeColor = System.Drawing.Color.Blue;
-            this.label44.Location = new System.Drawing.Point(17, 339);
+            this.label44.Location = new System.Drawing.Point(288, 227);
             this.label44.Name = "label44";
             this.label44.Size = new System.Drawing.Size(68, 31);
             this.label44.TabIndex = 33;
@@ -718,7 +718,7 @@ namespace 码料机
             this.label48.BackColor = System.Drawing.Color.White;
             this.label48.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.label48.ForeColor = System.Drawing.Color.Blue;
-            this.label48.Location = new System.Drawing.Point(17, 269);
+            this.label48.Location = new System.Drawing.Point(288, 161);
             this.label48.Name = "label48";
             this.label48.Size = new System.Drawing.Size(140, 31);
             this.label48.TabIndex = 29;
@@ -937,7 +937,7 @@ namespace 码料机
             this.groupBox2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox2.Location = new System.Drawing.Point(0, 0);
             this.groupBox2.Name = "groupBox2";
-            this.groupBox2.Size = new System.Drawing.Size(527, 383);
+            this.groupBox2.Size = new System.Drawing.Size(489, 399);
             this.groupBox2.TabIndex = 0;
             this.groupBox2.TabStop = false;
             this.groupBox2.Text = "工位二";
@@ -946,7 +946,7 @@ namespace 码料机
             // 
             this.label36.AutoSize = true;
             this.label36.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label36.Location = new System.Drawing.Point(13, 288);
+            this.label36.Location = new System.Drawing.Point(288, 188);
             this.label36.Name = "label36";
             this.label36.Size = new System.Drawing.Size(116, 31);
             this.label36.TabIndex = 25;
@@ -956,7 +956,7 @@ namespace 码料机
             // 
             this.label37.AutoSize = true;
             this.label37.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label37.Location = new System.Drawing.Point(13, 328);
+            this.label37.Location = new System.Drawing.Point(288, 217);
             this.label37.Name = "label37";
             this.label37.Size = new System.Drawing.Size(68, 31);
             this.label37.TabIndex = 24;
@@ -993,7 +993,7 @@ namespace 码料机
             // 
             this.label41.AutoSize = true;
             this.label41.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label41.Location = new System.Drawing.Point(13, 256);
+            this.label41.Location = new System.Drawing.Point(288, 156);
             this.label41.Name = "label41";
             this.label41.Size = new System.Drawing.Size(140, 31);
             this.label41.TabIndex = 20;
@@ -1123,12 +1123,12 @@ namespace 码料机
             this.tableLayoutPanel2.Controls.Add(this.groupBox4, 0, 1);
             this.tableLayoutPanel2.Controls.Add(this.groupBox3, 0, 0);
             this.tableLayoutPanel2.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.tableLayoutPanel2.Location = new System.Drawing.Point(1336, 3);
+            this.tableLayoutPanel2.Location = new System.Drawing.Point(1260, 3);
             this.tableLayoutPanel2.Name = "tableLayoutPanel2";
             this.tableLayoutPanel2.RowCount = 2;
             this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
             this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
-            this.tableLayoutPanel2.Size = new System.Drawing.Size(568, 763);
+            this.tableLayoutPanel2.Size = new System.Drawing.Size(644, 793);
             this.tableLayoutPanel2.TabIndex = 1;
             // 
             // groupBox4
@@ -1148,9 +1148,9 @@ namespace 码料机
             this.groupBox4.Dock = System.Windows.Forms.DockStyle.Fill;
             this.groupBox4.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F, System.Drawing.FontStyle.Bold);
             this.groupBox4.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
-            this.groupBox4.Location = new System.Drawing.Point(3, 384);
+            this.groupBox4.Location = new System.Drawing.Point(3, 399);
             this.groupBox4.Name = "groupBox4";
-            this.groupBox4.Size = new System.Drawing.Size(562, 376);
+            this.groupBox4.Size = new System.Drawing.Size(638, 391);
             this.groupBox4.TabIndex = 2;
             this.groupBox4.TabStop = false;
             this.groupBox4.Text = "右机台";
@@ -1267,9 +1267,9 @@ namespace 码料机
             this.button1.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.button1.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
             this.button1.ForeColor = System.Drawing.Color.White;
-            this.button1.Location = new System.Drawing.Point(6, 331);
+            this.button1.Location = new System.Drawing.Point(6, 346);
             this.button1.Name = "button1";
-            this.button1.Size = new System.Drawing.Size(540, 44);
+            this.button1.Size = new System.Drawing.Size(616, 44);
             this.button1.TabIndex = 19;
             this.button1.Text = "确定产品与数量";
             this.button1.UseVisualStyleBackColor = false;
@@ -1294,7 +1294,7 @@ namespace 码料机
             this.groupBox3.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox3.Location = new System.Drawing.Point(3, 3);
             this.groupBox3.Name = "groupBox3";
-            this.groupBox3.Size = new System.Drawing.Size(562, 375);
+            this.groupBox3.Size = new System.Drawing.Size(638, 390);
             this.groupBox3.TabIndex = 1;
             this.groupBox3.TabStop = false;
             this.groupBox3.Text = "左机台";
@@ -1373,9 +1373,6 @@ namespace 码料机
             // 
             this.comboBox3.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
             this.comboBox3.FormattingEnabled = true;
-            this.comboBox3.Items.AddRange(new object[] {
-            "交叉排料",
-            "平行排料"});
             this.comboBox3.Location = new System.Drawing.Point(136, 131);
             this.comboBox3.Name = "comboBox3";
             this.comboBox3.Size = new System.Drawing.Size(208, 40);
@@ -1414,9 +1411,9 @@ namespace 码料机
             this.button3.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.button3.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
             this.button3.ForeColor = System.Drawing.Color.White;
-            this.button3.Location = new System.Drawing.Point(11, 317);
+            this.button3.Location = new System.Drawing.Point(11, 332);
             this.button3.Name = "button3";
-            this.button3.Size = new System.Drawing.Size(545, 44);
+            this.button3.Size = new System.Drawing.Size(621, 44);
             this.button3.TabIndex = 10;
             this.button3.Text = "确定产品与数量";
             this.button3.UseVisualStyleBackColor = false;
@@ -1425,7 +1422,7 @@ namespace 码料机
             // splitContainer2
             // 
             this.splitContainer2.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.splitContainer2.Location = new System.Drawing.Point(536, 3);
+            this.splitContainer2.Location = new System.Drawing.Point(498, 3);
             this.splitContainer2.Name = "splitContainer2";
             this.splitContainer2.Orientation = System.Windows.Forms.Orientation.Horizontal;
             // 
@@ -1436,8 +1433,8 @@ namespace 码料机
             // splitContainer2.Panel2
             // 
             this.splitContainer2.Panel2.Controls.Add(this.listBox1);
-            this.splitContainer2.Size = new System.Drawing.Size(794, 763);
-            this.splitContainer2.SplitterDistance = 537;
+            this.splitContainer2.Size = new System.Drawing.Size(756, 793);
+            this.splitContainer2.SplitterDistance = 558;
             this.splitContainer2.SplitterWidth = 6;
             this.splitContainer2.TabIndex = 2;
             // 
@@ -1452,7 +1449,7 @@ namespace 码料机
             // 
             this.splitContainer3.Panel1.Controls.Add(this.groupBox6);
             this.splitContainer3.Panel2Collapsed = true;
-            this.splitContainer3.Size = new System.Drawing.Size(794, 537);
+            this.splitContainer3.Size = new System.Drawing.Size(756, 558);
             this.splitContainer3.SplitterDistance = 300;
             this.splitContainer3.SplitterWidth = 6;
             this.splitContainer3.TabIndex = 0;
@@ -1466,7 +1463,7 @@ namespace 码料机
             this.groupBox6.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox6.Location = new System.Drawing.Point(0, 0);
             this.groupBox6.Name = "groupBox6";
-            this.groupBox6.Size = new System.Drawing.Size(794, 537);
+            this.groupBox6.Size = new System.Drawing.Size(756, 558);
             this.groupBox6.TabIndex = 0;
             this.groupBox6.TabStop = false;
             this.groupBox6.Text = "木箱定位";
@@ -1481,7 +1478,7 @@ namespace 码料机
             this.tableLayoutPanel3.Name = "tableLayoutPanel3";
             this.tableLayoutPanel3.RowCount = 1;
             this.tableLayoutPanel3.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.tableLayoutPanel3.Size = new System.Drawing.Size(788, 500);
+            this.tableLayoutPanel3.Size = new System.Drawing.Size(750, 521);
             this.tableLayoutPanel3.TabIndex = 0;
             // 
             // panelVmPreviewHost
@@ -1490,7 +1487,7 @@ namespace 码料机
             this.panelVmPreviewHost.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelVmPreviewHost.Location = new System.Drawing.Point(3, 3);
             this.panelVmPreviewHost.Name = "panelVmPreviewHost";
-            this.panelVmPreviewHost.Size = new System.Drawing.Size(782, 494);
+            this.panelVmPreviewHost.Size = new System.Drawing.Size(744, 515);
             this.panelVmPreviewHost.TabIndex = 2;
             // 
             // listBox1
@@ -1502,7 +1499,7 @@ namespace 码料机
             this.listBox1.ItemHeight = 31;
             this.listBox1.Location = new System.Drawing.Point(0, 0);
             this.listBox1.Name = "listBox1";
-            this.listBox1.Size = new System.Drawing.Size(794, 220);
+            this.listBox1.Size = new System.Drawing.Size(756, 229);
             this.listBox1.TabIndex = 0;
             // 
             // contextMenuStrip1
@@ -1551,7 +1548,7 @@ namespace 码料机
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(237)))), ((int)(((byte)(242)))), ((int)(((byte)(247)))));
-            this.ClientSize = new System.Drawing.Size(1907, 840);
+            this.ClientSize = new System.Drawing.Size(1907, 870);
             this.Controls.Add(this.tableLayoutPanel1);
             this.Controls.Add(this.statusStripBottom);
             this.Controls.Add(this.toolStrip1);
