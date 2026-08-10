@@ -19,6 +19,9 @@ namespace 码料机
         private bool? _lastAlgorithmCaptureIsLeft;
         private string _lastAlgorithmCapturePath;
         private Button _btnHikGrab;
+        /// <summary>连接/切换海康时串行化，避免启动后台连接与界面采图并发把相机打开两次。</summary>
+        private readonly object _hikCameraGate = new object();
+        private string _lastHikCaptureError;
 
         private bool ShouldUseHikCamera(bool isLeft)
             => _jinwo.IsEnabled && _jinwo.IsLoaded && _jinwo.HikCameraEnabled(isLeft);
@@ -28,6 +31,15 @@ namespace 码料机
 
         private bool CanUseHikCameraForCapture(bool isLeft) =>
             ShouldUseHikCamera(isLeft) || _hikCameraConnected || ShouldUseHikCamera();
+
+        /// <summary>解析实际用于连接的海康侧：优先目标工位，否则回退到任一已启用侧。</summary>
+        private bool ResolveHikConnectSide(bool preferIsLeft)
+        {
+            if (ShouldUseHikCamera(preferIsLeft)) return preferIsLeft;
+            if (ShouldUseHikCamera(true)) return true;
+            if (ShouldUseHikCamera(false)) return false;
+            return preferIsLeft;
+        }
 
         private void MarkAlgorithmCaptureForSide(bool isLeft, string path)
         {
@@ -150,53 +162,104 @@ namespace 码料机
 
         private bool EnsureHikCameraForSide(bool isLeft, out string detail)
         {
-            if (_hikCameraConnected && _hikConnectedIsLeft == isLeft)
+            lock (_hikCameraGate)
             {
-                detail = "";
-                return true;
+                if (TryReuseConnectedHikCamera(isLeft, out detail))
+                    return true;
+                return TryConnectHikCameraUnlocked(isLeft, out detail);
             }
-            return TryConnectHikCamera(isLeft, out detail);
         }
 
         private bool EnsureHikCameraForCapture(bool targetIsLeft, out string detail)
         {
-            if (_hikCameraConnected && _hikCamera != null)
+            bool connectSide = ResolveHikConnectSide(targetIsLeft);
+            return EnsureHikCameraForSide(connectSide, out detail);
+        }
+
+        /// <summary>已连接时尽量复用，避免算法测试/右工位未启用时把左相机拆掉重连。</summary>
+        private bool TryReuseConnectedHikCamera(bool isLeft, out string detail)
+        {
+            detail = "";
+            if (!_hikCameraConnected || _hikCamera == null || !_hikCamera.IsConnected)
+                return false;
+
+            if (_hikConnectedIsLeft == isLeft)
+                return true;
+
+            // 目标侧未启用：单相机场景，直接复用已连接相机。
+            if (!ShouldUseHikCamera(isLeft))
+                return true;
+
+            string targetSn = _jinwo.HikSerialNumber(isLeft)?.Trim() ?? "";
+            string curSn = _hikCamera.SerialNumber?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(targetSn)
+                && !string.IsNullOrEmpty(curSn)
+                && string.Equals(targetSn, curSn, StringComparison.OrdinalIgnoreCase))
             {
-                detail = "";
+                _hikConnectedIsLeft = isLeft;
                 return true;
             }
-            bool connectSide = ShouldUseHikCamera(targetIsLeft)
-                ? targetIsLeft
-                : (ShouldUseHikCamera(true) ? true : false);
-            return EnsureHikCameraForSide(connectSide, out detail);
+
+            // 目标侧启用了不同序列号，需要切换连接。
+            return false;
         }
 
         private bool TryConnectHikCamera(bool isLeft, out string detail)
         {
+            lock (_hikCameraGate)
+                return TryConnectHikCameraUnlocked(isLeft, out detail);
+        }
+
+        private bool TryConnectHikCameraUnlocked(bool isLeft, out string detail)
+        {
             detail = "";
+            if (TryReuseConnectedHikCamera(isLeft, out detail))
+                return true;
+
             if (!ShouldUseHikCamera(isLeft))
             {
+                // 目标侧未启用时，回退到另一侧，避免算法测试在右工位误报“连接不到”。
+                bool fallback = !isLeft;
+                if (ShouldUseHikCamera(fallback))
+                    return TryConnectHikCameraUnlocked(fallback, out detail);
                 detail = (isLeft ? "左" : "右") + "机台海康相机未启用";
                 return false;
             }
 
             string sn = _jinwo.HikSerialNumber(isLeft)?.Trim();
+            string[] devices = null;
+            try
+            {
+                devices = HikvisionMvsCamera.EnumDeviceSerialNumbers();
+            }
+            catch (Exception ex)
+            {
+                detail = "枚举相机失败: " + ex.Message;
+                return false;
+            }
+
             if (string.IsNullOrEmpty(sn))
             {
-                try
+                if (devices == null || devices.Length == 0)
                 {
-                    string[] devices = HikvisionMvsCamera.EnumDeviceSerialNumbers();
-                    if (devices.Length == 0)
-                    {
-                        detail = "未枚举到相机，请检查 MVS 驱动与网线/USB";
-                        return false;
-                    }
-                    sn = devices[0];
-                    detail = "未配置序列号，已自动选用第一台: " + sn;
+                    detail = "未枚举到相机，请检查 MVS 驱动与网线/USB，并关闭占用相机的 MVS 客户端";
+                    return false;
                 }
-                catch (Exception ex)
+                sn = devices[0];
+                detail = "未配置序列号，已自动选用第一台: " + sn;
+            }
+            else if (devices != null && devices.Length > 0
+                && !devices.Any(d => string.Equals(d, sn, StringComparison.OrdinalIgnoreCase)))
+            {
+                // INI 序列号与现场不一致时，单相机自动回退，避免算法测试一直连不上。
+                if (devices.Length == 1)
                 {
-                    detail = ex.Message;
+                    detail = "未找到 SN=" + sn + "，已改用现场唯一相机: " + devices[0];
+                    sn = devices[0];
+                }
+                else
+                {
+                    detail = "未找到序列号为 " + sn + " 的相机；现场可见: " + string.Join(", ", devices);
                     return false;
                 }
             }
@@ -214,9 +277,8 @@ namespace 码料机
 
                 if (!_hikCamera.Connect(sn))
                 {
-                    detail = string.IsNullOrEmpty(detail)
-                        ? (_hikCamera.LastError ?? "连接失败")
-                        : detail + "；" + (_hikCamera.LastError ?? "连接失败");
+                    string err = _hikCamera.LastError ?? "连接失败";
+                    detail = string.IsNullOrEmpty(detail) ? err : detail + "；" + err;
                     _hikCamera.Dispose();
                     _hikCamera = null;
                     _hikCameraConnected = false;
@@ -317,19 +379,23 @@ namespace 码料机
             }
         }
 
-        private async Task<bool> TryHikvisionCaptureAsync(bool isLeft, bool archiveCopy = false)
+        private async Task<bool> TryHikvisionCaptureAsync(bool isLeft, bool archiveCopy = false, bool reportFault = true)
         {
+            _lastHikCaptureError = null;
+            bool connectSide = ResolveHikConnectSide(isLeft);
             if (!EnsureHikCameraForCapture(isLeft, out string connectErr))
             {
+                _lastHikCaptureError = string.IsNullOrWhiteSpace(connectErr) ? "相机连接失败" : connectErr;
                 if (!string.IsNullOrEmpty(connectErr))
                     TEXT("[海康] " + connectErr);
-                if (CanUseHikCameraForCapture(isLeft))
+                if (reportFault && CanUseHikCameraForCapture(isLeft))
                     ReportHikCameraFault(isLeft, "CAMERA_CONNECT_FAIL", "采图前连接", connectErr);
                 return false;
             }
 
+            // 实际取流侧可能与界面工位不同（右工位未启用时复用左相机），落盘仍按请求工位缓存。
+            bool cameraConfigIsLeft = _hikConnectedIsLeft ?? connectSide;
             string path = _jinwo.ResolveHikCaptureSavePath(isLeft);
-            bool cameraConfigIsLeft = _hikConnectedIsLeft ?? isLeft;
             _activeHikCaptureTargetIsLeft = isLeft;
             _hikCamera.ConfigureAutoSave(_jinwo.HikSaveEveryFrame(cameraConfigIsLeft), path);
             _hikCamera.ConfigurePreview(_jinwo.HikLivePreview(cameraConfigIsLeft), _jinwo.HikPreviewIntervalMs(cameraConfigIsLeft));
@@ -346,8 +412,10 @@ namespace 码料机
             {
                 if (!_hikCamera.TriggerSoftware())
                 {
-                    TEXT("[海康] 软触发失败: " + (_hikCamera.LastError ?? ""));
-                    ReportHikCameraFault(isLeft, "CAMERA_CAPTURE_FAIL", "软触发", _hikCamera.LastError ?? "软触发失败");
+                    _lastHikCaptureError = _hikCamera.LastError ?? "软触发失败";
+                    TEXT("[海康] 软触发失败: " + _lastHikCaptureError);
+                    if (reportFault)
+                        ReportHikCameraFault(isLeft, "CAMERA_CAPTURE_FAIL", "软触发", _lastHikCaptureError);
                     return false;
                 }
                 await Task.Delay(120).ConfigureAwait(false);
@@ -367,13 +435,16 @@ namespace 码料机
 
             if (!hasFreshImage)
             {
-                ReportHikCameraFault(isLeft, "CAMERA_CAPTURE_FAIL", "采图落盘", "采图超时或未生成图像文件：" + path);
+                _lastHikCaptureError = "采图超时或未生成图像文件：" + path;
+                if (reportFault)
+                    ReportHikCameraFault(isLeft, "CAMERA_CAPTURE_FAIL", "采图落盘", _lastHikCaptureError);
                 return false;
             }
 
             _offlineTestImagePath = path;
             _jinwo.SetCaptureImageOverride(path);
             MarkAlgorithmCaptureForSide(isLeft, path);
+            string stationCache = StationByCaptureSide(isLeft)?.LastAlgorithmCaptureImagePath;
 
             if (archiveCopy)
             {
@@ -382,7 +453,9 @@ namespace 码料机
                     SafeInvoke(() => TEXT("[海康] 已自动保存: " + archived));
             }
 
-            ProcessPipelineLog.ImageLoaded("[海康→金沃]", path, path, "MVS 采图");
+            ProcessPipelineLog.ImageLoaded("[海康→金沃]", path,
+                string.IsNullOrEmpty(stationCache) ? path : stationCache,
+                archiveCopy ? "MVS 采图（含存档）" : "MVS 采图");
             return true;
         }
 
@@ -463,11 +536,16 @@ namespace 码料机
             }
         }
 
+        /// <summary>
+        /// 预览区「拍照」按钮：主界面常驻显示；点击时再连接海康。
+        /// 勿依赖启动时金沃是否已加载（后台加载完成后此前会漏建此按钮）。
+        /// </summary>
         private void EnsureHikGrabButton()
         {
-            if (_btnHikGrab != null || panelVmPreviewHost == null || !ShouldUseHikCamera())
+            if (_btnHikGrab != null || panelVmPreviewHost == null)
                 return;
 
+            EnsurePreviewToolbar();
             EnsurePreviewToolbarHost();
 
             _btnHikGrab = new Button
@@ -491,6 +569,13 @@ namespace 码料机
                 }
             };
             _previewToolbarHost.Controls.Add(_btnHikGrab);
+            // 预览区从左到右：拍照 | 加载离线图片 | 保存图片
+            try
+            {
+                if (_btnLoadTestImage != null)
+                    _previewToolbarHost.Controls.SetChildIndex(_btnHikGrab, 0);
+            }
+            catch { }
             LayoutPreviewToolbar();
         }
     }

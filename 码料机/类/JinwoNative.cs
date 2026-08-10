@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -50,6 +51,12 @@ namespace 码料机
 
             public double FirstCenterOffsetX;
             public double FirstCenterOffsetY;
+
+            /// <summary>黑圆/箱体最大允许倾斜角度（度）。</summary>
+            public double maxMarkerTiltDegrees;
+
+            /// <summary>与 金沃dll-测试.cpp 一致：0=横向梅花，1=竖向梅花（结构体末尾字段）。</summary>
+            public int StaggerMode;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 8)]
@@ -105,6 +112,10 @@ namespace 码料机
         [UnmanagedFunctionPointer(ApiConv)]
         public delegate int JinwoSetTrayGridFn(ref JinwoTrayConfig config, int rows, int cols, int layers);
 
+        /// <summary>staggerMode：0=横向梅花，1=竖向梅花（紧接 SetTrayGrid 之后调用）。</summary>
+        [UnmanagedFunctionPointer(ApiConv)]
+        public delegate int JinwoSetStaggerModeFn(ref JinwoTrayConfig config, int staggerMode);
+
         [UnmanagedFunctionPointer(ApiConv)]
         public delegate int JinwoSetBearingFn(ref JinwoTrayConfig config, double outerDiameter, double height, double gap, double layerPitchZ);
 
@@ -116,6 +127,9 @@ namespace 码料机
 
         [UnmanagedFunctionPointer(ApiConv)]
         public delegate int JinwoSetCameraDistanceFn(ref JinwoTrayConfig config, double distance);
+
+        [UnmanagedFunctionPointer(ApiConv)]
+        public delegate int JinwoSetMaxMarkerTiltDegreesFn(ref JinwoTrayConfig config, double degrees);
 
         [UnmanagedFunctionPointer(ApiConv)]
         public delegate int JinwoSetMarkerDistanceFn(ref JinwoTrayConfig config, double distanceX, double distanceY);
@@ -184,10 +198,12 @@ namespace 码料机
 
             public JinwoInitConfigFn InitConfig { get; private set; }
             public JinwoSetTrayGridFn SetTrayGrid { get; private set; }
+            public JinwoSetStaggerModeFn SetStaggerMode { get; private set; }
             public JinwoSetBearingFn SetBearing { get; private set; }
             public JinwoSetPitchFn SetPitch { get; private set; }
             public JinwoSetBoxFn SetBox { get; private set; }
             public JinwoSetCameraDistanceFn SetCameraDistance { get; private set; }
+            public JinwoSetMaxMarkerTiltDegreesFn SetMaxMarkerTiltDegrees { get; private set; }
             public JinwoSetMarkerDistanceFn SetMarkerDistance { get; private set; }
             public JinwoSetAutoInnerReserveFn SetAutoInnerReserve { get; private set; }
             public JinwoSetInnerRegionFn SetInnerRegion { get; private set; }
@@ -203,8 +219,12 @@ namespace 码料机
 
             public static JinwoDll Load(string dllPath, string openCvRuntimeDir)
             {
-                if (!string.IsNullOrWhiteSpace(openCvRuntimeDir))
-                    SetDllDirectory(openCvRuntimeDir);
+                // OpenCV 通常与 JinwoRobotArm.dll 同目录（配置文件\）；未显式配置时用 DLL 目录作搜索路径。
+                string searchDir = !string.IsNullOrWhiteSpace(openCvRuntimeDir)
+                    ? openCvRuntimeDir
+                    : Path.GetDirectoryName(Path.GetFullPath(dllPath));
+                if (!string.IsNullOrWhiteSpace(searchDir))
+                    SetDllDirectory(searchDir);
 
                 IntPtr module = LoadLibrary(dllPath);
                 if (module == IntPtr.Zero)
@@ -213,10 +233,14 @@ namespace 码料机
                 var dll = new JinwoDll { _module = module };
                 dll.InitConfig = LoadFn<JinwoInitConfigFn>(module, "Jinwo_InitConfig");
                 dll.SetTrayGrid = LoadFn<JinwoSetTrayGridFn>(module, "Jinwo_SetTrayGrid");
+                dll.SetStaggerMode = LoadFn<JinwoSetStaggerModeFn>(module, "Jinwo_SetStaggerMode");
                 dll.SetBearing = LoadFn<JinwoSetBearingFn>(module, "Jinwo_SetBearing");
                 dll.SetPitch = LoadFn<JinwoSetPitchFn>(module, "Jinwo_SetPitch");
                 dll.SetBox = LoadFn<JinwoSetBoxFn>(module, "Jinwo_SetBox");
                 dll.SetCameraDistance = LoadFn<JinwoSetCameraDistanceFn>(module, "Jinwo_SetCameraDistance");
+                // 新版 DLL 提供正式角度 Setter；保留旧版 DLL 的结构体字段回退兼容。
+                dll.SetMaxMarkerTiltDegrees = TryLoadFn<JinwoSetMaxMarkerTiltDegreesFn>(
+                    module, "Jinwo_SetMaxMarkerTiltDegrees");
                 dll.SetMarkerDistance = LoadFn<JinwoSetMarkerDistanceFn>(module, "Jinwo_SetMarkerDistance");
                 dll.SetAutoInnerReserve = LoadFn<JinwoSetAutoInnerReserveFn>(module, "Jinwo_SetAutoInnerReserve");
                 dll.SetInnerRegion = LoadFn<JinwoSetInnerRegionFn>(module, "Jinwo_SetInnerRegion");

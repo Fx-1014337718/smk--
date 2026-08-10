@@ -31,15 +31,9 @@ namespace 码料机
         public string ResolveDllPath()
         {
             string name = string.IsNullOrWhiteSpace(DllFileName) ? "判断有无轴承.dll" : DllFileName.Trim();
-            if (Path.IsPathRooted(name) && File.Exists(name))
-                return Path.GetFullPath(name);
-            string inCfg = Path.Combine(Parameters.IniDir, name);
-            if (File.Exists(inCfg))
-                return inCfg;
-            string besideExe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, name);
-            if (File.Exists(besideExe))
-                return besideExe;
-            return inCfg;
+            if (Path.IsPathRooted(name))
+                name = Path.GetFileName(name);
+            return Path.GetFullPath(Path.Combine(Parameters.IniDir, name));
         }
 
         public string ResolveOpenCvRuntimeDir()
@@ -47,7 +41,9 @@ namespace 码料机
             if (!string.IsNullOrWhiteSpace(OpenCvRuntimeDir))
             {
                 string p = OpenCvRuntimeDir.Trim();
-                return Path.IsPathRooted(p) ? p : Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, p));
+                if (Path.IsPathRooted(p))
+                    p = new DirectoryInfo(p).Name;
+                return Path.GetFullPath(Path.Combine(Parameters.IniDir, p));
             }
             return Parameters.IniDir;
         }

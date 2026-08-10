@@ -167,8 +167,8 @@ namespace 码料机
             this.comboStackMode.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.comboStackMode.FormattingEnabled = true;
             this.comboStackMode.Items.AddRange(new object[] {
-            "交叉排料",
-            "平行排料"});
+            "横向梅花",
+            "竖向梅花"});
             this.comboStackMode.Location = new System.Drawing.Point(15, 136);
             this.comboStackMode.Margin = new System.Windows.Forms.Padding(3, 0, 3, 10);
             this.comboStackMode.MinimumSize = new System.Drawing.Size(0, 40);

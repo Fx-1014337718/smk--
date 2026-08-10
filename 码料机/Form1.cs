@@ -44,6 +44,9 @@ namespace 码料机
         /// <summary>左/右机台运动超限报警范围（存于拍照位置.ini）。</summary>
         public AlarmPositionLimitConfig AlarmPositionLimitsLeft { get; private set; } = new AlarmPositionLimitConfig();
         public AlarmPositionLimitConfig AlarmPositionLimitsRight { get; private set; } = new AlarmPositionLimitConfig();
+        /// <summary>安全区域边界：约束位置设定页「限位报警参数」可输入范围。</summary>
+        public AlarmPositionLimitConfig SafetyEnvelopeLeft { get; private set; } = new AlarmPositionLimitConfig();
+        public AlarmPositionLimitConfig SafetyEnvelopeRight { get; private set; } = new AlarmPositionLimitConfig();
         private double _recoPickLx, _recoPickLy, _recoPickRx, _recoPickRy;
         private double _recoPlaceLx, _recoPlaceLy, _recoPlaceRx, _recoPlaceRy;
         private bool _hasRecoPickL, _hasRecoPickR, _hasRecoPlaceL, _hasRecoPlaceR;
@@ -52,6 +55,7 @@ namespace 码料机
         public ZAxisConfig GetZAxis(bool isLeft) => isLeft ? ZAxisLeft : ZAxisRight;
         public PhotoPositionConfig GetPhotoPositions(bool isLeft) => isLeft ? PhotoPositionsLeft : PhotoPositionsRight;
         public AlarmPositionLimitConfig GetAlarmPositionLimits(bool isLeft) => isLeft ? AlarmPositionLimitsLeft : AlarmPositionLimitsRight;
+        public AlarmPositionLimitConfig GetSafetyEnvelope(bool isLeft) => isLeft ? SafetyEnvelopeLeft : SafetyEnvelopeRight;
         private bool IsLeftStation(StationData st) => st == null || ReferenceEquals(st, leftStation);
 
         /// <summary>九点标定 A/B 侧：优先显式取料请求侧，其次 PLC 正在请求的取料信号，再次工位上次取料应答侧。</summary>
@@ -87,7 +91,7 @@ namespace 码料机
             public int LastIssuedPlaceQty;
             public double BoxLength, BoxWidth, BoxHeight, OuterDiam, SingleProductHeight; // 箱与产品几何（mm）
             public LayoutType Layout; // 矩阵或木框
-            public StackMode StackMode = StackMode.Parallel; // 层内平行或交叉摆
+            public StackMode StackMode = StackMode.HorizontalMeihua; // 0=横向梅花，1=竖向梅花
             /// <summary>箱在平面内位姿（默认单位姿；排料坐标变换用）。</summary>
             public BoxPose VisionBoxPose = BoxPose.Identity;
             public float PickCenterX, PickCenterY, PlaceOffsetLocalX, PlaceOffsetLocalY; // 取料圆心、首孔相对补偿（箱内 mm）
@@ -150,7 +154,8 @@ namespace 码料机
             {
                 if (Layout == LayoutType.Matrix)
                 {
-                    if (JinwoPlacementOrder.PreferColumnMajor(MaxRows, MaxCols))
+                    // 与规划表一致：竖向梅花列优先，横向梅花行优先。
+                    if (JinwoPlacementOrder.PreferColumnMajor(StackMode))
                     {
                         if (++Row >= MaxRows) { Row = 0; if (++Col >= MaxCols) { Col = 0; Layer++; } }
                     }
@@ -201,6 +206,8 @@ namespace 码料机
         private readonly TrackBufferCountConfig _trackBufferCount = new TrackBufferCountConfig();
         private CheckBox _chkLeftUseConfiguredPlace;
         private CheckBox _chkRightUseConfiguredPlace;
+        /// <summary>切换放料模式时回滚复选框，避免 CheckedChanged 重入。</summary>
+        private bool _suppressPlaceModeUiEvents;
         // _chkLeftUseManualSlotSelect / _chkRightUseManualSlotSelect 见 Form1.ManualPlaceSelect.cs
         private Button _btnLoadTestImage;
         private Button _btnSavePreviewImage;
@@ -275,6 +282,9 @@ namespace 码料机
             AlarmPositionLimitConfig.LoadBoth(pathPhotoPos, out var alarmLeft, out var alarmRight);
             AlarmPositionLimitsLeft = alarmLeft;
             AlarmPositionLimitsRight = alarmRight;
+            AlarmPositionLimitConfig.LoadEnvelopes(pathPhotoPos, out var envLeft, out var envRight);
+            SafetyEnvelopeLeft = envLeft;
+            SafetyEnvelopeRight = envRight;
             if (pushToPlc)
                 PushConfiguredPositionsToPlc();
         }
@@ -389,6 +399,9 @@ namespace 码料机
                     {
                         if (_plcLifecycleEnded) return;
                         RefreshJinwoStatusUi();
+                        RefreshCameraStatusUi();
+                        EnsureHikGrabButton();
+                        TryInitHikCameraOnLoad();
                         RefreshAllStationsJinwoTraySilent();
                     });
                 }
@@ -782,12 +795,16 @@ namespace 码料机
                 bool jinwo = _jinwo.IsEnabled && _jinwo.IsLoaded;
                 toolStripLabelPhoto.Visible = jinwo;
                 toolStripLabelPhoto.Enabled = jinwo;
-                bool hik = ShouldUseHikCamera(IsLeftStation(currentStation)) && _hikCameraConnected;
+                // 文案按「本侧是否启用海康」显示；点击时再尝试连接，不要求此刻已连上。
+                bool hik = ShouldUseHikCamera(IsLeftStation(currentStation)) || CanUseHikCameraForCapture(IsLeftStation(currentStation));
                 toolStripLabelPhoto.Text = hik ? "海康+金沃" : "金沃算图";
             }
+            // 金沃后台加载完成后补建预览区「拍照」按钮。
+            if (_jinwo.IsEnabled)
+                EnsureHikGrabButton();
         }
 
-        private bool CanVisionManualRetake(bool isLeft) => ShouldUseHikCamera(isLeft) && _hikCameraConnected;
+        private bool CanVisionManualRetake(bool isLeft) => ShouldUseHikCamera(isLeft);
         private bool CanVisionManualRetake() => CanVisionManualRetake(IsLeftStation(currentStation));
 
         /// <summary>弹出文件选择并落盘为金沃采图路径。</summary>
@@ -815,7 +832,7 @@ namespace 码料机
             });
             if (string.IsNullOrWhiteSpace(picked))
                 return false;
-            await LoadOfflineTestImageAsync(picked).ConfigureAwait(true);
+            await LoadOfflineTestImageAsync(picked, IsLeftStation(currentStation)).ConfigureAwait(true);
             string feed = _jinwo.ResolveCaptureImagePath(IsLeftStation(currentStation));
             return File.Exists(feed);
         }
@@ -837,7 +854,7 @@ namespace 码料机
                         TEXT("[识别重试] 相机未连接，无法重新拍照");
                         return false;
                     }
-                    bool captured = await TryHikvisionCaptureAsync(IsLeftStation(currentStation)).ConfigureAwait(true);
+                    bool captured = await TryHikvisionCaptureAsync(IsLeftStation(currentStation), archiveCopy: true).ConfigureAwait(true);
                     SafeInvoke(() => TEXT(captured
                         ? $"[识别重试] {phase} 已重新拍照"
                         : "[识别重试] 重新拍照失败（请检查相机连接与采图路径）"));
@@ -862,7 +879,9 @@ namespace 码料机
         /// <summary>海康采图或金沃离线算图。</summary>
         private async void toolStripLabelPhoto_Click(object sender, EventArgs e)
         {
-            if (ShouldUseHikCamera(IsLeftStation(currentStation)) && _hikCameraConnected)
+            bool isLeft = IsLeftStation(currentStation);
+            // 与预览区「拍照」一致：启用海康则当场连接并采图，勿因启动时尚未连上而退回离线算图。
+            if (CanUseHikCameraForCapture(isLeft))
                 await GrabHikFrameAndShowAsync(runJinwoAfterSave: true);
             else
                 await RunJinwoOfflineProcessAsync();
@@ -876,27 +895,29 @@ namespace 码料机
             if (!_jinwo.IsEnabled || !_jinwo.IsLoaded)
                 return false;
 
-            string lastErr = null;
-            while (true)
-            {
-                if (await TryShowJinwoRenderedImageOnceAsync(st, imagePath).ConfigureAwait(true))
-                    return true;
+            if (await TryShowJinwoRenderedImageOnceAsync(st, imagePath).ConfigureAwait(true))
+                return true;
 
-                lastErr = "金沃算位或黑圆检测未成功";
-                VisionRecognizeRetryAction action = VisionRecognizeRetryAction.Abort;
-                SafeInvoke(() => action = PromptVisionRecognizeRetry("拍照识别", lastErr));
-                if (action == VisionRecognizeRetryAction.Abort)
-                    return false;
-                if (!await ExecuteVisionRecognizeRetryActionAsync(action, "拍照识别").ConfigureAwait(true))
-                    continue;
-                bool isLeft = IsLeftStation(st);
-                imagePath = _jinwo.ResolveCaptureImagePath(isLeft);
-                if (!File.Exists(imagePath))
-                {
-                    TEXT("[识别重试] 无有效采图文件");
-                    continue;
-                }
+            const string lastErr = "金沃算位或黑圆检测未成功";
+            VisionRecognizeRetryAction action = VisionRecognizeRetryAction.Abort;
+            InvokeSync(() => action = PromptVisionRecognizeRetry("拍照识别", lastErr));
+            if (action == VisionRecognizeRetryAction.Abort)
+                return false;
+            if (!await ExecuteVisionRecognizeRetryActionAsync(action, "拍照识别").ConfigureAwait(true))
+                return false;
+
+            bool isLeft = IsLeftStation(st);
+            imagePath = _jinwo.ResolveCaptureImagePath(isLeft);
+            if (!File.Exists(imagePath))
+            {
+                TEXT("[识别重试] 无有效采图文件，本次识别结束");
+                return false;
             }
+
+            bool retryOk = await TryShowJinwoRenderedImageOnceAsync(st, imagePath).ConfigureAwait(true);
+            if (!retryOk)
+                TEXT("[识别重试] 加载/重拍后的图片仍识别失败，本次识别结束，不再重复弹窗");
+            return retryOk;
         }
 
         private async Task<bool> TryShowJinwoRenderedImageOnceAsync(StationData st, string imagePath)
@@ -1072,12 +1093,24 @@ namespace 码料机
             await TryShowJinwoRenderedImageAsync(st, imagePath).ConfigureAwait(true);
         }
 
-        /// <summary>从后台线程安全更新控件。</summary>
+        /// <summary>从后台线程安全更新控件（异步投递，不等待）。</summary>
         private void SafeInvoke(Action action)
         {
             if (action == null) return;
             if (!IsHandleCreated || IsDisposed) return;
             if (InvokeRequired) BeginInvoke(action);
+            else action();
+        }
+
+        /// <summary>
+        /// 后台线程需拿到对话框结果时使用（同步 Invoke）。
+        /// 禁止用 <see cref="SafeInvoke"/> 取返回值：BeginInvoke 会导致仍为默认 Abort，握手提前结束并继续应答取料。
+        /// </summary>
+        private void InvokeSync(Action action)
+        {
+            if (action == null) return;
+            if (!IsHandleCreated || IsDisposed) return;
+            if (InvokeRequired) Invoke(action);
             else action();
         }
 
@@ -1158,6 +1191,23 @@ namespace 码料机
         {
             Parameters Parameters = new Parameters(this);
             Parameters.ShowDialog();
+        }
+
+        /// <summary>机械臂控制：工位生产选择，仅向 PLC D4414 下发，不参与取放逻辑。</summary>
+        private void toolStripLabel2_Click(object sender, EventArgs e)
+        {
+            using (var dlg = new StationProductionSelectForm(_lastSentStationProductionMode))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                int mode = dlg.SelectedMode;
+                if (_lastSentStationProductionMode.HasValue && _lastSentStationProductionMode.Value == mode)
+                {
+                    TEXT($"[机械臂控制] 工位生产选择未变化（{DescribeStationProductionMode(mode)}），未向 PLC 发送");
+                    return;
+                }
+                if (TryWriteStationProductionModeToPlc(mode))
+                    _lastSentStationProductionMode = mode;
+            }
         }
 
         /// <summary>打开「箱体设置」子窗体，维护箱体 INI。</summary>
@@ -1326,35 +1376,27 @@ namespace 码料机
             if (!_jinwo.IsEnabled || !_jinwo.IsLoaded) return false;
             try
             {
+                bool isLeft = IsLeftStation(s);
+                int maxLayers = _jinwo.CalculateLayerCount(
+                    s.BoxHeight, s.SingleProductHeight, isLeft);
                 s.JinwoTray = _jinwo.BuildTrayConfig(
                     s.BoxLength, s.BoxWidth, s.BoxHeight,
                     s.OuterDiam, s.SingleProductHeight,
-                    0, 0, 0,
+                    0, 0, maxLayers,
                     gridFromAlgorithmOnly: true,
-                    isLeft: IsLeftStation(s));
-                var tray = s.JinwoTray;
-                int effRows = 0, effCols = 0, capacity = 0;
-                if (!_jinwo.TryGetEffectiveGrid(ref tray, out effRows, out effCols, out capacity)
-                    || effRows < 1 || effCols < 1)
-                {
-                    TEXT("[金沃] " + s.Name + " 算法未返回有效网格，请检查箱体/产品与金沃算法参数");
-                    return false;
-                }
+                    isLeft: isLeft,
+                    maxMarkerTiltDegrees: JinwoAlgorithmConfig.Load(isLeft).MaxMarkerTiltDegrees,
+                    packingMode: StackingPlacement.ToPackingMode(s.StackMode));
 
-                if (!_jinwo.TryQueryTrayGridInfo(ref tray, ref effRows, ref effCols, ref capacity,
-                        s.BoxHeight, s.SingleProductHeight, IsLeftStation(s), out int maxLayers))
-                {
-                    TEXT("[金沃] " + s.Name + " 托盘网格查询失败，请检查箱体/产品与金沃算法参数");
-                    return false;
-                }
-
-                s.JinwoTray = tray;
+                // 确认产品只锁定型号/箱体参数和上位机计算的层数。
+                // 行列、单层容量和全部 XY 必须等首次识图后采用 DLL 的真实中心结果。
                 s.HasJinwoTrayConfig = true;
-                s.MaxRows = effRows;
-                s.MaxCols = effCols;
+                s.MaxRows = 0;
+                s.MaxCols = 0;
                 s.MaxLayers = maxLayers;
+                s.ConfirmedBearingCapacity = 0;
                 if (logEffectiveGrid)
-                    TEXT($"[金沃] GetEffectiveGrid 参考 {effRows} 行 x {effCols} 列 x {maxLayers} 层，{JinwoPlacementOrder.DescribeTraversal(effRows, effCols)}（算位以 DLL 内部网格为准）");
+                    TEXT($"[金沃] {s.Name} 已确认型号/箱体参数，层数={maxLayers}，排料{StackingPlacement.DescribeStackMode(s.StackMode)}({StackingPlacement.ToPackingMode(s.StackMode)})；行列、容量和 XY 等待算法识图输出");
                 return true;
             }
             catch (Exception ex)
@@ -1389,20 +1431,44 @@ namespace 码料机
             }
             if (_jinwo.IsEnabled && !_jinwo.IsLoaded)
             {
-                MessageBox.Show("金沃算法仍在加载中，请稍候再点「确定产品与数量」。\r\n（状态栏/日志出现金沃就绪提示后再确认）",
-                    "请稍候", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                string detail = !string.IsNullOrWhiteSpace(_jinwo.LoadError)
+                    ? _jinwo.LoadError
+                    : _jinwo.StatusText;
+                // 启动后后台加载中 vs 已失败（缺 DLL 等）文案不同，避免误以为“再等一会就好”。
+                bool failed = !string.IsNullOrWhiteSpace(_jinwo.LoadError)
+                    || string.Equals(_jinwo.StatusText, "DLL 缺失", StringComparison.Ordinal)
+                    || string.Equals(_jinwo.StatusText, "金沃加载失败", StringComparison.Ordinal);
+                string msg = failed
+                    ? "金沃算法未就绪，无法确认产品。\r\n" + detail
+                      + "\r\n请将 JinwoRobotArm.dll（及 OpenCV）放到程序目录下「配置文件」后再重启。"
+                    : "金沃算法仍在加载中，请稍候再点「确定产品与数量」。\r\n（日志出现「金沃算法已加载」后再确认）";
+                MessageBox.Show(msg, failed ? "金沃未就绪" : "请稍候",
+                    MessageBoxButtons.OK, failed ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
                 return;
             }
             string prod = cbProd.SelectedItem.ToString();
             string layoutStr = IniAPI.INIGetStringValue(path, prod, "摆放方式", "矩阵摆");
             if (!TryRebuildJinwoTrayForStation(s, cbBox, cbProd, cbStack, silent: false))
                 return;
-            TEXT($"{s.Name}参数加载成功：箱体({s.BoxLength}x{s.BoxWidth}x{s.BoxHeight})，产品外径{s.OuterDiam}，产品高度{s.SingleProductHeight}，摆放{layoutStr}，排料{(s.StackMode == StackMode.Cross ? "交叉" : "平行")}");
-            int totalCap = s.MaxCols * s.MaxRows * s.MaxLayers;
-            string traversal = JinwoPlacementOrder.DescribeTraversal(s.MaxRows, s.MaxCols);
-            TEXT(s.HasJinwoTrayConfig
-                ? $"最大可放（算法）：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，{traversal}，总计{totalCap}个产品"
-                : $"最大可放：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，{traversal}，总计{totalCap}个产品");
+            TEXT($"{s.Name}参数加载成功：箱体({s.BoxLength}x{s.BoxWidth}x{s.BoxHeight})，产品外径{s.OuterDiam}，产品高度{s.SingleProductHeight}，摆放{layoutStr}，排料{StackingPlacement.DescribeStackMode(s.StackMode)}({StackingPlacement.ToPackingMode(s.StackMode)})");
+            int rectangularCap = (s.MaxCols >= 1 && s.MaxRows >= 1 && s.MaxLayers >= 1)
+                ? s.MaxCols * s.MaxRows * s.MaxLayers
+                : 0;
+            int totalCap = s.ConfirmedBearingCapacity > 0
+                ? s.ConfirmedBearingCapacity
+                : rectangularCap;
+            if (s.HasJinwoTrayConfig && (s.MaxRows < 1 || s.MaxCols < 1 || totalCap < 1))
+            {
+                TEXT($"最大可放（算法）：行列、容量和 XY 等待首次识图输出；上位机仅确认 {s.MaxLayers} 层");
+                totalCap = 0; // 容量以首次识图 centers.Length 为准，勿用 0 网格伪造成 1
+            }
+            else
+            {
+                string traversal = JinwoPlacementOrder.DescribeTraversal(s.StackMode);
+                TEXT(s.HasJinwoTrayConfig
+                    ? $"最大可放（算法）：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，{traversal}，总计{totalCap}个产品"
+                    : $"最大可放：{s.MaxCols}列 x {s.MaxRows}行 x {s.MaxLayers}层，{traversal}，总计{totalCap}个产品");
+            }
             TEXT($"竖直取放档按层：{ZStackPlacement.FormatBatchPattern(s.MaxLayers)}（托盘共{s.MaxLayers}层）");
             s.IsFull = false;
             s.Layer = s.Row = s.Col = 0;
@@ -1434,7 +1500,7 @@ namespace 码料机
             if (station != null && station.MaxLayers > 0)
             {
                 int planIndex = ResolveNextPlacementPlanIndex(station);
-                qty = GetPlanBatchQty(planIndex, station.MaxRows, station.MaxCols, station.MaxLayers);
+                qty = GetPlanBatchQty(station, planIndex);
             }
             station.PickQty = station.PlaceQty = qty;
             if (pickBox != null) pickBox.Text = qty.ToString();
@@ -1515,12 +1581,7 @@ namespace 码料机
                     suffix += " | " + DescribeManualPlaceMode();
                 if (currentStation.ManualSlotSelectEnabled && currentStation.ManualPendingSlotIndex >= 0)
                 {
-                    int physicalCap = currentStation.BoxPlan?.Slots?.Count > 0
-                        ? currentStation.BoxPlan.Slots.Count
-                        : GetBearingCapacity(currentStation);
-                    int gi = ResolveGroupIndex(currentStation.ManualPendingSlotIndex,
-                        physicalCap,
-                        currentStation.MaxRows, currentStation.MaxCols, currentStation.MaxLayers);
+                    int gi = ResolveGroupIndex(currentStation, currentStation.ManualPendingSlotIndex);
                     suffix += $" | 待放第{gi + 1}组";
                 }
                 toolStripLabel18.Text =
@@ -1536,9 +1597,9 @@ namespace 码料机
         {
             if (st == null || st.MaxLayers < 1) return "—";
             int planIndex = ResolveNextPlacementPlanIndex(st);
-            int tier = ResolvePlanZTier(planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
+            int tier = ResolvePlanZTier(st, planIndex);
             int tierCount = ZStackPlacement.GetZTierCount(st.MaxLayers);
-            int qty = GetPlanBatchQty(planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
+            int qty = GetPlanBatchQty(st, planIndex);
             return $"{tier + 1}/{tierCount} (放{qty})";
         }
 
@@ -2303,38 +2364,84 @@ namespace 码料机
 
         private void OnManualPlaceOptionChanged(object sender, EventArgs e)
         {
+            if (_suppressPlaceModeUiEvents) return;
             if (_chkLeftUseConfiguredPlace == null || _chkRightUseConfiguredPlace == null) return;
-            _runtimeOp.LeftUseConfiguredPlace = _chkLeftUseConfiguredPlace.Checked;
-            _runtimeOp.RightUseConfiguredPlace = _chkRightUseConfiguredPlace.Checked;
+
+            bool newLeft = _chkLeftUseConfiguredPlace.Checked;
+            bool newRight = _chkRightUseConfiguredPlace.Checked;
+            bool oldLeft = _runtimeOp.LeftUseConfiguredPlace;
+            bool oldRight = _runtimeOp.RightUseConfiguredPlace;
+
+            if (newLeft != oldLeft)
+            {
+                string desc = newLeft ? "启用设定放料位" : "关闭设定放料位（回算法放料）";
+                if (!TryPrepareStationForPlaceModeChange(true, desc))
+                {
+                    SyncPlaceModeCheckboxesFromConfig();
+                    return;
+                }
+            }
+            if (newRight != oldRight)
+            {
+                string desc = newRight ? "启用设定放料位" : "关闭设定放料位（回算法放料）";
+                if (!TryPrepareStationForPlaceModeChange(false, desc))
+                {
+                    SyncPlaceModeCheckboxesFromConfig();
+                    return;
+                }
+            }
+
+            _runtimeOp.LeftUseConfiguredPlace = newLeft;
+            _runtimeOp.RightUseConfiguredPlace = newRight;
             if (_runtimeOp.LeftUseConfiguredPlace)
                 _runtimeOp.LeftUseManualSlotSelect = false;
             if (_runtimeOp.RightUseConfiguredPlace)
                 _runtimeOp.RightUseManualSlotSelect = false;
             _runtimeOp.Save();
             SyncManualSlotSelectFlagsFromConfig();
-            if (_chkLeftUseManualSlotSelect != null)
-                _chkLeftUseManualSlotSelect.Checked = _runtimeOp.LeftUseManualSlotSelect;
-            if (_chkRightUseManualSlotSelect != null)
-                _chkRightUseManualSlotSelect.Checked = _runtimeOp.RightUseManualSlotSelect;
+            SyncPlaceModeCheckboxesFromConfig();
             TEXT("[放料] " + DescribeManualPlaceMode());
             UpdateStationUI();
         }
 
         private void OnManualSlotSelectOptionChanged(object sender, EventArgs e)
         {
+            if (_suppressPlaceModeUiEvents) return;
             if (_chkLeftUseManualSlotSelect == null || _chkRightUseManualSlotSelect == null) return;
-            _runtimeOp.LeftUseManualSlotSelect = _chkLeftUseManualSlotSelect.Checked;
-            _runtimeOp.RightUseManualSlotSelect = _chkRightUseManualSlotSelect.Checked;
+
+            bool newLeft = _chkLeftUseManualSlotSelect.Checked;
+            bool newRight = _chkRightUseManualSlotSelect.Checked;
+            bool oldLeft = _runtimeOp.LeftUseManualSlotSelect;
+            bool oldRight = _runtimeOp.RightUseManualSlotSelect;
+
+            if (newLeft != oldLeft)
+            {
+                string desc = newLeft ? "启用手动指定放料" : "关闭手动指定放料（回自动顺序）";
+                if (!TryPrepareStationForPlaceModeChange(true, desc))
+                {
+                    SyncPlaceModeCheckboxesFromConfig();
+                    return;
+                }
+            }
+            if (newRight != oldRight)
+            {
+                string desc = newRight ? "启用手动指定放料" : "关闭手动指定放料（回自动顺序）";
+                if (!TryPrepareStationForPlaceModeChange(false, desc))
+                {
+                    SyncPlaceModeCheckboxesFromConfig();
+                    return;
+                }
+            }
+
+            _runtimeOp.LeftUseManualSlotSelect = newLeft;
+            _runtimeOp.RightUseManualSlotSelect = newRight;
             if (_runtimeOp.LeftUseManualSlotSelect)
                 _runtimeOp.LeftUseConfiguredPlace = false;
             if (_runtimeOp.RightUseManualSlotSelect)
                 _runtimeOp.RightUseConfiguredPlace = false;
             _runtimeOp.Save();
             SyncManualSlotSelectFlagsFromConfig();
-            if (_chkLeftUseConfiguredPlace != null)
-                _chkLeftUseConfiguredPlace.Checked = _runtimeOp.LeftUseConfiguredPlace;
-            if (_chkRightUseConfiguredPlace != null)
-                _chkRightUseConfiguredPlace.Checked = _runtimeOp.RightUseConfiguredPlace;
+            SyncPlaceModeCheckboxesFromConfig();
             TEXT("[放料] " + DescribeManualPlaceMode());
             UpdateStationUI();
         }
@@ -2572,12 +2679,52 @@ namespace 码料机
                     catch { }
                 }
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
-                await LoadOfflineTestImageAsync(dlg.FileName).ConfigureAwait(true);
+                if (!TryChooseOfflineImageStation(dlg.FileName, out bool isLeft)) return;
+                await LoadOfflineTestImageAsync(dlg.FileName, isLeft).ConfigureAwait(true);
             }
         }
 
-        /// <summary>无相机时：落盘 Feed.bmp，供金沃算法使用。</summary>
-        private async Task LoadOfflineTestImageAsync(string sourcePath)
+        private static bool TryInferOfflineImageStation(string sourcePath, out bool isLeft)
+        {
+            string name = Path.GetFileNameWithoutExtension(sourcePath) ?? "";
+            if (name.IndexOf("左机台", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("A工位", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                isLeft = true;
+                return true;
+            }
+            if (name.IndexOf("右机台", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("B工位", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                isLeft = false;
+                return true;
+            }
+            isLeft = true;
+            return false;
+        }
+
+        /// <summary>主界面加载离线图片时明确绑定工位，避免右图误用左侧参数/标定。</summary>
+        private bool TryChooseOfflineImageStation(string sourcePath, out bool isLeft)
+        {
+            if (TryInferOfflineImageStation(sourcePath, out isLeft))
+                return true;
+
+            DialogResult result = MessageBox.Show(
+                "请选择该离线图片所属工位：\r\n\r\n" +
+                "点击「是」：左机台 / A工位\r\n" +
+                "点击「否」：右机台 / B工位\r\n" +
+                "点击「取消」：不加载",
+                "选择离线图片工位",
+                MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Question);
+            if (result == DialogResult.Cancel)
+                return false;
+            isLeft = result == DialogResult.Yes;
+            return true;
+        }
+
+        /// <summary>无相机时：将图片绑定到指定工位并落盘 Feed.bmp，供金沃算法使用。</summary>
+        private async Task LoadOfflineTestImageAsync(string sourcePath, bool isLeft)
         {
             if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
             {
@@ -2587,22 +2734,34 @@ namespace 码料机
 
             try
             {
-                ProcessPipelineLog.Write("[离线] 正在加载测试图片…");
+                if (TryInferOfflineImageStation(sourcePath, out bool inferredLeft) && inferredLeft != isLeft)
+                {
+                    DialogPrompts.ShowWarning(
+                        $"图片文件名表明它属于{(inferredLeft ? "左机台" : "右机台")}，" +
+                        $"不能按{(isLeft ? "左机台" : "右机台")}运行。",
+                        "图片与工位不一致");
+                    return;
+                }
+
+                StationData targetStation = isLeft ? leftStation : rightStation;
+                currentStation = targetStation;
+                UpdateStationUI();
+                UpdateProgressDisplay();
+                ProcessPipelineLog.Write($"[离线] 正在加载{targetStation.Name}测试图片…");
                 string feedPath = await Task.Run(() => OfflineCaptureHelper.StageOfflineCaptureImage(sourcePath)).ConfigureAwait(true);
                 _offlineTestImagePath = feedPath;
                 _jinwo.SetCaptureImageOverride(feedPath);
-                MarkAlgorithmCaptureForSide(IsLeftStation(currentStation), feedPath);
-                ProcessPipelineLog.ImageLoaded("[离线]", sourcePath, feedPath, "金沃 DLL 采图");
+                MarkAlgorithmCaptureForSide(isLeft, feedPath);
+                ProcessPipelineLog.ImageLoaded("[离线]", sourcePath, feedPath, $"{targetStation.Name} 金沃 DLL 采图");
                 RefreshCameraStatusUi();
                 if (_jinwo.IsEnabled && _jinwo.IsLoaded)
                 {
-                    var st = currentStation ?? leftStation;
-                    await TryShowJinwoRenderedImageAsync(st, feedPath).ConfigureAwait(true);
+                    await TryShowJinwoRenderedImageAsync(targetStation, feedPath).ConfigureAwait(true);
                 }
                 else
                 {
-                    SafeInvoke(() => ShowOfflinePreviewAfterUndistort(feedPath));
-                    LogNextPlacementSummary("[离线]", currentStation ?? leftStation, null);
+                    SafeInvoke(() => ShowOfflinePreviewAfterUndistort(feedPath, isLeft));
+                    LogNextPlacementSummary("[离线]", targetStation, null);
                 }
             }
             catch (Exception ex)
@@ -2620,8 +2779,7 @@ namespace 码料机
             }
             EnsureOfflinePreviewControl();
             EnsurePreviewToolbar();
-            if (ShouldUseHikCamera(IsLeftStation(currentStation)))
-                EnsureHikGrabButton();
+            EnsureHikGrabButton();
             if (panelVmPreviewHost != null)
                 panelVmPreviewHost.Visible = true;
             if (tableLayoutPanel3 != null)

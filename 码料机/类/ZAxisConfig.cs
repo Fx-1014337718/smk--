@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Windows.Forms;
 
 namespace 码料机
 {
@@ -11,7 +10,7 @@ namespace 码料机
         public const string SectionRight = "右机台";
         private const string LegacySection = "Z轴";
 
-        public static readonly string IniDir = Path.Combine(Application.StartupPath, "配置文件");
+        public static readonly string IniDir = Parameters.IniDir;
         public static readonly string IniFile = Path.Combine(IniDir, "Z轴参数.ini");
 
         public double RobotBaseHeightMm { get; set; }

@@ -248,8 +248,9 @@ namespace 码料机
                 _editorCalib.SetDouble("机器人放料姿态Rz", c.TargetRz);
                 _editorCalib.SetDouble("黑圆间距X", c.MarkerDistanceX);
                 _editorCalib.SetDouble("黑圆间距Y", c.MarkerDistanceY);
-                _editorCalib.SetDouble("自动内缩X", c.AutoInnerReserveX);
-                _editorCalib.SetDouble("自动内缩Y", c.AutoInnerReserveY);
+                _editorCalib.SetDouble("安全预留X", c.AutoInnerReserveX > 0 ? c.AutoInnerReserveX : 10.0);
+                _editorCalib.SetDouble("安全预留Y", c.AutoInnerReserveY > 0 ? c.AutoInnerReserveY : 10.0);
+                _editorCalib.SetDouble("最大标记倾斜角度", c.MaxMarkerTiltDegrees > 0 ? c.MaxMarkerTiltDegrees : 3.0);
                 _editorCalib.SetDouble("内区偏移X", c.InnerOffsetX);
                 _editorCalib.SetDouble("内区偏移Y", c.InnerOffsetY);
                 _editorCalib.SetDouble("内区宽度", c.InnerWidth);
@@ -306,8 +307,9 @@ namespace 码料机
                 if (!AssignDouble(_editorCalib, "机器人放料姿态Rz", "机器人放料姿态Rz", v => built.TargetRz = v)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "黑圆间距X", "黑圆间距X", v => built.MarkerDistanceX = v)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "黑圆间距Y", "黑圆间距Y", v => built.MarkerDistanceY = v)) { cfg = null; return false; }
-                if (!AssignDouble(_editorCalib, "自动内缩X", "自动内缩X", v => built.AutoInnerReserveX = v)) { cfg = null; return false; }
-                if (!AssignDouble(_editorCalib, "自动内缩Y", "自动内缩Y", v => built.AutoInnerReserveY = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "安全预留X", "X方向安全预留", v => built.AutoInnerReserveX = v > 0 ? v : 10.0)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "安全预留Y", "Y方向安全预留", v => built.AutoInnerReserveY = v > 0 ? v : 10.0)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "最大标记倾斜角度", "最大标记倾斜角度", v => built.MaxMarkerTiltDegrees = v > 0 ? v : 3.0)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "内区偏移X", "内区偏移X", v => built.InnerOffsetX = v)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "内区偏移Y", "内区偏移Y", v => built.InnerOffsetY = v)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "内区宽度", "内区宽度", v => built.InnerWidth = v)) { cfg = null; return false; }
@@ -372,7 +374,7 @@ namespace 码料机
             private JinwoParamsEditor BuildCalibEditor()
             {
                 var ed = new JinwoParamsEditor();
-                ed.AddHint("标定与托盘几何参数，单位一般为 mm。");
+                ed.AddHint("标定与托盘几何参数。安全预留：X 作用于左右，Y 作用于上下；默认 10mm。内区参数为手动备用。");
                 ed.AddDouble("相机距离", "相机距离 (mm):");
                 ed.AddDouble("木箱深度", "木箱深度 (mm):");
                 ed.AddDouble("放料平面高度补偿", "放料平面高度补偿 (mm):");
@@ -380,8 +382,9 @@ namespace 码料机
                 ed.AddDouble("机器人放料姿态Rz", "机器人放料姿态 Rz (°):");
                 ed.AddDouble("黑圆间距X", "黑圆间距 X (mm):");
                 ed.AddDouble("黑圆间距Y", "黑圆间距 Y (mm):");
-                ed.AddDouble("自动内缩X", "自动内缩 X (mm):");
-                ed.AddDouble("自动内缩Y", "自动内缩 Y (mm):");
+                ed.AddDouble("安全预留X", "X方向安全预留 (mm):");
+                ed.AddDouble("安全预留Y", "Y方向安全预留 (mm):");
+                ed.AddDouble("最大标记倾斜角度", "最大允许木箱倾斜角度 (°):");
                 ed.AddDouble("内区偏移X", "内区偏移 X (mm):");
                 ed.AddDouble("内区偏移Y", "内区偏移 Y (mm):");
                 ed.AddDouble("内区宽度", "内区宽度 (mm):");

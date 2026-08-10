@@ -75,7 +75,8 @@ namespace 码料机
     /// D4026~4032 取/放料个数；
     /// D4200~D4262 取料/放料拍照/放料目标/工位中心点坐标（各工位 X/Y/Z/RZ 共 4×REAL）；
     /// D4400/D4402 A/B 工位生产总数（DINT，各占连续 2 字）；
-    /// D4410/D4412 A/B 工位料道缓存个数（DINT，各占连续 2 字）。
+    /// D4410/D4412 A/B 工位料道缓存个数（DINT，各占连续 2 字）；
+    /// D4414 工位生产选择（INT：1=A，2=B，3=A-B）。
     /// </summary>
     public sealed class PlcHandshakeSettings
     {
@@ -102,10 +103,12 @@ namespace 码料机
         public int D_PC_A工位料道缓存个数 = 4410;
         /// <summary>D4412：B 工位料道缓存个数（DINT，占 D4412～D4413）。</summary>
         public int D_PC_B工位料道缓存个数 = 4412;
+        /// <summary>D4414：工位生产选择（INT：1=A，2=B，3=A-B）。上位机仅下发，不参与取放逻辑。</summary>
+        public int D_PC工位生产选择 = 4414;
         /// <summary>D 报警字（如 D0），位 0～10 为 PLC→PC 报警，位 11/12 等为上位机写报警。</summary>
         public int D_PLC报警字 = 0;
         public int D_PC有料信号位 = 11;
-        /// <summary>D0 上位机写：运动过程中坐标超出报警位置设定时置 1（默认位 12）。</summary>
+        /// <summary>D0 上位机写：发送取料/放料坐标前超出安全区域时置 1（默认位 12）。</summary>
         public int D_PC位置超限报警位 = 12;
         /// <summary>D0 上位机写：自动运行拍照后算法识别失败时置 1（默认位 13）。</summary>
         public int D_PC算法识别失败报警位 = 13;
@@ -180,6 +183,7 @@ namespace 码料机
             d("D_PC_B工位生产总数", ref h.D_PC_B工位生产总数);
             d("D_PC_A工位料道缓存个数", ref h.D_PC_A工位料道缓存个数);
             d("D_PC_B工位料道缓存个数", ref h.D_PC_B工位料道缓存个数);
+            d("D_PC工位生产选择", ref h.D_PC工位生产选择);
             h.左放料拍照_基准X = (float)Dbl(z, "左_基准X", h.左放料拍照_基准X, ini);
             h.左放料拍照_基准Y = (float)Dbl(z, "左_基准Y", h.左放料拍照_基准Y, ini);
             h.左放料拍照_基准Z = (float)Dbl(z, "左_基准Z", h.左放料拍照_基准Z, ini);

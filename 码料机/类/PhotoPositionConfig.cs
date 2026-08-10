@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Windows.Forms;
 
 namespace 码料机
 {
@@ -11,7 +10,7 @@ namespace 码料机
         public const string SectionRight = "右机台";
         private const string LegacySection = "拍照位置";
 
-        public static readonly string IniDir = Path.Combine(Application.StartupPath, "配置文件");
+        public static readonly string IniDir = Parameters.IniDir;
         public static readonly string IniFile = Path.Combine(IniDir, "拍照位置.ini");
 
         /// <summary>取料位置（A/B 取料请求识料后下发至 D4200/D4208；连接 PLC 或位置保存后也会预下发）。</summary>
@@ -72,6 +71,7 @@ namespace 码料机
             PlacePhotoRz = IniAPI.GetPrivateProfileDouble(section, "放料拍照RZ", 0, path),
             PlaceCenterRz = IniAPI.GetPrivateProfileDouble(section, "放料中心点RZ", 0, path),
         };
+
 
         private static double ReadCoord(string section, string path, string key, string legacyKey)
         {

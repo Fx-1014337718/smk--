@@ -100,6 +100,7 @@ namespace 码料机
         /// <summary>
         /// 按物理高度层计算放料 Z：只累加目标层之前已经完成的竖直批次高度。
         /// 例如 5 层拆为 2+3，则物理第 1/2 层目标 Z 为 base，第 3/4/5 层目标 Z 为 base+2H。
+        /// （与取/放个数一致：同档一次叠放，同档共用底层 Z；下一档才抬高「档内件数×产品高」。）
         /// placeLiftGap 为放料抬高间隙，在最终位姿上只加一次。
         /// </summary>
         public static double ComputePlaceZForHorizontalLayer(double baseZ, int horizontalLayer, int maxLayers, double productHeight, double placeLiftGap = 0)
@@ -120,6 +121,17 @@ namespace 码料机
             if (placeLiftGap > 1e-9)
                 z += placeLiftGap;
             return z;
+        }
+
+        /// <summary>
+        /// 规划槽下标 → 物理层（0 起）。叠层 Z 必须用此层号，不能单靠 DLL 回报的 Layer
+        /// （现场识箱 Layer 偶发偏小，会导致下一竖直档仍用第一档高度而撞料）。
+        /// </summary>
+        public static int GetPhysicalLayerFromPlanIndex(int planIndex, int maxRows, int maxCols)
+        {
+            if (planIndex < 0) return 0;
+            int perLayer = Math.Max(1, maxRows * maxCols);
+            return planIndex / perLayer;
         }
 
         /// <summary>已放件数换算已完成的水平托盘物理层数（整层）。</summary>

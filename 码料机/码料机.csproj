@@ -51,6 +51,26 @@
     <StartupObject />
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|ARM64'">
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>bin\ARM64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DebugType>full</DebugType>
+    <PlatformTarget>ARM64</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <ErrorReport>prompt</ErrorReport>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|ARM64'">
+    <OutputPath>bin\ARM64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+    <PlatformTarget>ARM64</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <ErrorReport>prompt</ErrorReport>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="HslCommunication, Version=12.8.2.0, Culture=neutral, PublicKeyToken=3d72ad3b6b5ec0e3, processorArchitecture=MSIL">
       <HintPath>..\packages\HslCommunication.12.8.2\lib\net451\HslCommunication.dll</HintPath>
@@ -138,6 +158,32 @@
     <Compile Include="PhotoPositionsForm.Designer.cs">
       <DependentUpon>PhotoPositionsForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="PhotoPositionsForm.Limits.cs">
+      <DependentUpon>PhotoPositionsForm.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="PhotoPositionsForm.Positions.cs">
+      <DependentUpon>PhotoPositionsForm.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="AdminLoginForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="AdminLoginForm.Designer.cs">
+      <DependentUpon>AdminLoginForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="StationProductionSelectForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="StationProductionSelectForm.Designer.cs">
+      <DependentUpon>StationProductionSelectForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="SafetyZoneSettingsForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="SafetyZoneSettingsForm.Designer.cs">
+      <DependentUpon>SafetyZoneSettingsForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="类\PlcConfig.cs" />
     <Compile Include="类\PlcModbusSession.cs" />
     <Compile Include="类\ProcessPipelineLog.cs" />
@@ -155,6 +201,8 @@
     <Compile Include="类\Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="类\OfflineCaptureHelper.cs" />
+    <Compile Include="类\OfflineJinwoSim.cs" />
+    <Compile Include="类\SafetyLimitSmokeTest.cs" />
     <Compile Include="类\JinwoNative.cs" />
     <Compile Include="类\JinwoAlgorithmConfig.cs" />
     <Compile Include="类\JinwoPlacementOrder.cs" />
@@ -228,6 +276,15 @@
     </EmbeddedResource>
     <EmbeddedResource Include="PhotoPositionsForm.resx">
       <DependentUpon>PhotoPositionsForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="AdminLoginForm.resx">
+      <DependentUpon>AdminLoginForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="StationProductionSelectForm.resx">
+      <DependentUpon>StationProductionSelectForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="SafetyZoneSettingsForm.resx">
+      <DependentUpon>SafetyZoneSettingsForm.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="WorkerAssistDialog.resx">
       <DependentUpon>WorkerAssistDialog.cs</DependentUpon>

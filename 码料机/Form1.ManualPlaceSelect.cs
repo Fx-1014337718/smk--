@@ -81,6 +81,22 @@ namespace 码料机
             return ZStackPlacement.GetPickPlaceQty(physicalLayer, maxLayers);
         }
 
+        /// <summary>按规划表真实 Layer 解析竖直档；交叉排料每层可能少于 rows×cols，不能用下标整除。</summary>
+        private static int ResolvePlanZTier(StationData st, int planIndex)
+        {
+            if (st?.BoxPlan != null && st.BoxPlan.TryGetSlot(planIndex, out BoxPlanSlot slot))
+                return ZStackPlacement.GetZTierFromStackHeight(Math.Max(0, slot.Layer), st.MaxLayers);
+            return ResolvePlanZTier(planIndex, st?.MaxRows ?? 1, st?.MaxCols ?? 1, st?.MaxLayers ?? 1);
+        }
+
+        /// <summary>按规划表真实 Layer 解析本组取/放数。</summary>
+        private static int GetPlanBatchQty(StationData st, int planIndex)
+        {
+            if (st?.BoxPlan != null && st.BoxPlan.TryGetSlot(planIndex, out BoxPlanSlot slot))
+                return ZStackPlacement.GetPickPlaceQty(Math.Max(0, slot.Layer), st.MaxLayers);
+            return GetPlanBatchQty(planIndex, st?.MaxRows ?? 1, st?.MaxCols ?? 1, st?.MaxLayers ?? 1);
+        }
+
         private static int GetZTierStartLayer(int zTier, int maxLayers)
         {
             int[] batches = ZStackPlacement.BuildBatchSizes(maxLayers);
@@ -123,6 +139,68 @@ namespace 码料机
             return list;
         }
 
+        /// <summary>
+        /// 按 BoxPlan 真实层号枚举组代表槽。交叉排料可能每层只有 45 位而网格为 8×6，
+        /// 因此有规划表时禁止用 rows×cols 推算层边界。
+        /// </summary>
+        private static List<int> EnumerateGroupStartIndices(StationData st)
+        {
+            if (st?.BoxPlan?.IsValid != true)
+            {
+                int cap = st == null ? 0 : Math.Max(1, st.MaxRows * st.MaxCols * st.MaxLayers);
+                return EnumerateGroupStartIndices(cap, st?.MaxRows ?? 1, st?.MaxCols ?? 1, st?.MaxLayers ?? 1);
+            }
+
+            var tierStartLayers = new HashSet<int>();
+            int startLayer = 0;
+            foreach (int batchRaw in ZStackPlacement.BuildBatchSizes(st.MaxLayers))
+            {
+                tierStartLayers.Add(startLayer);
+                startLayer += Math.Max(1, batchRaw);
+            }
+
+            var groups = new List<int>();
+            for (int i = 0; i < st.BoxPlan.Slots.Count; i++)
+            {
+                BoxPlanSlot slot = st.BoxPlan.Slots[i];
+                if (slot != null && tierStartLayers.Contains(Math.Max(0, slot.Layer)))
+                    groups.Add(i);
+            }
+            return groups;
+        }
+
+        /// <summary>规划槽对齐到同 Row/Col 的竖直档起始层代表槽。</summary>
+        private static int GetGroupStartPlanIndex(StationData st, int planIndex)
+        {
+            if (st?.BoxPlan?.IsValid != true || !st.BoxPlan.TryGetSlot(planIndex, out BoxPlanSlot slot))
+                return GetGroupStartPlanIndex(planIndex, st?.MaxRows ?? 1, st?.MaxCols ?? 1, st?.MaxLayers ?? 1);
+
+            int tier = ZStackPlacement.GetZTierFromStackHeight(Math.Max(0, slot.Layer), st.MaxLayers);
+            int startLayer = GetZTierStartLayer(tier, st.MaxLayers);
+            for (int i = 0; i < st.BoxPlan.Slots.Count; i++)
+            {
+                BoxPlanSlot candidate = st.BoxPlan.Slots[i];
+                if (candidate != null
+                    && candidate.Layer == startLayer
+                    && candidate.Row == slot.Row
+                    && candidate.Col == slot.Col)
+                    return i;
+            }
+
+            // 组代表槽本身可能来自不规则网格；若已在组列表中，保留原索引。
+            if (EnumerateGroupStartIndices(st).Contains(planIndex))
+                return planIndex;
+            return planIndex;
+        }
+
+        private static int ResolveGroupIndex(StationData st, int planIndex)
+        {
+            var groups = EnumerateGroupStartIndices(st);
+            int start = GetGroupStartPlanIndex(st, planIndex);
+            int index = groups.IndexOf(start);
+            return index >= 0 ? index : 0;
+        }
+
         /// <summary>规划槽 → 竖直档组序号（0 基），用于界面「第几组」显示。</summary>
         public static int ResolveGroupIndex(int planIndex, int placeCycleCap, int maxRows, int maxCols, int maxLayers)
         {
@@ -132,7 +210,10 @@ namespace 码料机
             return idx >= 0 ? idx : 0;
         }
 
-        /// <summary>本箱按竖直档（2+2+3）划分的放料组总数。</summary>
+        /// <summary>
+        /// 本箱按竖直档划分的可放组总数（自动 / 指定开始组 / 手动共用）。
+        /// 先按规划容量枚举组起点，再按轴承容量截断，避免出现「指定开始 384 组、自动 360 组」对不齐。
+        /// </summary>
         private static int GetPlacementGroupCount(StationData st)
         {
             if (st == null) return 1;
@@ -142,7 +223,21 @@ namespace 码料机
             int physicalCap = st.BoxPlan?.Slots?.Count > 0
                 ? st.BoxPlan.Slots.Count
                 : Math.Max(1, rows * cols * layers);
-            return Math.Max(1, EnumerateGroupStartIndices(physicalCap, rows, cols, layers).Count);
+            if (st.ConfirmedBearingCapacity > 0)
+                physicalCap = Math.Min(physicalCap, st.ConfirmedBearingCapacity);
+            var groups = EnumerateGroupStartIndices(st);
+            if (groups.Count < 1) return 1;
+
+            int bearingCap = GetBearingCapacity(st);
+            int sum = 0, n = 0;
+            foreach (int planSlot in groups)
+            {
+                sum += GetPlanBatchQty(st, planSlot);
+                n++;
+                // 容量未知（确认产品后、首次识图前）不要截断，否则组数会变成 1。
+                if (bearingCap > 0 && sum >= bearingCap) break;
+            }
+            return Math.Max(1, n);
         }
 
         /// <summary>握手组序号（0 基）→ 该组在规划表中的代表槽位。</summary>
@@ -151,9 +246,7 @@ namespace 码料机
             if (st == null || handshakeIndex < 0) return 0;
             if (st.BoxPlan?.Slots?.Count > 0 && !st.ManualSlotSelectEnabled)
             {
-                int physicalCap = st.BoxPlan.Slots.Count;
-                var groups = EnumerateGroupStartIndices(
-                    physicalCap, st.MaxRows, st.MaxCols, st.MaxLayers);
+                var groups = EnumerateGroupStartIndices(st);
                 if (handshakeIndex >= 0 && handshakeIndex < groups.Count)
                     return groups[handshakeIndex];
             }
@@ -179,8 +272,10 @@ namespace 码料机
             int cols = Math.Max(1, st.MaxCols);
             int layers = Math.Max(1, st.MaxLayers);
             int physicalCap = st.BoxPlan?.Slots?.Count > 0 ? st.BoxPlan.Slots.Count : GetBearingCapacity(st);
-            var groupStarts = EnumerateGroupStartIndices(physicalCap, rows, cols, layers);
-            int placeCap = groupStarts.Count;
+            var groupStarts = EnumerateGroupStartIndices(st);
+            int placeCap = GetPlacementGroupCount(st);
+            if (placeCap < groupStarts.Count)
+                groupStarts = groupStarts.GetRange(0, placeCap);
             int completed = GetPlacedCount(st);
             int completedGroups = completed;
 
@@ -191,12 +286,12 @@ namespace 码料机
                 HasPlan = st.BoxPlan?.IsValid == true,
                 PlanTotal = GetBoxPlanTotal(st),
                 PlaceCycleCap = placeCap,
-                GroupCount = groupStarts.Count,
+                GroupCount = placeCap,
                 CompletedCount = completed,
                 CompletedGroupCount = completedGroups,
                 PendingSlotIndex = st.ManualPendingSlotIndex,
                 PendingGroupIndex = st.ManualPendingSlotIndex >= 0
-                    ? ResolveGroupIndex(st.ManualPendingSlotIndex, physicalCap, rows, cols, layers)
+                    ? ResolveGroupIndex(st, st.ManualPendingSlotIndex)
                     : -1,
                 LastIssuedSlotIndex = st.LastIssuedPlanIndex,
                 PlanImagePath = st.BoxPlan?.ImagePath,
@@ -217,9 +312,9 @@ namespace 码料机
 
                 bool done = st.ManualCompletedOrder.Contains(start);
                 bool pending = st.ManualPendingSlotIndex >= 0
-                    && GetGroupStartPlanIndex(st.ManualPendingSlotIndex, rows, cols, layers) == start;
+                    && GetGroupStartPlanIndex(st, st.ManualPendingSlotIndex) == start;
                 bool awaiting = st.LastIssuedPlanIndex >= 0
-                    && GetGroupStartPlanIndex(st.LastIssuedPlanIndex, rows, cols, layers) == start
+                    && GetGroupStartPlanIndex(st, st.LastIssuedPlanIndex) == start
                     && !done;
                 string status = done ? "已放入"
                     : (awaiting ? "已下发待确认"
@@ -233,8 +328,8 @@ namespace 码料机
                     Layer = slot.Layer,
                     Row = slot.Row,
                     Col = slot.Col,
-                    ZTier = ResolvePlanZTier(start, rows, cols, layers),
-                    BatchQty = GetPlanBatchQty(start, rows, cols, layers),
+                    ZTier = ResolvePlanZTier(st, start),
+                    BatchQty = GetPlanBatchQty(st, start),
                     WorldX = slot.WorldX,
                     WorldY = slot.WorldY,
                     Z = slot.Z,
@@ -251,9 +346,22 @@ namespace 码料机
             return view;
         }
 
-        /// <summary>开关手动选位模式并持久化；与「设定放料位」互斥。</summary>
-        public void SetManualSlotSelectEnabled(bool isLeft, bool enabled)
+        public bool IsManualSlotSelectEnabled(bool isLeft) =>
+            isLeft ? _runtimeOp.LeftUseManualSlotSelect : _runtimeOp.RightUseManualSlotSelect;
+
+        /// <summary>开关手动选位模式并持久化；与「设定放料位」互斥。有本箱进度时须确认清空。</summary>
+        public bool SetManualSlotSelectEnabled(bool isLeft, bool enabled)
         {
+            bool old = isLeft ? _runtimeOp.LeftUseManualSlotSelect : _runtimeOp.RightUseManualSlotSelect;
+            if (old != enabled)
+            {
+                string desc = enabled ? "启用手动指定放料" : "关闭手动指定放料（回自动顺序）";
+                if (!TryPrepareStationForPlaceModeChange(isLeft, desc))
+                {
+                    SyncPlaceModeCheckboxesFromConfig();
+                    return false;
+                }
+            }
             if (isLeft)
                 _runtimeOp.LeftUseManualSlotSelect = enabled;
             else
@@ -265,17 +373,30 @@ namespace 码料机
             }
             _runtimeOp.Save();
             SyncManualSlotSelectFlagsFromConfig();
-            if (_chkLeftUseConfiguredPlace != null && _chkRightUseConfiguredPlace != null)
-            {
-                _chkLeftUseConfiguredPlace.Checked = _runtimeOp.LeftUseConfiguredPlace;
-                _chkRightUseConfiguredPlace.Checked = _runtimeOp.RightUseConfiguredPlace;
-            }
-            if (_chkLeftUseManualSlotSelect != null)
-                _chkLeftUseManualSlotSelect.Checked = _runtimeOp.LeftUseManualSlotSelect;
-            if (_chkRightUseManualSlotSelect != null)
-                _chkRightUseManualSlotSelect.Checked = _runtimeOp.RightUseManualSlotSelect;
+            SyncPlaceModeCheckboxesFromConfig();
             TEXT("[放料] " + DescribeManualPlaceMode());
             UpdateStationUI();
+            return true;
+        }
+
+        private void SyncPlaceModeCheckboxesFromConfig()
+        {
+            _suppressPlaceModeUiEvents = true;
+            try
+            {
+                if (_chkLeftUseConfiguredPlace != null)
+                    _chkLeftUseConfiguredPlace.Checked = _runtimeOp.LeftUseConfiguredPlace;
+                if (_chkRightUseConfiguredPlace != null)
+                    _chkRightUseConfiguredPlace.Checked = _runtimeOp.RightUseConfiguredPlace;
+                if (_chkLeftUseManualSlotSelect != null)
+                    _chkLeftUseManualSlotSelect.Checked = _runtimeOp.LeftUseManualSlotSelect;
+                if (_chkRightUseManualSlotSelect != null)
+                    _chkRightUseManualSlotSelect.Checked = _runtimeOp.RightUseManualSlotSelect;
+            }
+            finally
+            {
+                _suppressPlaceModeUiEvents = false;
+            }
         }
 
         public string GetManualPlaceDefaultImagePath(bool? isLeft = null)
@@ -359,8 +480,7 @@ namespace 码料机
                 st.PlcPlaceBoxVisionDone = true;
                 outcome.Success = true;
                 outcome.SlotCount = st.BoxPlan?.Slots?.Count ?? 0;
-                int groups = EnumerateGroupStartIndices(
-                    outcome.SlotCount, st.MaxRows, st.MaxCols, st.MaxLayers).Count;
+                int groups = GetPlacementGroupCount(st);
                 outcome.EffectImagePath = _jinwo.FindNewestEffectImage(isLeft);
                 outcome.Summary = $"{st.Name} 已识别 {outcome.SlotCount} 个规划位，{groups} 组（{ZStackPlacement.FormatBatchPattern(st.MaxLayers)}）";
                 TEXT($"[手动放料] {outcome.Summary}");
@@ -389,7 +509,7 @@ namespace 码料机
             }
 
             int rows = st.MaxRows, cols = st.MaxCols, layers = st.MaxLayers;
-            int groupStart = GetGroupStartPlanIndex(planIndexOrGroupMember, rows, cols, layers);
+            int groupStart = GetGroupStartPlanIndex(st, planIndexOrGroupMember);
             if (!st.BoxPlan.TryGetSlot(groupStart, out var slot))
             {
                 error = "无效放料组序号";
@@ -398,19 +518,16 @@ namespace 码料机
 
             if (st.ManualCompletedOrder.Contains(groupStart))
             {
-                int physicalCap = st.BoxPlan?.Slots?.Count > 0 ? st.BoxPlan.Slots.Count : GetBearingCapacity(st);
-                error = $"第 {ResolveGroupIndex(groupStart, physicalCap, rows, cols, layers) + 1} 组已完成，请另选组";
+                error = $"第 {ResolveGroupIndex(st, groupStart) + 1} 组已完成，请另选组";
                 return false;
             }
             if (st.LastIssuedPlanIndex >= 0)
             {
-                int physicalCap = st.BoxPlan?.Slots?.Count > 0 ? st.BoxPlan.Slots.Count : GetBearingCapacity(st);
-                error = $"第 {ResolveGroupIndex(st.LastIssuedPlanIndex, physicalCap, rows, cols, layers) + 1} 组已下发 PLC，请先现场确认";
+                error = $"第 {ResolveGroupIndex(st, st.LastIssuedPlanIndex) + 1} 组已下发 PLC，请先现场确认";
                 return false;
             }
 
-            int physicalSlots = st.BoxPlan?.Slots?.Count > 0 ? st.BoxPlan.Slots.Count : GetBearingCapacity(st);
-            int gi = ResolveGroupIndex(groupStart, physicalSlots, rows, cols, layers);
+            int gi = ResolveGroupIndex(st, groupStart);
             st.ManualPendingSlotIndex = groupStart;
             st.ManualPickAckedForPending = false;
             ClearPlcPickWaitLatchForStation(st);
@@ -442,9 +559,10 @@ namespace 码料机
                 return false;
             }
 
-            var groups = EnumerateGroupStartIndices(
-                st.BoxPlan.Slots.Count, st.MaxRows, st.MaxCols, st.MaxLayers);
-            int groupCount = groups.Count;
+            int groupCount = GetPlacementGroupCount(st);
+            var groups = EnumerateGroupStartIndices(st);
+            if (groupCount < groups.Count)
+                groups = groups.GetRange(0, groupCount);
             if (startGroup < 1 || startGroup > groupCount)
             {
                 error = $"请指定 1~{Math.Max(1, groupCount)} 之间的组号";
@@ -486,14 +604,14 @@ namespace 码料机
         private static bool ManualSlotIsCompleted(StationData st, int planIndex)
         {
             if (st == null || planIndex < 0) return false;
-            int groupStart = GetGroupStartPlanIndex(planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
+            int groupStart = GetGroupStartPlanIndex(st, planIndex);
             return st.ManualCompletedOrder != null && st.ManualCompletedOrder.Contains(groupStart);
         }
 
         private void ConfirmManualSlotPlaced(StationData st, int planIndex)
         {
-            int groupStart = GetGroupStartPlanIndex(planIndex, st.MaxRows, st.MaxCols, st.MaxLayers);
-            int groupQty = Math.Max(1, GetPlanBatchQty(groupStart, st.MaxRows, st.MaxCols, st.MaxLayers));
+            int groupStart = GetGroupStartPlanIndex(st, planIndex);
+            int groupQty = Math.Max(1, GetPlanBatchQty(st, groupStart));
             if (!st.ManualCompletedOrder.Contains(groupStart))
                 st.ManualCompletedOrder.Add(groupStart);
             st.ConfirmedPlacedCount = st.ManualCompletedOrder.Count;

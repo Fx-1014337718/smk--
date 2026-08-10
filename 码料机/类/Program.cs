@@ -12,11 +12,23 @@ namespace 码料机 // 与项目根命名空间一致
     {
         /// <summary>STAThread：WinForms 与 COM（如剪贴板、部分相机 SDK）要求 STA 线程模型。</summary>
         [STAThread]
-        static void Main()
+        static int Main(string[] args)
         {
+            if (args != null && args.Length > 0
+                && string.Equals(args[0], "--offline-sim", StringComparison.OrdinalIgnoreCase))
+            {
+                return OfflineJinwoSim.Run(args);
+            }
+            if (args != null && args.Length > 0
+                && string.Equals(args[0], "--safety-limit-test", StringComparison.OrdinalIgnoreCase))
+            {
+                return SafetyLimitSmokeTest.Run();
+            }
+
             Application.EnableVisualStyles(); // 使用操作系统主题绘制控件（XP+）
             Application.SetCompatibleTextRenderingDefault(false); // 使用 GDI+ 文本度量，与设计器一致
             Application.Run(new Form1()); // 创建主窗体并进入消息泵，直到主窗体关闭
+            return 0;
         }
     }
 }

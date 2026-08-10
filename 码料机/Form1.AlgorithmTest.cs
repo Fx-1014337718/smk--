@@ -91,14 +91,43 @@
 
                         public string GetAlgorithmTestDefaultImagePath()
                         {
+                            bool isLeft = IsLeftStation(currentStation);
+                            var st = StationByCaptureSide(isLeft);
+                            // 优先本工位缓存（海康采图后会写入 工位采图\*_last.bmp）
+                            if (!string.IsNullOrWhiteSpace(st?.LastAlgorithmCaptureImagePath)
+                                && File.Exists(st.LastAlgorithmCaptureImagePath))
+                                return st.LastAlgorithmCaptureImagePath;
                             if (!string.IsNullOrWhiteSpace(_offlineTestImagePath) && File.Exists(_offlineTestImagePath))
                                 return _offlineTestImagePath;
-                            string p = _jinwo.ResolveCaptureImagePath(IsLeftStation(currentStation));
+                            string p = _jinwo.ResolveCaptureImagePath(isLeft);
                             return File.Exists(p) ? p : null;
                         }
 
-                        public Task<bool> AlgorithmTestTryHikCaptureAsync()
-                            => TryHikvisionCaptureAsync(IsLeftStation(currentStation));
+                        /// <summary>算法测试「海康采图」：复用已连接相机或回退到已启用侧，不因测试失败写 PLC 故障。</summary>
+                        public async Task<(bool Ok, string Error)> AlgorithmTestTryHikCaptureAsync()
+                        {
+                            bool preferLeft = IsLeftStation(currentStation ?? leftStation);
+                            if (!ShouldUseHikCamera() && !_hikCameraConnected)
+                            {
+                                string err = "未启用海康相机（请检查 金沃算法.ini 左/右机台「海康相机→启用」）";
+                                SafeInvoke(() => TEXT("[算法测试] " + err));
+                                return (false, err);
+                            }
+
+                            bool captureLeft = ResolveHikConnectSide(preferLeft);
+                            // 请求工位侧用于落盘命名；连接侧由 Resolve/Ensure 自动回退。
+                            bool ok = await TryHikvisionCaptureAsync(
+                                preferLeft, archiveCopy: true, reportFault: false).ConfigureAwait(true);
+                            if (ok) return (true, null);
+
+                            string detail = string.IsNullOrWhiteSpace(_lastHikCaptureError)
+                                ? "采图失败"
+                                : _lastHikCaptureError;
+                            if (!preferLeft && captureLeft)
+                                detail += "（当前为右工位，已尝试复用左机台海康）";
+                            SafeInvoke(() => TEXT("[算法测试] 海康采图失败: " + detail));
+                            return (false, detail);
+                        }
 
                         public BearingPresenceTestOutcome TestBearingPresence(string imagePath)
                         {
@@ -245,7 +274,7 @@
                 }
                 outcome.PreparedImagePath = prepared;
 
-                var cfg = st.JinwoTray;
+                var cfg = BuildStandaloneAlignedTestTray(st);
                 var pose = _jinwo.CalculatePose(ref cfg, imagePath, placedCount, ResolveNinePointCalibIsLeft(st), out string effectPath, forceSaveEffectImage: true);
                 ApplyConfiguredJinwoZAndRz(st, ref pose);
                 outcome.Pose = pose;
@@ -301,10 +330,10 @@
                 }
                 outcome.PreparedImagePath = prepared;
 
-                var cfg = st.JinwoTray;
+                var cfg = BuildStandaloneAlignedTestTray(st);
                 var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, 0, ResolveNinePointCalibIsLeft(st), out string effectPath, forceSaveEffectImage: true);
-                _jinwo.TryGetEffectiveGrid(ref cfg, out int effRows, out int effCols, out int capacity);
-                JinwoPlacementOrder.SortCenters(centers, effRows > 0 ? effRows : st.MaxRows, effCols > 0 ? effCols : st.MaxCols);
+                JinwoPlacementService.DeriveGridFromCenters(
+                    centers, out int effRows, out int effCols, out int capacity);
                 outcome.CenterCount = centers?.Length ?? 0;
                 outcome.EffectiveRows = effRows;
                 outcome.EffectiveCols = effCols;
@@ -374,6 +403,26 @@
             }
             error = null;
             return true;
+        }
+
+        /// <summary>
+        /// 算法测试与正式流程一致：型号/箱体参数和上位机层数传给 DLL，
+        /// 行列、容量、顺序及 XY 坐标全部采用 DLL 输出。
+        /// </summary>
+        private JinwoTrayConfig BuildStandaloneAlignedTestTray(StationData st)
+        {
+            bool isLeft = IsLeftStation(st);
+            var ini = JinwoAlgorithmConfig.Load(isLeft);
+            int layers = _jinwo.CalculateLayerCount(
+                st.BoxHeight, st.SingleProductHeight, isLeft);
+            return _jinwo.BuildTrayConfig(
+                st.BoxLength, st.BoxWidth, st.BoxHeight,
+                st.OuterDiam, st.SingleProductHeight,
+                0, 0, layers,
+                gridFromAlgorithmOnly: true,
+                isLeft: isLeft,
+                maxMarkerTiltDegrees: ini.MaxMarkerTiltDegrees,
+                packingMode: StackingPlacement.ToPackingMode(st.StackMode));
         }
 
         private string ResolveJinwoDllEffectPath(string rawEffectPath, bool isLeft = true)

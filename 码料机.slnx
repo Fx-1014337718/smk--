@@ -1,3 +1,9 @@
 <Solution>
-  <Project Path="码料机/码料机.csproj" Id="6448a474-6b81-4e47-8544-6645873ae8f7" />
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="ARM64" />
+  </Configurations>
+  <Project Path="码料机/码料机.csproj" Id="6448a474-6b81-4e47-8544-6645873ae8f7">
+    <Platform Solution="*|ARM64" Project="ARM64" />
+  </Project>
 </Solution>

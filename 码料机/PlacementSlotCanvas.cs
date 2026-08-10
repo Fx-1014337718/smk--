@@ -21,10 +21,14 @@ namespace 码料机
         public sealed class SlotMarker
         {
             public int Index;
+            /// <summary>圆点上显示的编号；&lt;=0 时显示 Index+1（兼容手动指定放料）。</summary>
+            public int DisplayNumber;
             public double PixelX, PixelY;
             public int Layer, Row, Col;
             public SlotVisualState State;
             public bool HasPixel;
+
+            public int ResolveDisplayNumber() => DisplayNumber > 0 ? DisplayNumber : Index + 1;
         }
 
         private Image _image;
@@ -165,7 +169,7 @@ namespace 码料机
                     }
                     if (!dense || selected || hover)
                     {
-                        string text = (s.Index + 1).ToString();
+                        string text = s.ResolveDisplayNumber().ToString();
                         var sz = g.MeasureString(text, fontNum);
                         g.DrawString(text, fontNum, Brushes.White, pt.X - sz.Width / 2, pt.Y - sz.Height / 2);
                     }
@@ -261,10 +265,13 @@ namespace 码料机
             {
                 var s = GetVisibleSlots().FirstOrDefault(m => m.Index == hit);
                 if (s != null)
-                    _tip.SetToolTip(this, $"第 {hit + 1} 位  L{s.Layer + 1}/R{s.Row + 1}/C{s.Col + 1}");
+                {
+                    int num = s.ResolveDisplayNumber();
+                    _tip.SetToolTip(this, $"第 {num} 组/位  L{s.Layer + 1}/R{s.Row + 1}/C{s.Col + 1}");
+                }
             }
             else
-                _tip.SetToolTip(this, "点击圆点选择放料位；双击可快速设为下次放料");
+                _tip.SetToolTip(this, "点击圆点选择；双击可快速确认");
         }
 
         protected override void OnMouseClick(MouseEventArgs e)

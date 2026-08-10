@@ -6,8 +6,18 @@ using System; // Math 三角函数、字符串处理
 
 namespace 码料机
 {
-    /// <summary>层内产品排列：平行或交叉（错行半径）。</summary>
-    public enum StackMode { Parallel, Cross }
+    /// <summary>
+    /// 层内排料：横向梅花 / 竖向梅花。
+    /// 数值与 DLL staggerMode 一致：0=横向，1=竖向。
+    /// </summary>
+    public enum StackMode
+    {
+        HorizontalMeihua = 0,
+        VerticalMeihua = 1,
+        // 兼容旧代码命名
+        Cross = HorizontalMeihua,
+        Parallel = VerticalMeihua,
+    }
 
     /// <summary>箱体在平面内的位姿：一角为原点、一边为 X 方向（角度为度）。</summary>
     public struct BoxPose
@@ -36,9 +46,33 @@ namespace 码料机
     {
         private const double DegToRad = Math.PI / 180.0; // 度 → 弧度乘子
 
-        public static StackMode ParseStackMode(string text) => // 从界面「平行/交叉」等文案解析
-            string.IsNullOrWhiteSpace(text) || text.IndexOf("交叉", StringComparison.Ordinal) < 0
-                ? StackMode.Parallel : StackMode.Cross; // 含「交叉」则为 Cross
+        public const string HorizontalMeihuaText = "横向梅花";
+        public const string VerticalMeihuaText = "竖向梅花";
+
+        /// <summary>界面「横向梅花/竖向梅花」→ StackMode；兼容旧文案「交叉/平行」。</summary>
+        public static StackMode ParseStackMode(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return StackMode.HorizontalMeihua;
+            if (text.IndexOf("竖向", StringComparison.Ordinal) >= 0
+                || text.IndexOf("平行", StringComparison.Ordinal) >= 0)
+                return StackMode.VerticalMeihua;
+            // 横向梅花 / 交叉 / 默认
+            return StackMode.HorizontalMeihua;
+        }
+
+        /// <summary>下发 DLL staggerMode：0=横向梅花，1=竖向梅花（与 金沃dll-测试 一致）。</summary>
+        public static int ToStaggerMode(StackMode mode) =>
+            mode == StackMode.VerticalMeihua ? 1 : 0;
+
+        /// <summary>将已是 0/1 的排料值规范为 DLL staggerMode。</summary>
+        public static int ToStaggerMode(int packingOrStaggerMode) =>
+            packingOrStaggerMode == 1 ? 1 : 0;
+
+        /// <summary>同 <see cref="ToStaggerMode(StackMode)"/>（历史命名）。</summary>
+        public static int ToPackingMode(StackMode mode) => ToStaggerMode(mode);
+
+        public static string DescribeStackMode(StackMode mode) =>
+            mode == StackMode.VerticalMeihua ? VerticalMeihuaText : HorizontalMeihuaText;
 
         public static void LocalBoxToWorld(BoxPose box, float localX, float localY, // 箱内 mm（沿箱轴）
             out float worldX, out float worldY, out float placementAngleDeg) // 输出世界 mm 与放料 RZ

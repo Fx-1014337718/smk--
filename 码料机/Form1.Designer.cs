@@ -236,10 +236,12 @@ namespace 码料机
             // 
             // toolStripLabel2
             // 
-            this.toolStripLabel2.ForeColor = System.Drawing.Color.White;
+            this.toolStripLabel2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
             this.toolStripLabel2.Name = "toolStripLabel2";
             this.toolStripLabel2.Size = new System.Drawing.Size(107, 25);
             this.toolStripLabel2.Text = "机械臂控制";
+            this.toolStripLabel2.ToolTipText = "工位生产选择（仅向 PLC D4414 下发，不参与取放逻辑）";
+            this.toolStripLabel2.Click += new System.EventHandler(this.toolStripLabel2_Click);
             // 
             // toolStripSeparator3
             // 
@@ -1239,8 +1241,8 @@ namespace 码料机
             this.comboBox5.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
             this.comboBox5.FormattingEnabled = true;
             this.comboBox5.Items.AddRange(new object[] {
-            "交叉排料",
-            "平行排料"});
+            "横向梅花",
+            "竖向梅花"});
             this.comboBox5.Location = new System.Drawing.Point(136, 84);
             this.comboBox5.Name = "comboBox5";
             this.comboBox5.Size = new System.Drawing.Size(203, 40);
@@ -1383,8 +1385,8 @@ namespace 码料机
             this.comboBox2.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
             this.comboBox2.FormattingEnabled = true;
             this.comboBox2.Items.AddRange(new object[] {
-            "交叉排料",
-            "平行排料"});
+            "横向梅花",
+            "竖向梅花"});
             this.comboBox2.Location = new System.Drawing.Point(136, 80);
             this.comboBox2.Name = "comboBox2";
             this.comboBox2.Size = new System.Drawing.Size(208, 40);

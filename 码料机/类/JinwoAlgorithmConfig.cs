@@ -43,14 +43,18 @@ namespace 码料机
         public double TargetRz { get; set; }
         public double MarkerDistanceX { get; set; }
         public double MarkerDistanceY { get; set; }
-        public double AutoInnerReserveX { get; set; }
-        public double AutoInnerReserveY { get; set; }
+        /// <summary>X 方向安全预留（mm），同时作用于左右两侧；对应 DLL SetAutoInnerReserve.reserveX，默认 10。</summary>
+        public double AutoInnerReserveX { get; set; } = 10.0;
+        /// <summary>Y 方向安全预留（mm），同时作用于上下两侧；对应 DLL SetAutoInnerReserve.reserveY，默认 10。</summary>
+        public double AutoInnerReserveY { get; set; } = 10.0;
         public double InnerOffsetX { get; set; }
         public double InnerOffsetY { get; set; }
         public double InnerWidth { get; set; }
         public double InnerHeight { get; set; }
         public double FirstCenterOffsetX { get; set; }
         public double FirstCenterOffsetY { get; set; }
+        /// <summary>金沃黑圆/箱体最大允许倾斜角度（度），默认 3°。</summary>
+        public double MaxMarkerTiltDegrees { get; set; } = 3.0;
         public double[] MarkerRobotX { get; } = new double[JinwoNative.MarkerCount];
         public double[] MarkerRobotY { get; } = new double[JinwoNative.MarkerCount];
 
@@ -145,14 +149,16 @@ namespace 码料机
             c.TargetRz = IniAPI.GetPrivateProfileDouble(cal, "机器人放料姿态Rz", 0, path);
             c.MarkerDistanceX = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距X", 0, path);
             c.MarkerDistanceY = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距Y", 0, path);
-            c.AutoInnerReserveX = IniAPI.GetPrivateProfileDouble(cal, "自动内缩X", 0, path);
-            c.AutoInnerReserveY = IniAPI.GetPrivateProfileDouble(cal, "自动内缩Y", 0, path);
+            c.AutoInnerReserveX = ReadSafetyReserve(cal, "自动内缩X", "安全预留X", path);
+            c.AutoInnerReserveY = ReadSafetyReserve(cal, "自动内缩Y", "安全预留Y", path);
             c.InnerOffsetX = IniAPI.GetPrivateProfileDouble(cal, "内区偏移X", 0, path);
             c.InnerOffsetY = IniAPI.GetPrivateProfileDouble(cal, "内区偏移Y", 0, path);
             c.InnerWidth = IniAPI.GetPrivateProfileDouble(cal, "内区宽度", 0, path);
             c.InnerHeight = IniAPI.GetPrivateProfileDouble(cal, "内区高度", 0, path);
             c.FirstCenterOffsetX = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移X", 0, path);
             c.FirstCenterOffsetY = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移Y", 0, path);
+            c.MaxMarkerTiltDegrees = IniAPI.GetPrivateProfileDouble(cal, "最大标记倾斜角度", 3.0, path);
+            if (c.MaxMarkerTiltDegrees <= 0) c.MaxMarkerTiltDegrees = 3.0;
 
             for (int i = 0; i < JinwoNative.MarkerCount; i++)
             {
@@ -239,14 +245,16 @@ namespace 码料机
             c.TargetRz = IniAPI.GetPrivateProfileDouble(cal, "机器人放料姿态Rz", 0, path);
             c.MarkerDistanceX = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距X", 0, path);
             c.MarkerDistanceY = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距Y", 0, path);
-            c.AutoInnerReserveX = IniAPI.GetPrivateProfileDouble(cal, "自动内缩X", 0, path);
-            c.AutoInnerReserveY = IniAPI.GetPrivateProfileDouble(cal, "自动内缩Y", 0, path);
+            c.AutoInnerReserveX = ReadSafetyReserve(cal, "自动内缩X", "安全预留X", path);
+            c.AutoInnerReserveY = ReadSafetyReserve(cal, "自动内缩Y", "安全预留Y", path);
             c.InnerOffsetX = IniAPI.GetPrivateProfileDouble(cal, "内区偏移X", 0, path);
             c.InnerOffsetY = IniAPI.GetPrivateProfileDouble(cal, "内区偏移Y", 0, path);
             c.InnerWidth = IniAPI.GetPrivateProfileDouble(cal, "内区宽度", 0, path);
             c.InnerHeight = IniAPI.GetPrivateProfileDouble(cal, "内区高度", 0, path);
             c.FirstCenterOffsetX = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移X", 0, path);
             c.FirstCenterOffsetY = IniAPI.GetPrivateProfileDouble(cal, "首件中心偏移Y", 0, path);
+            c.MaxMarkerTiltDegrees = IniAPI.GetPrivateProfileDouble(cal, "最大标记倾斜角度", 3.0, path);
+            if (c.MaxMarkerTiltDegrees <= 0) c.MaxMarkerTiltDegrees = 3.0;
             for (int i = 0; i < JinwoNative.MarkerCount; i++)
             {
                 c.MarkerRobotX[i] = IniAPI.GetPrivateProfileDouble(cal, "黑圆" + i + "机器人X", 0, path);
@@ -321,6 +329,7 @@ namespace 码料机
             target.InnerHeight = src.InnerHeight;
             target.FirstCenterOffsetX = src.FirstCenterOffsetX;
             target.FirstCenterOffsetY = src.FirstCenterOffsetY;
+            target.MaxMarkerTiltDegrees = src.MaxMarkerTiltDegrees;
             for (int i = 0; i < JinwoNative.MarkerCount; i++)
             {
                 target.MarkerRobotX[i] = src.MarkerRobotX[i];
@@ -422,14 +431,19 @@ namespace 码料机
             ok &= IniAPI.INIWriteValue(path, cal, "机器人放料姿态Rz", c.TargetRz.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "黑圆间距X", c.MarkerDistanceX.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "黑圆间距Y", c.MarkerDistanceY.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "自动内缩X", c.AutoInnerReserveX.ToString());
-            ok &= IniAPI.INIWriteValue(path, cal, "自动内缩Y", c.AutoInnerReserveY.ToString());
+            double reserveX = c.AutoInnerReserveX > 0 ? c.AutoInnerReserveX : 10.0;
+            double reserveY = c.AutoInnerReserveY > 0 ? c.AutoInnerReserveY : 10.0;
+            ok &= IniAPI.INIWriteValue(path, cal, "自动内缩X", reserveX.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "自动内缩Y", reserveY.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "安全预留X", reserveX.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "安全预留Y", reserveY.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "内区偏移X", c.InnerOffsetX.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "内区偏移Y", c.InnerOffsetY.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "内区宽度", c.InnerWidth.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "内区高度", c.InnerHeight.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "首件中心偏移X", c.FirstCenterOffsetX.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "首件中心偏移Y", c.FirstCenterOffsetY.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "最大标记倾斜角度", (c.MaxMarkerTiltDegrees > 0 ? c.MaxMarkerTiltDegrees : 3.0).ToString());
 
             for (int i = 0; i < JinwoNative.MarkerCount; i++)
             {
@@ -446,17 +460,33 @@ namespace 码料机
             return ok;
         }
 
+        /// <summary>优先读新键「安全预留」，兼容旧键「自动内缩」；缺省 10。</summary>
+        static double ReadSafetyReserve(string section, string legacyKey, string newKey, string path)
+        {
+            if (TryParsePositiveIni(section, newKey, path, out double modern))
+                return modern;
+            if (TryParsePositiveIni(section, legacyKey, path, out double legacy))
+                return legacy;
+            return 10.0;
+        }
+
+        static bool TryParsePositiveIni(string section, string key, string path, out double value)
+        {
+            value = 0;
+            string text = IniAPI.GetPrivateProfileString(section, key, "", path);
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var styles = System.Globalization.NumberStyles.Float;
+            if ((double.TryParse(text, styles, System.Globalization.CultureInfo.InvariantCulture, out value)
+                    || double.TryParse(text, styles, System.Globalization.CultureInfo.CurrentCulture, out value))
+                && value > 0)
+                return true;
+            value = 0;
+            return false;
+        }
+
         public string ResolveUndistortionCalibPath()
         {
-            if (string.IsNullOrWhiteSpace(UndistortionCalibFile))
-                return Path.Combine(Parameters.IniDir, "camera_calib.yml");
-            if (Path.IsPathRooted(UndistortionCalibFile) && File.Exists(UndistortionCalibFile))
-                return Path.GetFullPath(UndistortionCalibFile);
-            string inConfig = Path.Combine(Parameters.IniDir, UndistortionCalibFile);
-            if (File.Exists(inConfig)) return inConfig;
-            string besideExe = Path.Combine(Application.StartupPath, UndistortionCalibFile);
-            if (File.Exists(besideExe)) return besideExe;
-            return inConfig;
+            return ResolveConfigFilePath(UndistortionCalibFile, "camera_calib.yml");
         }
 
         /// <summary>解析本工位九点标定文件路径。</summary>
@@ -469,15 +499,19 @@ namespace 码料机
 
         static string ResolveRelativeCalibPath(string configuredFile, string defaultFileName)
         {
-            if (string.IsNullOrWhiteSpace(configuredFile))
-                return Path.Combine(Parameters.IniDir, defaultFileName);
-            if (Path.IsPathRooted(configuredFile) && File.Exists(configuredFile))
-                return Path.GetFullPath(configuredFile);
-            string inConfig = Path.Combine(Parameters.IniDir, configuredFile);
-            if (File.Exists(inConfig)) return inConfig;
-            string besideExe = Path.Combine(Application.StartupPath, configuredFile);
-            if (File.Exists(besideExe)) return besideExe;
-            return inConfig;
+            return ResolveConfigFilePath(configuredFile, defaultFileName);
+        }
+
+        /// <summary>所有运行配置资产统一从 exe\配置文件 目录解析。</summary>
+        static string ResolveConfigFilePath(string configuredFile, string defaultFileName)
+        {
+            string name = string.IsNullOrWhiteSpace(configuredFile)
+                ? defaultFileName
+                : configuredFile.Trim();
+            // 即使 INI 中残留旧的绝对路径，也只采用文件名，避免跳到桌面/项目源目录。
+            if (Path.IsPathRooted(name))
+                name = Path.GetFileName(name);
+            return Path.GetFullPath(Path.Combine(Parameters.IniDir, name));
         }
 
         public static void EnsureDefaultCalibFile()
@@ -498,49 +532,17 @@ namespace 码料机
 
         public string ResolveDllPath()
         {
-            if (Path.IsPathRooted(DllFileName) && File.Exists(DllFileName))
-                return Path.GetFullPath(DllFileName);
-
             string fileName = string.IsNullOrWhiteSpace(DllFileName) ? "JinwoRobotArm.dll" : DllFileName;
-            var candidates = new System.Collections.Generic.List<string>();
-            void AddIfExists(string path)
-            {
-                if (!string.IsNullOrEmpty(path) && File.Exists(path))
-                    candidates.Add(Path.GetFullPath(path));
-            }
-
-            AddIfExists(Path.Combine(Parameters.IniDir, fileName));
-            AddIfExists(Path.Combine(Application.StartupPath, fileName));
-            AddIfExists(Path.GetFullPath(Path.Combine(Application.StartupPath, "..", "..", fileName)));
-
-            if (candidates.Count > 0)
-            {
-                string best = candidates[0];
-                DateTime bestTime = File.GetLastWriteTimeUtc(best);
-                long bestSize = new FileInfo(best).Length;
-                for (int i = 1; i < candidates.Count; i++)
-                {
-                    var fi = new FileInfo(candidates[i]);
-                    DateTime t = fi.LastWriteTimeUtc;
-                    if (t > bestTime || (t == bestTime && fi.Length > bestSize))
-                    {
-                        best = candidates[i];
-                        bestTime = t;
-                        bestSize = fi.Length;
-                    }
-                }
-                return best;
-            }
-
-            return Path.Combine(Application.StartupPath, fileName);
+            return ResolveConfigFilePath(fileName, "JinwoRobotArm.dll");
         }
 
         public string ResolveOpenCvRuntimeDir()
         {
             if (string.IsNullOrWhiteSpace(OpenCvRuntimeDir)) return "";
-            return Path.IsPathRooted(OpenCvRuntimeDir)
-                ? OpenCvRuntimeDir
-                : Path.Combine(Application.StartupPath, OpenCvRuntimeDir);
+            string dir = OpenCvRuntimeDir.Trim();
+            if (Path.IsPathRooted(dir))
+                dir = new DirectoryInfo(dir).Name;
+            return Path.GetFullPath(Path.Combine(Parameters.IniDir, dir));
         }
 
         public string ResolveEffectImageDir()
@@ -661,14 +663,17 @@ PitchY=0
 机器人放料姿态Rz=0
 黑圆间距X=0
 黑圆间距Y=0
-自动内缩X=0
-自动内缩Y=0
+自动内缩X=10
+自动内缩Y=10
+安全预留X=10
+安全预留Y=10
 内区偏移X=0
 内区偏移Y=0
 内区宽度=0
 内区高度=0
 首件中心偏移X=0
 首件中心偏移Y=0
+最大标记倾斜角度=3
 黑圆0机器人X=0
 黑圆0机器人Y=0
 黑圆1机器人X=0
@@ -686,14 +691,17 @@ PitchY=0
 机器人放料姿态Rz=0
 黑圆间距X=0
 黑圆间距Y=0
-自动内缩X=0
-自动内缩Y=0
+自动内缩X=10
+自动内缩Y=10
+安全预留X=10
+安全预留Y=10
 内区偏移X=0
 内区偏移Y=0
 内区宽度=0
 内区高度=0
 首件中心偏移X=0
 首件中心偏移Y=0
+最大标记倾斜角度=3
 黑圆0机器人X=0
 黑圆0机器人Y=0
 黑圆1机器人X=0
@@ -710,7 +718,7 @@ Alpha=1.0
 裁剪黑边=0
 
 [右机台_畸变矫正]
-启用=1
+启用=0
 标定文件=camera_calib.yml
 Alpha=1.0
 裁剪黑边=0
@@ -789,14 +797,14 @@ camera_matrix: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 81807.113588009292, 0., 2709.7798602274966, 0.,
-       74366.434238749251, 1821.3610255778699, 0., 0., 1. ]
+   data: [ 73740.268480585233, 0., 2693.1981223373527, 0.,
+       73672.506043388945, 1815.7610688578075, 0., 0., 1. ]
 dist_coeffs: !!opencv-matrix
    rows: 1
    cols: 5
    dt: d
-   data: [ -17.800203747780653, 6594.8721273173369,
-       -0.025985229133765761, 0.0060155531548642532, 14.679761868287478 ]
+   data: [ -16.304032264459288, 5135.6931879143358,
+       -0.00065296443498354519, 0.041299912218906894, 12.110766022255648 ]
 checkerboard_cols: 11
 checkerboard_rows: 8
 square_size_mm: 30.

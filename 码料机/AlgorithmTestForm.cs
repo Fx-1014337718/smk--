@@ -143,14 +143,29 @@ namespace 码料机
         private async Task CaptureHikAsync()
         {
             AppendLog("[海康] 采图中…");
-            bool ok = await _main.AlgorithmTestTryHikCaptureAsync().ConfigureAwait(true);
-            if (!ok)
+            btnHikCapture.Enabled = false;
+            try
             {
-                AppendLog("[海康] 采图失败（请确认海康已连接且 INI 已启用）");
-                return;
+                var result = await _main.AlgorithmTestTryHikCaptureAsync().ConfigureAwait(true);
+                if (!result.Ok)
+                {
+                    AppendLog("[海康] 采图失败: " + (result.Error ?? "未知错误"));
+                    AppendLog("[提示] 请确认：1) 关闭 MVS 客户端占用 2) INI 序列号正确 3) 左/右机台至少一侧海康已启用");
+                    return;
+                }
+                string path = _main.GetAlgorithmTestDefaultImagePath();
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                {
+                    AppendLog("[海康] 采图已触发，但未找到落盘文件");
+                    return;
+                }
+                SetImagePath(path);
+                AppendLog("[海康] 采图完成，已载入: " + path);
             }
-            UseMainImage();
-            AppendLog("[海康] 采图完成，已载入测试路径");
+            finally
+            {
+                btnHikCapture.Enabled = true;
+            }
         }
 
         /// <returns>有效路径；校验失败时写日志并返回 null。</returns>

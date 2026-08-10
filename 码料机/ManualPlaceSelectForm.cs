@@ -79,6 +79,7 @@ namespace 码料机
             public NumericUpDown StartCycleNum;
             public bool IsLeft;
             public bool SuppressLayerEvent;
+            public bool SuppressEnableEvent;
         }
 
         private TabPage BuildStationPage(string title, bool isLeft, StationPageUi ui)
@@ -104,7 +105,9 @@ namespace 码料机
             };
             ui.Enable.CheckedChanged += (_, __) =>
             {
-                _main.SetManualSlotSelectEnabled(isLeft, ui.Enable.Checked);
+                if (ui.SuppressEnableEvent) return;
+                if (!_main.SetManualSlotSelectEnabled(isLeft, ui.Enable.Checked))
+                    SetEnableChecked(ui, _main.IsManualSlotSelectEnabled(isLeft));
                 RefreshStation(isLeft);
             };
 
@@ -398,14 +401,22 @@ namespace 码料机
         {
             string img = _main.GetManualPlaceDefaultImagePath(ActiveIsLeft());
             if (!string.IsNullOrEmpty(img)) _txtImage.Text = img;
-            _leftUi.Enable.Checked = _main.GetManualPlaceStationView(true).Enabled;
-            _rightUi.Enable.Checked = _main.GetManualPlaceStationView(false).Enabled;
+            SetEnableChecked(_leftUi, _main.GetManualPlaceStationView(true).Enabled);
+            SetEnableChecked(_rightUi, _main.GetManualPlaceStationView(false).Enabled);
             RefreshAllStations();
             Shown += (_, __) =>
             {
                 ApplySplitRatio();
                 WindowState = FormWindowState.Maximized;
             };
+        }
+
+        private static void SetEnableChecked(StationPageUi ui, bool value)
+        {
+            if (ui?.Enable == null) return;
+            ui.SuppressEnableEvent = true;
+            try { ui.Enable.Checked = value; }
+            finally { ui.SuppressEnableEvent = false; }
         }
 
         /// <summary>窗体完成布局后设置分割比例（预览区约 78%）。须在控件已有 Width 后调用。</summary>

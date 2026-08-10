@@ -165,64 +165,74 @@ namespace 码料机
         }
 
         /// <summary>根据工位产品/箱体与 INI 生成托盘配置并校验。</summary>
-        /// <param name="gridFromAlgorithmOnly">为 true 时行列层仅取自 INI（0 表示自动），调用顺序与 金沃dll-测试.cpp 一致。</param>
+        /// <param name="gridFromAlgorithmOnly">
+        /// 为 true 时行列固定传 0 交给 DLL 自动计算，仅层数使用上位机按箱深计算的
+        /// <paramref name="layoutLayers"/>；调用顺序与 金沃dll-测试.cpp 一致。
+        /// </param>
         public JinwoNative.JinwoTrayConfig BuildTrayConfig(
             double boxLength, double boxWidth, double boxHeight,
             double bearingOuterDiameter, double bearingHeight,
             int layoutRows, int layoutCols, int layoutLayers,
             bool gridFromAlgorithmOnly = false,
-            bool isLeft = true)
+            bool isLeft = true,
+            double maxMarkerTiltDegrees = 3.0,
+            int packingMode = 0)
         {
             RequireDll();
             var ini = StationIni(isLeft);
             var cfg = JinwoNative.CreateEmptyTrayConfig();
             RequireOk(_dll.InitConfig(ref cfg), _dll, "Jinwo_InitConfig");
 
-            int rows = ini.TrayRows > 0 ? ini.TrayRows : layoutRows;
-            int cols = ini.TrayCols > 0 ? ini.TrayCols : layoutCols;
-            int layers = ini.TrayLayers > 0 ? ini.TrayLayers : layoutLayers;
-            if (!gridFromAlgorithmOnly)
+            // 与 金沃dll-测试 ReadConfigFromConsole 一致：
+            // SetTrayGrid → SetStaggerMode(0横向/1竖向) → SetBearing → SetBox → …
+            int rows;
+            int cols;
+            int layers;
+            if (gridFromAlgorithmOnly)
             {
-                if (rows < 1) rows = 1;
-                if (cols < 1) cols = 1;
-                if (layers < 1) layers = 1;
-                RequireOk(_dll.SetTrayGrid(ref cfg, rows, cols, layers), _dll, "Jinwo_SetTrayGrid");
+                // XY 网格完全由 DLL 根据型号与箱体参数决定；上位机只负责箱深方向层数。
+                rows = 0;
+                cols = 0;
+                layers = Math.Max(1, layoutLayers);
             }
             else
             {
-                // 与 金沃dll-测试 ReadConfigFromConsole 相同：始终 SetTrayGrid（含 0,0,0），不在此后再改写网格
-                RequireOk(_dll.SetTrayGrid(ref cfg, rows, cols, layers), _dll, "Jinwo_SetTrayGrid");
+                rows = ini.TrayRows > 0 ? ini.TrayRows : layoutRows;
+                cols = ini.TrayCols > 0 ? ini.TrayCols : layoutCols;
+                layers = ini.TrayLayers > 0 ? ini.TrayLayers : layoutLayers;
+                if (rows < 1) rows = 1;
+                if (cols < 1) cols = 1;
+                if (layers < 1) layers = 1;
             }
+            int staggerMode = StackingPlacement.ToStaggerMode(packingMode);
+            RequireOk(_dll.SetTrayGrid(ref cfg, rows, cols, layers), _dll, "Jinwo_SetTrayGrid");
+            RequireOk(_dll.SetStaggerMode(ref cfg, staggerMode), _dll, "Jinwo_SetStaggerMode");
 
             double layerPitchZ = ini.LayerPitchZ > 0 ? ini.LayerPitchZ : bearingHeight;
             RequireOk(_dll.SetBearing(ref cfg, bearingOuterDiameter, bearingHeight, ini.BearingGap, layerPitchZ), _dll, "Jinwo_SetBearing");
-
-            if (ini.PitchX > 0 || ini.PitchY > 0)
-                RequireOk(_dll.SetPitch(ref cfg, ini.PitchX, ini.PitchY), _dll, "Jinwo_SetPitch");
 
             double boxDepth = ini.BoxDepth > 0 ? ini.BoxDepth : boxHeight;
             double placeComp = ini.PlaceHeightCompensation;
             RequireOk(_dll.SetBox(ref cfg, boxLength, boxWidth, boxDepth, placeComp), _dll, "Jinwo_SetBox");
 
-            if (ini.CameraDistance > 0)
-                RequireOk(_dll.SetCameraDistance(ref cfg, ini.CameraDistance), _dll, "Jinwo_SetCameraDistance");
+            double tiltLimit = maxMarkerTiltDegrees > 0
+                ? maxMarkerTiltDegrees
+                : (ini.MaxMarkerTiltDegrees > 0 ? ini.MaxMarkerTiltDegrees : 3.0);
+            if (_dll.SetMaxMarkerTiltDegrees != null)
+                RequireOk(_dll.SetMaxMarkerTiltDegrees(ref cfg, tiltLimit), _dll, "Jinwo_SetMaxMarkerTiltDegrees");
+            else
+                cfg.maxMarkerTiltDegrees = tiltLimit;
 
             RequireOk(_dll.SetMarkerDistance(ref cfg, ini.MarkerDistanceX, ini.MarkerDistanceY), _dll, "Jinwo_SetMarkerDistance");
 
-            if (ini.AutoInnerReserveX > 0 || ini.AutoInnerReserveY > 0)
-                RequireOk(_dll.SetAutoInnerReserve(ref cfg, ini.AutoInnerReserveX, ini.AutoInnerReserveY), _dll, "Jinwo_SetAutoInnerReserve");
+            // 安全预留：reserveX 作用于左右，reserveY 作用于上下；默认 10，每次显式传入。
+            double reserveX = ini.AutoInnerReserveX > 0 ? ini.AutoInnerReserveX : 10.0;
+            double reserveY = ini.AutoInnerReserveY > 0 ? ini.AutoInnerReserveY : 10.0;
+            RequireOk(_dll.SetAutoInnerReserve(ref cfg, reserveX, reserveY), _dll, "Jinwo_SetAutoInnerReserve");
 
-            for (int i = 0; i < JinwoNative.MarkerCount; i++)
-            {
-                if (ini.MarkerRobotX[i] == 0 && ini.MarkerRobotY[i] == 0) continue;
-                RequireOk(_dll.SetMarkerRobotPoint(ref cfg, i, ini.MarkerRobotX[i], ini.MarkerRobotY[i]), _dll, "Jinwo_SetMarkerRobotPoint");
-            }
-
-            RequireOk(_dll.SetInnerRegion(ref cfg, ini.InnerOffsetX, ini.InnerOffsetY, ini.InnerWidth, ini.InnerHeight), _dll, "Jinwo_SetInnerRegion");
             RequireOk(_dll.SetRobotPlace(ref cfg, ini.TargetZ, ini.TargetRz), _dll, "Jinwo_SetRobotPlace");
 
-            if (ini.FirstCenterOffsetX != 0 || ini.FirstCenterOffsetY != 0)
-                RequireOk(_dll.SetFirstCenterOffset(ref cfg, ini.FirstCenterOffsetX, ini.FirstCenterOffsetY), _dll, "Jinwo_SetFirstCenterOffset");
+            // 仅对应 金沃dll-测试 ReadConfigFromConsole 的接口，不再追加 Pitch/相机距离/内区等额外调用。
 
             ini.EnsureCalibFilesForDll(isLeft);
             RequireCalibFilesForDll(isLeft);
@@ -243,7 +253,20 @@ namespace 码料机
             return cfg;
         }
 
-        /// <summary>向 DLL 查询有效行列与容量（确认产品时行/列/层=0 则用此结果作为参考网格）。</summary>
+        /// <summary>上位机只按箱深和层间距计算层数；行列及 XY 坐标均交给 DLL。</summary>
+        public int CalculateLayerCount(double boxHeight, double bearingHeight, bool isLeft)
+        {
+            var ini = StationIni(isLeft);
+            double depth = ini.BoxDepth > 1e-3 ? ini.BoxDepth : boxHeight;
+            double pitch = ini.LayerPitchZ > 1e-3 ? ini.LayerPitchZ : bearingHeight;
+            if (depth <= 1e-3 || pitch <= 1e-3) return 1;
+            return Math.Max(1, (int)(depth / pitch));
+        }
+
+        /// <summary>
+        /// 向 DLL 查询配置阶段的参考网格。该元数据可能与识图返回的真实中心范围不同，
+        /// 不得用于覆盖识图中心、容量或 XY 顺序。
+        /// </summary>
         public bool TryGetEffectiveGrid(ref JinwoNative.JinwoTrayConfig cfg, out int rows, out int cols, out int capacity)
         {
             rows = cols = capacity = 0;
@@ -255,24 +278,33 @@ namespace 码料机
             }
         }
 
-        public bool TrySetTrayGrid(ref JinwoNative.JinwoTrayConfig cfg, int rows, int cols, int layers)
+        public bool TrySetTrayGrid(ref JinwoNative.JinwoTrayConfig cfg, int rows, int cols, int layers, int packingMode = 0)
         {
             if (_dll == null || rows < 1 || cols < 1 || layers < 1) return false;
+            int staggerMode = StackingPlacement.ToStaggerMode(packingMode);
             lock (_sync)
             {
-                return RequireOkRet(_dll.SetTrayGrid(ref cfg, rows, cols, layers)) != 0;
+                if (RequireOkRet(_dll.SetTrayGrid(ref cfg, rows, cols, layers)) == 0)
+                    return false;
+                return RequireOkRet(_dll.SetStaggerMode(ref cfg, staggerMode)) != 0;
             }
         }
 
-        /// <summary>将识箱后的托盘网格写入内存配置与 金沃算法.ini。</summary>
+        /// <summary>
+        /// 将识箱后的托盘网格写入配置。原配置为 0（自动）的字段继续保存为 0，
+        /// 避免一次识别后把自动层数固化，导致更换箱体/产品时不再重新计算。
+        /// </summary>
         public bool PersistTrayGrid(bool isLeft, int rows, int cols, int layers)
         {
             var ini = StationIni(isLeft);
             if (ini == null) return false;
-            ini.TrayRows = rows;
-            ini.TrayCols = cols;
-            ini.TrayLayers = layers;
-            return JinwoAlgorithmConfig.SaveTrayGrid(isLeft, rows, cols, layers);
+            int rowsToSave = ini.TrayRows > 0 ? rows : 0;
+            int colsToSave = ini.TrayCols > 0 ? cols : 0;
+            int layersToSave = ini.TrayLayers > 0 ? layers : 0;
+            ini.TrayRows = rowsToSave;
+            ini.TrayCols = colsToSave;
+            ini.TrayLayers = layersToSave;
+            return JinwoAlgorithmConfig.SaveTrayGrid(isLeft, rowsToSave, colsToSave, layersToSave);
         }
 
         /// <summary>
@@ -291,24 +323,21 @@ namespace 码料机
             maxLayers = 1;
             if (_dll == null || effRows < 1 || effCols < 1) return false;
 
-            int perLayer = effRows * effCols;
-            if (perLayer < 1) return false;
+            if (effRows * effCols < 1) return false;
 
             var ini = StationIni(isLeft);
             if (ini.TrayLayers > 0)
                 maxLayers = ini.TrayLayers;
-            else if (cfg.Layers > 0)
-                maxLayers = cfg.Layers;
             else
+                // DLL 对 layers=0 会回填默认 1，不能把该默认值误当成现场实际层数。
                 maxLayers = EstimateLayersFromBoxDepth(cfg, boxHeight, bearingHeight, isLeft);
 
             maxLayers = Math.Max(1, maxLayers);
-            if (capacity < perLayer * maxLayers)
-                capacity = perLayer * maxLayers;
+            // capacity 是 DLL 按交叉排料/边界裁剪得到的真实容量，禁止用 行×列×层 放大。
             return true;
         }
 
-        static void DeriveGridFromCenters(JinwoNative.JinwoBearingCenterResult[] centers, out int effRows, out int effCols, out int capacity)
+        public static void DeriveGridFromCenters(JinwoNative.JinwoBearingCenterResult[] centers, out int effRows, out int effCols, out int capacity)
         {
             effRows = effCols = 0;
             capacity = centers?.Length ?? 0;
@@ -577,9 +606,14 @@ namespace 码料机
         public bool TryFindBearingCenter(JinwoNative.JinwoBearingCenterResult[] centers, int placedCount, out JinwoNative.JinwoBearingCenterResult center)
         {
             center = default;
-            if (centers == null || placedCount < 0 || placedCount >= centers.Length) return false;
-            center = centers[placedCount];
-            return true;
+            if (centers == null || placedCount < 0) return false;
+            foreach (var candidate in centers)
+            {
+                if (candidate.Count != placedCount) continue;
+                center = candidate;
+                return true;
+            }
+            return false;
         }
 
         public JinwoNative.JinwoPoseResult CalculatePose(
@@ -593,9 +627,8 @@ namespace 码料机
             RequireDll();
             var centers = CalculateAllBearingCenters(ref cfg, imagePath, placedCount, isLeft, out effectImagePath, forceSaveEffectImage);
             DeriveGridFromCenters(centers, out int effRows, out int effCols, out int capacity);
-            JinwoPlacementOrder.SortCenters(centers, effRows, effCols);
             if (!TryFindBearingCenter(centers, placedCount, out var next))
-                throw new InvalidOperationException($"未找到序号 {placedCount} 的放料位（共 {centers.Length} 个中心点）");
+                throw new InvalidOperationException($"DLL 未返回 count={placedCount} 的放料位（共 {centers.Length} 个中心点）");
 
             if (StationIni(isLeft).IncludeRobotCoordinate && next.HasRobot == 0)
                 throw new InvalidOperationException("DLL 未输出机械坐标，请确认工作目录下 camera_calib.yml 与 robot_calib.yml 有效");
