@@ -39,6 +39,11 @@ namespace 码料机
         public double CameraDistance { get; set; }
         public double BoxDepth { get; set; }
         public double PlaceHeightCompensation { get; set; }
+        /// <summary>
+        /// 主机放料 Z 高度补偿（mm）：叠层公式末项，与「轴承间隙」分离。
+        /// 轴承间隙仅传给 DLL；本项只参与上位机 Z = base + 档高 + 高度补偿。
+        /// </summary>
+        public double HeightCompensation { get; set; }
         public double TargetZ { get; set; }
         public double TargetRz { get; set; }
         public double MarkerDistanceX { get; set; }
@@ -145,6 +150,7 @@ namespace 码料机
             c.CameraDistance = IniAPI.GetPrivateProfileDouble(cal, "相机距离", 0, path);
             c.BoxDepth = IniAPI.GetPrivateProfileDouble(cal, "木箱深度", 0, path);
             c.PlaceHeightCompensation = IniAPI.GetPrivateProfileDouble(cal, "放料平面高度补偿", 0, path);
+            c.HeightCompensation = IniAPI.GetPrivateProfileDouble(cal, "高度补偿", 0, path);
             c.TargetZ = IniAPI.GetPrivateProfileDouble(cal, "机器人放料基准Z", 0, path);
             c.TargetRz = IniAPI.GetPrivateProfileDouble(cal, "机器人放料姿态Rz", 0, path);
             c.MarkerDistanceX = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距X", 0, path);
@@ -241,6 +247,7 @@ namespace 码料机
             c.CameraDistance = IniAPI.GetPrivateProfileDouble(cal, "相机距离", 0, path);
             c.BoxDepth = IniAPI.GetPrivateProfileDouble(cal, "木箱深度", 0, path);
             c.PlaceHeightCompensation = IniAPI.GetPrivateProfileDouble(cal, "放料平面高度补偿", 0, path);
+            c.HeightCompensation = IniAPI.GetPrivateProfileDouble(cal, "高度补偿", 0, path);
             c.TargetZ = IniAPI.GetPrivateProfileDouble(cal, "机器人放料基准Z", 0, path);
             c.TargetRz = IniAPI.GetPrivateProfileDouble(cal, "机器人放料姿态Rz", 0, path);
             c.MarkerDistanceX = IniAPI.GetPrivateProfileDouble(cal, "黑圆间距X", 0, path);
@@ -317,6 +324,7 @@ namespace 码料机
             target.CameraDistance = src.CameraDistance;
             target.BoxDepth = src.BoxDepth;
             target.PlaceHeightCompensation = src.PlaceHeightCompensation;
+            target.HeightCompensation = src.HeightCompensation;
             target.TargetZ = src.TargetZ;
             target.TargetRz = src.TargetRz;
             target.MarkerDistanceX = src.MarkerDistanceX;
@@ -427,6 +435,7 @@ namespace 码料机
             ok &= IniAPI.INIWriteValue(path, cal, "相机距离", c.CameraDistance.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "木箱深度", c.BoxDepth.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "放料平面高度补偿", c.PlaceHeightCompensation.ToString());
+            ok &= IniAPI.INIWriteValue(path, cal, "高度补偿", c.HeightCompensation.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "机器人放料基准Z", c.TargetZ.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "机器人放料姿态Rz", c.TargetRz.ToString());
             ok &= IniAPI.INIWriteValue(path, cal, "黑圆间距X", c.MarkerDistanceX.ToString());
@@ -659,6 +668,7 @@ PitchY=0
 相机距离=0
 木箱深度=0
 放料平面高度补偿=0
+高度补偿=0
 机器人放料基准Z=0
 机器人放料姿态Rz=0
 黑圆间距X=0
@@ -687,6 +697,7 @@ PitchY=0
 相机距离=0
 木箱深度=0
 放料平面高度补偿=0
+高度补偿=0
 机器人放料基准Z=0
 机器人放料姿态Rz=0
 黑圆间距X=0

@@ -87,7 +87,7 @@ namespace 码料机
             this.tableLayoutRoot.Controls.Add(this.panelBottom, 0, 3);
             this.tableLayoutRoot.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutRoot.Location = new System.Drawing.Point(21, 18);
-            this.tableLayoutRoot.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.tableLayoutRoot.Margin = new System.Windows.Forms.Padding(4);
             this.tableLayoutRoot.Name = "tableLayoutRoot";
             this.tableLayoutRoot.RowCount = 4;
             this.tableLayoutRoot.RowStyles.Add(new System.Windows.Forms.RowStyle());
@@ -150,7 +150,7 @@ namespace 码料机
             // 
             this.txtImage.Dock = System.Windows.Forms.DockStyle.Fill;
             this.txtImage.Location = new System.Drawing.Point(112, 4);
-            this.txtImage.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.txtImage.Margin = new System.Windows.Forms.Padding(4);
             this.txtImage.Name = "txtImage";
             this.txtImage.Size = new System.Drawing.Size(1143, 38);
             this.txtImage.TabIndex = 1;
@@ -196,7 +196,7 @@ namespace 码料机
             // 
             this.btnHikCapture.AutoSize = true;
             this.btnHikCapture.Location = new System.Drawing.Point(4, 10);
-            this.btnHikCapture.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.btnHikCapture.Margin = new System.Windows.Forms.Padding(4);
             this.btnHikCapture.Name = "btnHikCapture";
             this.btnHikCapture.Size = new System.Drawing.Size(135, 46);
             this.btnHikCapture.TabIndex = 0;
@@ -208,7 +208,7 @@ namespace 码料机
             // 
             this.previewSplit.Dock = System.Windows.Forms.DockStyle.Fill;
             this.previewSplit.Location = new System.Drawing.Point(4, 150);
-            this.previewSplit.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.previewSplit.Margin = new System.Windows.Forms.Padding(4);
             this.previewSplit.Name = "previewSplit";
             // 
             // previewSplit.Panel1
@@ -230,7 +230,7 @@ namespace 码料机
             this.panelPreview.Controls.Add(this.lblRenderPath);
             this.panelPreview.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelPreview.Location = new System.Drawing.Point(0, 0);
-            this.panelPreview.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.panelPreview.Margin = new System.Windows.Forms.Padding(4);
             this.panelPreview.Name = "panelPreview";
             this.panelPreview.Size = new System.Drawing.Size(1080, 602);
             this.panelPreview.TabIndex = 0;
@@ -245,7 +245,7 @@ namespace 码料机
             this.previewToolbarHost.Controls.Add(this.btnSavePreview);
             this.previewToolbarHost.FlowDirection = System.Windows.Forms.FlowDirection.RightToLeft;
             this.previewToolbarHost.Location = new System.Drawing.Point(924, 12);
-            this.previewToolbarHost.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.previewToolbarHost.Margin = new System.Windows.Forms.Padding(4);
             this.previewToolbarHost.Name = "previewToolbarHost";
             this.previewToolbarHost.Size = new System.Drawing.Size(144, 66);
             this.previewToolbarHost.TabIndex = 2;
@@ -275,7 +275,7 @@ namespace 码料机
             this.picPreview.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.picPreview.Dock = System.Windows.Forms.DockStyle.Fill;
             this.picPreview.Location = new System.Drawing.Point(0, 0);
-            this.picPreview.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.picPreview.Margin = new System.Windows.Forms.Padding(4);
             this.picPreview.Name = "picPreview";
             this.picPreview.Size = new System.Drawing.Size(1080, 554);
             this.picPreview.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -301,7 +301,7 @@ namespace 码料机
             this.txtLog.Dock = System.Windows.Forms.DockStyle.Fill;
             this.txtLog.Font = new System.Drawing.Font("Segoe UI", 11F);
             this.txtLog.Location = new System.Drawing.Point(0, 0);
-            this.txtLog.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.txtLog.Margin = new System.Windows.Forms.Padding(4);
             this.txtLog.Multiline = true;
             this.txtLog.Name = "txtLog";
             this.txtLog.ReadOnly = true;
@@ -316,7 +316,7 @@ namespace 码料机
             this.tabTests.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tabTests.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.tabTests.Location = new System.Drawing.Point(4, 760);
-            this.tabTests.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.tabTests.Margin = new System.Windows.Forms.Padding(4);
             this.tabTests.Name = "tabTests";
             this.tabTests.SelectedIndex = 0;
             this.tabTests.Size = new System.Drawing.Size(1570, 164);
@@ -326,7 +326,7 @@ namespace 码料机
             // 
             this.tabPresence.Controls.Add(this.layoutPresence);
             this.tabPresence.Location = new System.Drawing.Point(4, 40);
-            this.tabPresence.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.tabPresence.Margin = new System.Windows.Forms.Padding(4);
             this.tabPresence.Name = "tabPresence";
             this.tabPresence.Padding = new System.Windows.Forms.Padding(15, 15, 15, 12);
             this.tabPresence.Size = new System.Drawing.Size(1562, 120);
@@ -342,7 +342,7 @@ namespace 码料机
             this.layoutPresence.Controls.Add(this.flowPresence, 0, 1);
             this.layoutPresence.Dock = System.Windows.Forms.DockStyle.Fill;
             this.layoutPresence.Location = new System.Drawing.Point(15, 15);
-            this.layoutPresence.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.layoutPresence.Margin = new System.Windows.Forms.Padding(4);
             this.layoutPresence.Name = "layoutPresence";
             this.layoutPresence.RowCount = 2;
             this.layoutPresence.RowStyles.Add(new System.Windows.Forms.RowStyle());
@@ -395,10 +395,10 @@ namespace 码料机
             // 
             this.tabJinwo.Controls.Add(this.layoutJinwo);
             this.tabJinwo.Location = new System.Drawing.Point(4, 40);
-            this.tabJinwo.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.tabJinwo.Margin = new System.Windows.Forms.Padding(4);
             this.tabJinwo.Name = "tabJinwo";
             this.tabJinwo.Padding = new System.Windows.Forms.Padding(15, 15, 15, 12);
-            this.tabJinwo.Size = new System.Drawing.Size(1561, 121);
+            this.tabJinwo.Size = new System.Drawing.Size(1562, 127);
             this.tabJinwo.TabIndex = 1;
             this.tabJinwo.Text = "位置识别（金沃）";
             this.tabJinwo.UseVisualStyleBackColor = true;
@@ -411,12 +411,12 @@ namespace 码料机
             this.layoutJinwo.Controls.Add(this.flowJinwo, 0, 1);
             this.layoutJinwo.Dock = System.Windows.Forms.DockStyle.Fill;
             this.layoutJinwo.Location = new System.Drawing.Point(15, 15);
-            this.layoutJinwo.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.layoutJinwo.Margin = new System.Windows.Forms.Padding(4);
             this.layoutJinwo.Name = "layoutJinwo";
             this.layoutJinwo.RowCount = 2;
             this.layoutJinwo.RowStyles.Add(new System.Windows.Forms.RowStyle());
             this.layoutJinwo.RowStyles.Add(new System.Windows.Forms.RowStyle());
-            this.layoutJinwo.Size = new System.Drawing.Size(1531, 94);
+            this.layoutJinwo.Size = new System.Drawing.Size(1532, 100);
             this.layoutJinwo.TabIndex = 0;
             // 
             // lblJinwoHint
@@ -427,7 +427,7 @@ namespace 码料机
             this.lblJinwoHint.Location = new System.Drawing.Point(4, 0);
             this.lblJinwoHint.Margin = new System.Windows.Forms.Padding(4, 0, 4, 12);
             this.lblJinwoHint.Name = "lblJinwoHint";
-            this.lblJinwoHint.Size = new System.Drawing.Size(1523, 31);
+            this.lblJinwoHint.Size = new System.Drawing.Size(1524, 31);
             this.lblJinwoHint.TabIndex = 0;
             this.lblJinwoHint.Text = "金沃渲染图分别保存至：金沃_黑圆 / 金沃_单点算位 / 金沃_全箱规划（均在「算法测试效果图」下）。需先「确认产品与数量」。";
             // 
@@ -444,7 +444,7 @@ namespace 码料机
             this.flowJinwo.Margin = new System.Windows.Forms.Padding(0);
             this.flowJinwo.Name = "flowJinwo";
             this.flowJinwo.Padding = new System.Windows.Forms.Padding(0, 6, 0, 0);
-            this.flowJinwo.Size = new System.Drawing.Size(1531, 98);
+            this.flowJinwo.Size = new System.Drawing.Size(1532, 98);
             this.flowJinwo.TabIndex = 1;
             // 
             // btnMarkers
@@ -477,7 +477,7 @@ namespace 码料机
             // numPlaced
             // 
             this.numPlaced.Location = new System.Drawing.Point(360, 10);
-            this.numPlaced.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.numPlaced.Margin = new System.Windows.Forms.Padding(4);
             this.numPlaced.Maximum = new decimal(new int[] {
             9999,
             0,
@@ -572,7 +572,7 @@ namespace 码料机
             this.btnClose.AutoSize = true;
             this.btnClose.DialogResult = System.Windows.Forms.DialogResult.Cancel;
             this.btnClose.Location = new System.Drawing.Point(1462, 16);
-            this.btnClose.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.btnClose.Margin = new System.Windows.Forms.Padding(4);
             this.btnClose.Name = "btnClose";
             this.btnClose.Size = new System.Drawing.Size(112, 46);
             this.btnClose.TabIndex = 0;
@@ -600,7 +600,7 @@ namespace 码料机
             this.ClientSize = new System.Drawing.Size(1620, 1080);
             this.Controls.Add(this.tableLayoutRoot);
             this.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.Margin = new System.Windows.Forms.Padding(4);
             this.MinimumSize = new System.Drawing.Size(1339, 872);
             this.Name = "AlgorithmTestForm";
             this.Padding = new System.Windows.Forms.Padding(21, 18, 21, 21);

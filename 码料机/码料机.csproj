@@ -201,6 +201,7 @@
     <Compile Include="类\Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="类\OfflineCaptureHelper.cs" />
+    <Compile Include="类\ExpectedBoxTotalCheck.cs" />
     <Compile Include="类\OfflineJinwoSim.cs" />
     <Compile Include="类\SafetyLimitSmokeTest.cs" />
     <Compile Include="类\JinwoNative.cs" />

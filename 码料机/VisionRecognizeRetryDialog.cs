@@ -59,7 +59,7 @@ namespace 码料机
                 Location = new Point(16, 124),
                 Size = new Size(488, 56),
                 ForeColor = Color.FromArgb(100, 116, 139),
-                Text = "请调整木箱/光照后重新拍照，或从磁盘加载一张图片再试。\n本窗口只重试一次；取消选图或再次失败将结束本次请求，PLC 清 0 后可重新发起。"
+                Text = "请检查标识点是否贴紧木箱，并调整木箱/光照后重新拍照，或从磁盘加载一张图片再试。\n识别成功前可反复重试；点「放弃识别」才结束本次请求（夹爪将保持等待，PLC 清 0 后可重新发起）。"
             };
 
             _btnRetake = MakeButton("重新拍照", Color.FromArgb(37, 99, 235), new Point(16, 196));

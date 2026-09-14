@@ -75,6 +75,7 @@ namespace 码料机
     /// D4026~4032 取/放料个数；
     /// D4200~D4262 取料/放料拍照/放料目标/工位中心点坐标（各工位 X/Y/Z/RZ 共 4×REAL）；
     /// D4400/D4402 A/B 工位生产总数（DINT，各占连续 2 字）；
+    /// D1000/D1002 A/B 工位当前料道产品数（DINT，各占连续 2 字，PLC→PC 只读显示）；
     /// D4410/D4412 A/B 工位料道缓存个数（DINT，各占连续 2 字）；
     /// D4414 工位生产选择（INT：1=A，2=B，3=A-B）。
     /// </summary>
@@ -99,6 +100,10 @@ namespace 码料机
         public int D_PC_A工位生产总数 = 4400;
         /// <summary>D4402：B 工位累计生产总数（DINT，占 D4402～D4403）。</summary>
         public int D_PC_B工位生产总数 = 4402;
+        /// <summary>D1000：A 工位当前料道产品数（DINT，占 D1000～D1001）。</summary>
+        public int D_PC_A工位当前料道产品数 = 1000;
+        /// <summary>D1002：B 工位当前料道产品数（DINT，占 D1002～D1003）。</summary>
+        public int D_PC_B工位当前料道产品数 = 1002;
         /// <summary>D4410：A 工位料道缓存个数（DINT，占 D4410～D4411）。</summary>
         public int D_PC_A工位料道缓存个数 = 4410;
         /// <summary>D4412：B 工位料道缓存个数（DINT，占 D4412～D4413）。</summary>
@@ -181,6 +186,8 @@ namespace 码料机
             d("D_B工位中心点X", ref h.D_B工位中心点X);
             d("D_PC_A工位生产总数", ref h.D_PC_A工位生产总数);
             d("D_PC_B工位生产总数", ref h.D_PC_B工位生产总数);
+            d("D_PC_A工位当前料道产品数", ref h.D_PC_A工位当前料道产品数);
+            d("D_PC_B工位当前料道产品数", ref h.D_PC_B工位当前料道产品数);
             d("D_PC_A工位料道缓存个数", ref h.D_PC_A工位料道缓存个数);
             d("D_PC_B工位料道缓存个数", ref h.D_PC_B工位料道缓存个数);
             d("D_PC工位生产选择", ref h.D_PC工位生产选择);

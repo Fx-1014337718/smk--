@@ -104,13 +104,13 @@ namespace 码料机
             if (!string.IsNullOrEmpty(effect))
                 TryDisplayJinwoEffectImage(effect, GetJinwoFallbackPreviewPath(imagePath, isLeft), isLeft);
             UpdateProgressDisplay();
-            if (currentStation == st) UpdateStationUI();
+            UpdateStationUI(st);
             return true;
         }
 
         /// <summary>
-        /// 仅识箱预览：生成/刷新 BoxPlan 并返回组代表点，不设定起始进度、不弹确认。
-        /// 供「指定开始组」图上点选；最终「确定规划并开始」仍会再规划一次以对齐现场。
+        /// 仅识箱预览：临时建表供图上点选，结束后整包还原工位运行态。
+        /// 不改自动模式 BoxPlan / 待确认下发 / 识箱完成标志；正式落盘须点「确定规划并开始」。
         /// </summary>
         public bool TryPreviewStartPiecePlan(bool isLeft, string imagePath, out StartPiecePreview preview, out string error)
         {
@@ -123,12 +123,69 @@ namespace 码料机
                 return false;
             }
 
-            if (!TryBuildStartPiecePlanCore(isLeft, imagePath, restoreProgressOnFail: true, out error))
+            var st = isLeft ? leftStation : rightStation;
+            if (st == null)
+            {
+                error = "工位无效";
                 return false;
+            }
 
-            preview = BuildStartPiecePreview(isLeft, imagePath);
-            TEXT($"[指定开始组] {preview.StationName} 识箱预览：{preview.GroupCount} 组，可在图上点选起始组");
-            return true;
+            var snap = CaptureStartPieceRuntime(st);
+            try
+            {
+                if (!TryBuildStartPiecePlanCore(isLeft, imagePath, restoreProgressOnFail: false, out error, checkExpectedTotal: false))
+                    return false;
+
+                preview = BuildStartPiecePreview(isLeft, imagePath);
+                TEXT($"[指定开始组] {preview.StationName} 识箱预览：{preview.GroupCount} 组（只读，未改运行态），可在图上点选起始组");
+                return true;
+            }
+            finally
+            {
+                RestoreStartPieceRuntime(st, snap);
+                UpdateProgressDisplay();
+                UpdateStationUI(st);
+            }
+        }
+
+        private sealed class StartPieceRuntimeSnap
+        {
+            public StationBoxPlacementPlan BoxPlan;
+            public int LastIssuedPlanIndex;
+            public bool RequireWorkerConfirmForLastIssue;
+            public int ManualPendingSlotIndex;
+            public bool SequentialStartPendingLiveAlign;
+            public bool PlcPlaceBoxVisionDone;
+            public int ConfirmedPlacedCount;
+            public int ConfirmedBearingCount;
+            public bool IsFull;
+        }
+
+        private static StartPieceRuntimeSnap CaptureStartPieceRuntime(StationData st) => new StartPieceRuntimeSnap
+        {
+            BoxPlan = st.BoxPlan,
+            LastIssuedPlanIndex = st.LastIssuedPlanIndex,
+            RequireWorkerConfirmForLastIssue = st.RequireWorkerConfirmForLastIssue,
+            ManualPendingSlotIndex = st.ManualPendingSlotIndex,
+            SequentialStartPendingLiveAlign = st.SequentialStartPendingLiveAlign,
+            PlcPlaceBoxVisionDone = st.PlcPlaceBoxVisionDone,
+            ConfirmedPlacedCount = st.ConfirmedPlacedCount,
+            ConfirmedBearingCount = st.ConfirmedBearingCount,
+            IsFull = st.IsFull
+        };
+
+        private static void RestoreStartPieceRuntime(StationData st, StartPieceRuntimeSnap snap)
+        {
+            if (st == null || snap == null) return;
+            st.BoxPlan = snap.BoxPlan;
+            st.LastIssuedPlanIndex = snap.LastIssuedPlanIndex;
+            st.RequireWorkerConfirmForLastIssue = snap.RequireWorkerConfirmForLastIssue;
+            st.ManualPendingSlotIndex = snap.ManualPendingSlotIndex;
+            st.SequentialStartPendingLiveAlign = snap.SequentialStartPendingLiveAlign;
+            st.PlcPlaceBoxVisionDone = snap.PlcPlaceBoxVisionDone;
+            st.ConfirmedPlacedCount = snap.ConfirmedPlacedCount;
+            st.ConfirmedBearingCount = snap.ConfirmedBearingCount;
+            st.IsFull = snap.IsFull;
         }
 
         /// <summary>在已有 BoxPlan 时刷新预览标记（不重新识箱）。</summary>
@@ -140,7 +197,7 @@ namespace 码料机
             return BuildStartPiecePreview(isLeft, imagePath ?? st.BoxPlan.ImagePath);
         }
 
-        private bool TryBuildStartPiecePlanCore(bool isLeft, string imagePath, bool restoreProgressOnFail, out string error)
+        private bool TryBuildStartPiecePlanCore(bool isLeft, string imagePath, bool restoreProgressOnFail, out string error, bool checkExpectedTotal = true)
         {
             error = null;
             var st = isLeft ? leftStation : rightStation;
@@ -184,7 +241,7 @@ namespace 码料机
                 st.ConfirmedPlacedCount = 0;
                 st.ConfirmedBearingCount = 0;
 
-                if (!TryBuildBoxPlacementPlan(st, imagePath, out error))
+                if (!TryBuildBoxPlacementPlan(st, imagePath, out error, checkExpectedTotal))
                 {
                     if (restoreProgressOnFail)
                     {
@@ -253,6 +310,48 @@ namespace 码料机
         }
 
         /// <summary>
+        /// 确认规划：空箱规划并核对总数；不对应则走算法识别失败报警，弹「重新拍照」直至核对通过或放弃。
+        /// </summary>
+        private async Task<(bool Ok, string Error)> TryBuildStartPiecePlanWithTotalRetryAsync(bool isLeft, string imagePath)
+        {
+            string planErr = null;
+            bool planned = await Task.Run(() =>
+                TryBuildStartPiecePlanFromImage(isLeft, imagePath, out planErr)).ConfigureAwait(true);
+            if (planned)
+                return (true, null);
+            if (!IsExpectedBoxTotalMismatch(planErr))
+                return (false, planErr ?? "空箱拍照规划失败");
+
+            var st = isLeft ? leftStation : rightStation;
+            string phase = (st?.Name ?? "工位") + " 指定开始组";
+            RaiseAutoVisionRecognizeFailAlarm(planErr);
+            while (true)
+            {
+                VisionRecognizeRetryAction action = VisionRecognizeRetryAction.Abort;
+                InvokeSync(() => action = PromptVisionRecognizeRetry(phase, planErr));
+                if (action == VisionRecognizeRetryAction.Abort)
+                    return (false, planErr);
+
+                if (!await ExecuteVisionRecognizeRetryActionAsync(action, phase).ConfigureAwait(true))
+                {
+                    planErr = "未加载有效重试图片，请重新拍照或加载图片";
+                    continue;
+                }
+
+                imagePath = _jinwo.ResolveCaptureImagePath(isLeft);
+                planned = await Task.Run(() =>
+                    TryBuildStartPiecePlanFromImage(isLeft, imagePath, out planErr)).ConfigureAwait(true);
+                if (planned)
+                {
+                    TEXT($"[指定开始组] {st?.Name} 重新拍照后总数核对通过");
+                    return (true, null);
+                }
+                if (!IsExpectedBoxTotalMismatch(planErr))
+                    return (false, planErr ?? "空箱拍照规划失败");
+            }
+        }
+
+        /// <summary>
         /// 确认指定开始组：操作员确认后后台空箱规划，补全跳过组进度，后续与自动模式相同直至满料。
         /// </summary>
         public async Task<(bool Ok, string Error)> TryApplyStartPieceAsync(
@@ -286,11 +385,9 @@ namespace 码料机
                     MessageBoxIcon.Warning) != DialogResult.OK)
                 return (false, null);
 
-            string planErr = null;
-            bool planned = await Task.Run(() =>
-                TryBuildStartPiecePlanFromImage(isLeft, imagePath, out planErr)).ConfigureAwait(true);
-            if (!planned)
-                return (false, planErr ?? "空箱拍照规划失败");
+            var planned = await TryBuildStartPiecePlanWithTotalRetryAsync(isLeft, imagePath).ConfigureAwait(true);
+            if (!planned.Ok)
+                return (false, planned.Error ?? "空箱拍照规划失败");
 
             if (startGroup > GetPlacementGroupCount(st))
                 return (false, $"本箱共 {GetPlacementGroupCount(st)} 组，不能从第 {startGroup} 组开始");

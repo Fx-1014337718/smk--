@@ -244,6 +244,7 @@ namespace 码料机
                 _editorCalib.SetDouble("相机距离", c.CameraDistance);
                 _editorCalib.SetDouble("木箱深度", c.BoxDepth);
                 _editorCalib.SetDouble("放料平面高度补偿", c.PlaceHeightCompensation);
+                _editorCalib.SetDouble("高度补偿", c.HeightCompensation);
                 _editorCalib.SetDouble("机器人放料基准Z", c.TargetZ);
                 _editorCalib.SetDouble("机器人放料姿态Rz", c.TargetRz);
                 _editorCalib.SetDouble("黑圆间距X", c.MarkerDistanceX);
@@ -303,6 +304,7 @@ namespace 码料机
                 if (!AssignDouble(_editorCalib, "相机距离", "相机距离", v => built.CameraDistance = v)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "木箱深度", "木箱深度", v => built.BoxDepth = v)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "放料平面高度补偿", "放料平面高度补偿", v => built.PlaceHeightCompensation = v)) { cfg = null; return false; }
+                if (!AssignDouble(_editorCalib, "高度补偿", "高度补偿", v => built.HeightCompensation = v)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "机器人放料基准Z", "机器人放料基准Z", v => built.TargetZ = v)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "机器人放料姿态Rz", "机器人放料姿态Rz", v => built.TargetRz = v)) { cfg = null; return false; }
                 if (!AssignDouble(_editorCalib, "黑圆间距X", "黑圆间距X", v => built.MarkerDistanceX = v)) { cfg = null; return false; }
@@ -360,11 +362,11 @@ namespace 码料机
             private JinwoParamsEditor BuildTrayEditor()
             {
                 var ed = new JinwoParamsEditor();
-                ed.AddHint("行列层为 0 时按产品外径与箱体尺寸自动估算。");
+                ed.AddHint("行列层为 0 时按产品外径与箱体尺寸自动估算。「轴承间隙」仅传给算法，不参与主机放料 Z。");
                 ed.AddInt("每层行数", "每层行数 (0=自动):");
                 ed.AddInt("每层列数", "每层列数 (0=自动):");
                 ed.AddInt("层数", "层数 (0=自动):");
-                ed.AddDouble("轴承间隙", "轴承间隙 (mm):");
+                ed.AddDouble("轴承间隙", "轴承间隙 (mm，仅算法):");
                 ed.AddDouble("PitchX", "PitchX (mm):");
                 ed.AddDouble("PitchY", "PitchY (mm):");
                 ed.AddDouble("每层Z间距", "每层 Z 间距 (mm):");
@@ -374,10 +376,11 @@ namespace 码料机
             private JinwoParamsEditor BuildCalibEditor()
             {
                 var ed = new JinwoParamsEditor();
-                ed.AddHint("标定与托盘几何参数。安全预留：X 作用于左右，Y 作用于上下；默认 10mm。内区参数为手动备用。");
+                ed.AddHint("标定与托盘几何。「高度补偿」用于主机放料 Z 末项抬高（左右分别配置）；与「轴承间隙」「放料平面高度补偿」无关。");
                 ed.AddDouble("相机距离", "相机距离 (mm):");
                 ed.AddDouble("木箱深度", "木箱深度 (mm):");
-                ed.AddDouble("放料平面高度补偿", "放料平面高度补偿 (mm):");
+                ed.AddDouble("放料平面高度补偿", "放料平面高度补偿 (mm，算法箱体):");
+                ed.AddDouble("高度补偿", "高度补偿 (mm，主机放料Z):");
                 ed.AddDouble("机器人放料基准Z", "机器人放料基准 Z (mm):");
                 ed.AddDouble("机器人放料姿态Rz", "机器人放料姿态 Rz (°):");
                 ed.AddDouble("黑圆间距X", "黑圆间距 X (mm):");

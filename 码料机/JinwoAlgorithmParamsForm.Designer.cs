@@ -110,7 +110,7 @@ namespace 码料机
             this.tabPageLeft.Margin = new System.Windows.Forms.Padding(4);
             this.tabPageLeft.Name = "tabPageLeft";
             this.tabPageLeft.Padding = new System.Windows.Forms.Padding(6);
-            this.tabPageLeft.Size = new System.Drawing.Size(875, 530);
+            this.tabPageLeft.Size = new System.Drawing.Size(875, 556);
             this.tabPageLeft.TabIndex = 1;
             this.tabPageLeft.Text = "左机台";
             this.tabPageLeft.UseVisualStyleBackColor = true;
@@ -121,7 +121,7 @@ namespace 码料机
             this.tabPageRight.Margin = new System.Windows.Forms.Padding(4);
             this.tabPageRight.Name = "tabPageRight";
             this.tabPageRight.Padding = new System.Windows.Forms.Padding(6);
-            this.tabPageRight.Size = new System.Drawing.Size(875, 530);
+            this.tabPageRight.Size = new System.Drawing.Size(875, 556);
             this.tabPageRight.TabIndex = 2;
             this.tabPageRight.Text = "右机台";
             this.tabPageRight.UseVisualStyleBackColor = true;

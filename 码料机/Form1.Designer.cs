@@ -84,19 +84,6 @@ namespace 码料机
             this.tableLayoutPanel1 = new System.Windows.Forms.TableLayoutPanel();
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
             this.groupBox1 = new System.Windows.Forms.GroupBox();
-            this.label43 = new System.Windows.Forms.Label();
-            this.label44 = new System.Windows.Forms.Label();
-            this.label45 = new System.Windows.Forms.Label();
-            this.label46 = new System.Windows.Forms.Label();
-            this.label47 = new System.Windows.Forms.Label();
-            this.label48 = new System.Windows.Forms.Label();
-            this.label49 = new System.Windows.Forms.Label();
-            this.label50 = new System.Windows.Forms.Label();
-            this.label51 = new System.Windows.Forms.Label();
-            this.label31 = new System.Windows.Forms.Label();
-            this.label32 = new System.Windows.Forms.Label();
-            this.label33 = new System.Windows.Forms.Label();
-            this.label34 = new System.Windows.Forms.Label();
             this.label16 = new System.Windows.Forms.Label();
             this.label15 = new System.Windows.Forms.Label();
             this.label8 = new System.Windows.Forms.Label();
@@ -108,14 +95,13 @@ namespace 码料机
             this.label12 = new System.Windows.Forms.Label();
             this.label10 = new System.Windows.Forms.Label();
             this.label9 = new System.Windows.Forms.Label();
+            this.labelLeftLaneProductCap = new System.Windows.Forms.Label();
+            this.labelLeftLaneProductVal = new System.Windows.Forms.Label();
+            this.btnLeftLaneProductReset = new System.Windows.Forms.Button();
+            this.labelLeftPlaceTotalCap = new System.Windows.Forms.Label();
+            this.textBoxLeftPlaceTotal = new System.Windows.Forms.TextBox();
+            this.btnLeftPlaceTotalSave = new System.Windows.Forms.Button();
             this.groupBox2 = new System.Windows.Forms.GroupBox();
-            this.label36 = new System.Windows.Forms.Label();
-            this.label37 = new System.Windows.Forms.Label();
-            this.label38 = new System.Windows.Forms.Label();
-            this.label39 = new System.Windows.Forms.Label();
-            this.label40 = new System.Windows.Forms.Label();
-            this.label41 = new System.Windows.Forms.Label();
-            this.label42 = new System.Windows.Forms.Label();
             this.label17 = new System.Windows.Forms.Label();
             this.label18 = new System.Windows.Forms.Label();
             this.label19 = new System.Windows.Forms.Label();
@@ -127,31 +113,17 @@ namespace 码料机
             this.label11 = new System.Windows.Forms.Label();
             this.label13 = new System.Windows.Forms.Label();
             this.label14 = new System.Windows.Forms.Label();
+            this.labelRightLaneProductCap = new System.Windows.Forms.Label();
+            this.labelRightLaneProductVal = new System.Windows.Forms.Label();
+            this.btnRightLaneProductReset = new System.Windows.Forms.Button();
+            this.labelRightPlaceTotalCap = new System.Windows.Forms.Label();
+            this.textBoxRightPlaceTotal = new System.Windows.Forms.TextBox();
+            this.btnRightPlaceTotalSave = new System.Windows.Forms.Button();
             this.tableLayoutPanel2 = new System.Windows.Forms.TableLayoutPanel();
             this.groupBox4 = new System.Windows.Forms.GroupBox();
-            this.label26 = new System.Windows.Forms.Label();
-            this.label27 = new System.Windows.Forms.Label();
-            this.label28 = new System.Windows.Forms.Label();
-            this.textBoxRightPlaceQty = new System.Windows.Forms.TextBox();
-            this.labelRightPlaceQty = new System.Windows.Forms.Label();
-            this.textBoxRightPickQty = new System.Windows.Forms.TextBox();
-            this.labelRightPickQty = new System.Windows.Forms.Label();
-            this.comboBox4 = new System.Windows.Forms.ComboBox();
-            this.comboBox5 = new System.Windows.Forms.ComboBox();
-            this.comboBox6 = new System.Windows.Forms.ComboBox();
-            this.button1 = new System.Windows.Forms.Button();
+            this.stationOpPanelRight = new 码料机.StationOperatorPanel();
             this.groupBox3 = new System.Windows.Forms.GroupBox();
-            this.label25 = new System.Windows.Forms.Label();
-            this.label24 = new System.Windows.Forms.Label();
-            this.label1 = new System.Windows.Forms.Label();
-            this.textBoxLeftPlaceQty = new System.Windows.Forms.TextBox();
-            this.labelLeftPlaceQty = new System.Windows.Forms.Label();
-            this.textBoxLeftPickQty = new System.Windows.Forms.TextBox();
-            this.labelLeftPickQty = new System.Windows.Forms.Label();
-            this.comboBox3 = new System.Windows.Forms.ComboBox();
-            this.comboBox2 = new System.Windows.Forms.ComboBox();
-            this.comboBox1 = new System.Windows.Forms.ComboBox();
-            this.button3 = new System.Windows.Forms.Button();
+            this.stationOpPanelLeft = new 码料机.StationOperatorPanel();
             this.splitContainer2 = new System.Windows.Forms.SplitContainer();
             this.splitContainer3 = new System.Windows.Forms.SplitContainer();
             this.groupBox6 = new System.Windows.Forms.GroupBox();
@@ -189,10 +161,12 @@ namespace 码料机
             // 
             // toolStrip1
             // 
-            this.toolStrip1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
-            this.toolStrip1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(226)))), ((int)(((byte)(232)))), ((int)(((byte)(240)))));
+            this.toolStrip1.AutoSize = false;
+            this.toolStrip1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(248)))), ((int)(((byte)(250)))), ((int)(((byte)(252)))));
+            this.toolStrip1.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStrip1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
             this.toolStrip1.GripStyle = System.Windows.Forms.ToolStripGripStyle.Hidden;
-            this.toolStrip1.ImageScalingSize = new System.Drawing.Size(24, 24);
+            this.toolStrip1.ImageScalingSize = new System.Drawing.Size(32, 32);
             this.toolStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.toolStripLabel1,
             this.toolStripSeparator2,
@@ -216,29 +190,35 @@ namespace 码料机
             this.toolStripSeparatorStartPiece,
             this.toolStripLabelStartPiece});
             this.toolStrip1.Location = new System.Drawing.Point(0, 0);
+            this.toolStrip1.MinimumSize = new System.Drawing.Size(0, 52);
             this.toolStrip1.Name = "toolStrip1";
-            this.toolStrip1.Padding = new System.Windows.Forms.Padding(6, 4, 6, 4);
-            this.toolStrip1.Size = new System.Drawing.Size(1907, 38);
+            this.toolStrip1.Padding = new System.Windows.Forms.Padding(10, 8, 10, 8);
+            this.toolStrip1.Size = new System.Drawing.Size(1907, 71);
             this.toolStrip1.TabIndex = 0;
             this.toolStrip1.Text = "toolStrip1";
             // 
             // toolStripLabel1
             // 
-            this.toolStripLabel1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(203)))), ((int)(((byte)(213)))), ((int)(((byte)(225)))));
+            this.toolStripLabel1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(100)))), ((int)(((byte)(116)))), ((int)(((byte)(139)))));
             this.toolStripLabel1.Name = "toolStripLabel1";
-            this.toolStripLabel1.Size = new System.Drawing.Size(81, 25);
+            this.toolStripLabel1.Size = new System.Drawing.Size(111, 50);
             this.toolStripLabel1.Text = "[工具栏]";
+            this.toolStripLabel1.Visible = false;
             // 
             // toolStripSeparator2
             // 
             this.toolStripSeparator2.Name = "toolStripSeparator2";
-            this.toolStripSeparator2.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparator2.Size = new System.Drawing.Size(6, 55);
+            this.toolStripSeparator2.Visible = false;
             // 
             // toolStripLabel2
             // 
-            this.toolStripLabel2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabel2.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabel2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabel2.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabel2.Name = "toolStripLabel2";
-            this.toolStripLabel2.Size = new System.Drawing.Size(107, 25);
+            this.toolStripLabel2.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabel2.Size = new System.Drawing.Size(169, 47);
             this.toolStripLabel2.Text = "机械臂控制";
             this.toolStripLabel2.ToolTipText = "工位生产选择（仅向 PLC D4414 下发，不参与取放逻辑）";
             this.toolStripLabel2.Click += new System.EventHandler(this.toolStripLabel2_Click);
@@ -246,40 +226,51 @@ namespace 码料机
             // toolStripSeparator3
             // 
             this.toolStripSeparator3.Name = "toolStripSeparator3";
-            this.toolStripSeparator3.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparator3.Size = new System.Drawing.Size(6, 55);
+            this.toolStripSeparator3.Visible = false;
             // 
             // toolStripLabel13
             // 
-            this.toolStripLabel13.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabel13.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabel13.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabel13.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabel13.Name = "toolStripLabel13";
-            this.toolStripLabel13.Size = new System.Drawing.Size(88, 25);
+            this.toolStripLabel13.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabel13.Size = new System.Drawing.Size(143, 47);
             this.toolStripLabel13.Text = "产品参数";
             this.toolStripLabel13.Click += new System.EventHandler(this.toolStripLabel13_Click);
             // 
             // toolStripSeparator1
             // 
             this.toolStripSeparator1.Name = "toolStripSeparator1";
-            this.toolStripSeparator1.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparator1.Size = new System.Drawing.Size(6, 55);
+            this.toolStripSeparator1.Visible = false;
             // 
             // toolStripLabel3
             // 
-            this.toolStripLabel3.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabel3.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabel3.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabel3.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabel3.Name = "toolStripLabel3";
-            this.toolStripLabel3.Size = new System.Drawing.Size(126, 25);
+            this.toolStripLabel3.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabel3.Size = new System.Drawing.Size(195, 47);
             this.toolStripLabel3.Text = "箱体参数设置";
             this.toolStripLabel3.Click += new System.EventHandler(this.toolStripLabel3_Click);
             // 
             // toolStripSeparatorZAxis
             // 
             this.toolStripSeparatorZAxis.Name = "toolStripSeparatorZAxis";
-            this.toolStripSeparatorZAxis.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparatorZAxis.Size = new System.Drawing.Size(6, 55);
             this.toolStripSeparatorZAxis.Visible = false;
             // 
             // toolStripLabelZAxis
             // 
-            this.toolStripLabelZAxis.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelZAxis.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabelZAxis.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabelZAxis.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabelZAxis.Name = "toolStripLabelZAxis";
-            this.toolStripLabelZAxis.Size = new System.Drawing.Size(119, 25);
+            this.toolStripLabelZAxis.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabelZAxis.Size = new System.Drawing.Size(186, 47);
             this.toolStripLabelZAxis.Text = "Z轴参数设定";
             this.toolStripLabelZAxis.Visible = false;
             this.toolStripLabelZAxis.Click += new System.EventHandler(this.toolStripLabelZAxis_Click);
@@ -287,40 +278,51 @@ namespace 码料机
             // toolStripSeparatorPhotoPos
             // 
             this.toolStripSeparatorPhotoPos.Name = "toolStripSeparatorPhotoPos";
-            this.toolStripSeparatorPhotoPos.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparatorPhotoPos.Size = new System.Drawing.Size(6, 55);
+            this.toolStripSeparatorPhotoPos.Visible = false;
             // 
             // toolStripLabelPhotoPos
             // 
-            this.toolStripLabelPhotoPos.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelPhotoPos.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabelPhotoPos.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabelPhotoPos.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabelPhotoPos.Name = "toolStripLabelPhotoPos";
-            this.toolStripLabelPhotoPos.Size = new System.Drawing.Size(88, 25);
+            this.toolStripLabelPhotoPos.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabelPhotoPos.Size = new System.Drawing.Size(143, 47);
             this.toolStripLabelPhotoPos.Text = "位置设定";
             this.toolStripLabelPhotoPos.Click += new System.EventHandler(this.toolStripLabelPhotoPos_Click);
             // 
             // toolStripSeparatorJinwo
             // 
             this.toolStripSeparatorJinwo.Name = "toolStripSeparatorJinwo";
-            this.toolStripSeparatorJinwo.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparatorJinwo.Size = new System.Drawing.Size(6, 55);
+            this.toolStripSeparatorJinwo.Visible = false;
             // 
             // toolStripLabelJinwo
             // 
-            this.toolStripLabelJinwo.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelJinwo.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabelJinwo.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabelJinwo.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabelJinwo.Name = "toolStripLabelJinwo";
-            this.toolStripLabelJinwo.Size = new System.Drawing.Size(126, 25);
+            this.toolStripLabelJinwo.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabelJinwo.Size = new System.Drawing.Size(195, 47);
             this.toolStripLabelJinwo.Text = "金沃算法设定";
             this.toolStripLabelJinwo.Click += new System.EventHandler(this.toolStripLabelJinwo_Click);
             // 
             // toolStripSeparatorNinePoint
             // 
             this.toolStripSeparatorNinePoint.Name = "toolStripSeparatorNinePoint";
-            this.toolStripSeparatorNinePoint.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparatorNinePoint.Size = new System.Drawing.Size(6, 55);
             this.toolStripSeparatorNinePoint.Visible = false;
             // 
             // toolStripLabelNinePoint
             // 
-            this.toolStripLabelNinePoint.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelNinePoint.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabelNinePoint.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabelNinePoint.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabelNinePoint.Name = "toolStripLabelNinePoint";
-            this.toolStripLabelNinePoint.Size = new System.Drawing.Size(126, 25);
+            this.toolStripLabelNinePoint.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabelNinePoint.Size = new System.Drawing.Size(195, 47);
             this.toolStripLabelNinePoint.Text = "九点标定工具";
             this.toolStripLabelNinePoint.Visible = false;
             this.toolStripLabelNinePoint.Click += new System.EventHandler(this.toolStripLabelNinePoint_Click);
@@ -328,39 +330,51 @@ namespace 码料机
             // toolStripSeparatorAlgoTest
             // 
             this.toolStripSeparatorAlgoTest.Name = "toolStripSeparatorAlgoTest";
-            this.toolStripSeparatorAlgoTest.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparatorAlgoTest.Size = new System.Drawing.Size(6, 55);
+            this.toolStripSeparatorAlgoTest.Visible = false;
             // 
             // toolStripLabelAlgoTest
             // 
-            this.toolStripLabelAlgoTest.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelAlgoTest.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabelAlgoTest.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabelAlgoTest.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabelAlgoTest.Name = "toolStripLabelAlgoTest";
-            this.toolStripLabelAlgoTest.Size = new System.Drawing.Size(88, 25);
+            this.toolStripLabelAlgoTest.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabelAlgoTest.Size = new System.Drawing.Size(143, 47);
             this.toolStripLabelAlgoTest.Text = "算法测试";
             this.toolStripLabelAlgoTest.Click += new System.EventHandler(this.toolStripLabelAlgoTest_Click);
             // 
             // toolStripSeparatorManualPlace
             // 
             this.toolStripSeparatorManualPlace.Name = "toolStripSeparatorManualPlace";
-            this.toolStripSeparatorManualPlace.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparatorManualPlace.Size = new System.Drawing.Size(6, 55);
+            this.toolStripSeparatorManualPlace.Visible = false;
             // 
             // toolStripLabelManualPlace
             // 
-            this.toolStripLabelManualPlace.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelManualPlace.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabelManualPlace.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabelManualPlace.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabelManualPlace.Name = "toolStripLabelManualPlace";
-            this.toolStripLabelManualPlace.Size = new System.Drawing.Size(126, 25);
+            this.toolStripLabelManualPlace.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabelManualPlace.Size = new System.Drawing.Size(195, 47);
             this.toolStripLabelManualPlace.Text = "手动指定放料";
             this.toolStripLabelManualPlace.Click += new System.EventHandler(this.toolStripLabelManualPlace_Click);
             // 
             // toolStripSeparatorStartPiece
             // 
             this.toolStripSeparatorStartPiece.Name = "toolStripSeparatorStartPiece";
-            this.toolStripSeparatorStartPiece.Size = new System.Drawing.Size(6, 30);
+            this.toolStripSeparatorStartPiece.Size = new System.Drawing.Size(6, 55);
+            this.toolStripSeparatorStartPiece.Visible = false;
             // 
             // toolStripLabelStartPiece
             // 
-            this.toolStripLabelStartPiece.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(144)))), ((int)(((byte)(205)))), ((int)(((byte)(244)))));
+            this.toolStripLabelStartPiece.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.toolStripLabelStartPiece.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
+            this.toolStripLabelStartPiece.Margin = new System.Windows.Forms.Padding(4);
             this.toolStripLabelStartPiece.Name = "toolStripLabelStartPiece";
-            this.toolStripLabelStartPiece.Size = new System.Drawing.Size(107, 25);
+            this.toolStripLabelStartPiece.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.toolStripLabelStartPiece.Size = new System.Drawing.Size(169, 47);
             this.toolStripLabelStartPiece.Text = "指定开始组";
             this.toolStripLabelStartPiece.ToolTipText = "左/右机台空箱离线规划并指定起始组；确认后自动补全进度，后续与自动模式相同直至满料";
             this.toolStripLabelStartPiece.Click += new System.EventHandler(this.toolStripLabelStartPiece_Click);
@@ -399,7 +413,7 @@ namespace 码料机
             this.toolStripStatusLabelSpring,
             this.toolStripLabel15,
             this.toolStripLabel16});
-            this.statusStripBottom.Location = new System.Drawing.Point(0, 837);
+            this.statusStripBottom.Location = new System.Drawing.Point(0, 959);
             this.statusStripBottom.Name = "statusStripBottom";
             this.statusStripBottom.Padding = new System.Windows.Forms.Padding(1, 0, 1, 0);
             this.statusStripBottom.Size = new System.Drawing.Size(1907, 33);
@@ -464,7 +478,7 @@ namespace 码料机
             this.toolStripLabelPhoto.Name = "toolStripLabelPhoto";
             this.toolStripLabelPhoto.Size = new System.Drawing.Size(101, 30);
             this.toolStripLabelPhoto.Text = "金沃算图";
-            this.toolStripLabelPhoto.ToolTipText = "海康采图或离线测试图后运行金沃算法并刷新预览";
+            this.toolStripLabelPhoto.ToolTipText = "临时测算法：弹窗选左右工位，采图/算图仅预览，不改自动放料与规划";
             this.toolStripLabelPhoto.Click += new System.EventHandler(this.toolStripLabelPhoto_Click);
             // 
             // toolStripSeparator5
@@ -593,18 +607,18 @@ namespace 码料机
             // 
             this.tableLayoutPanel1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(237)))), ((int)(((byte)(242)))), ((int)(((byte)(247)))));
             this.tableLayoutPanel1.ColumnCount = 3;
-            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 26F));
-            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 40F));
-            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 34F));
+            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 17F));
+            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 45F));
+            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 38F));
             this.tableLayoutPanel1.Controls.Add(this.splitContainer1, 0, 0);
             this.tableLayoutPanel1.Controls.Add(this.tableLayoutPanel2, 2, 0);
             this.tableLayoutPanel1.Controls.Add(this.splitContainer2, 1, 0);
             this.tableLayoutPanel1.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.tableLayoutPanel1.Location = new System.Drawing.Point(0, 38);
+            this.tableLayoutPanel1.Location = new System.Drawing.Point(0, 71);
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
             this.tableLayoutPanel1.RowCount = 1;
             this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.tableLayoutPanel1.Size = new System.Drawing.Size(1907, 799);
+            this.tableLayoutPanel1.Size = new System.Drawing.Size(1907, 888);
             this.tableLayoutPanel1.TabIndex = 2;
             // 
             // splitContainer1
@@ -621,27 +635,14 @@ namespace 码料机
             // splitContainer1.Panel2
             // 
             this.splitContainer1.Panel2.Controls.Add(this.groupBox2);
-            this.splitContainer1.Size = new System.Drawing.Size(489, 793);
-            this.splitContainer1.SplitterDistance = 388;
+            this.splitContainer1.Size = new System.Drawing.Size(318, 882);
+            this.splitContainer1.SplitterDistance = 429;
             this.splitContainer1.SplitterWidth = 6;
             this.splitContainer1.TabIndex = 0;
             // 
             // groupBox1
             // 
             this.groupBox1.BackColor = System.Drawing.Color.White;
-            this.groupBox1.Controls.Add(this.label43);
-            this.groupBox1.Controls.Add(this.label44);
-            this.groupBox1.Controls.Add(this.label45);
-            this.groupBox1.Controls.Add(this.label46);
-            this.groupBox1.Controls.Add(this.label47);
-            this.groupBox1.Controls.Add(this.label48);
-            this.groupBox1.Controls.Add(this.label49);
-            this.groupBox1.Controls.Add(this.label50);
-            this.groupBox1.Controls.Add(this.label51);
-            this.groupBox1.Controls.Add(this.label31);
-            this.groupBox1.Controls.Add(this.label32);
-            this.groupBox1.Controls.Add(this.label33);
-            this.groupBox1.Controls.Add(this.label34);
             this.groupBox1.Controls.Add(this.label16);
             this.groupBox1.Controls.Add(this.label15);
             this.groupBox1.Controls.Add(this.label8);
@@ -653,145 +654,21 @@ namespace 码料机
             this.groupBox1.Controls.Add(this.label12);
             this.groupBox1.Controls.Add(this.label10);
             this.groupBox1.Controls.Add(this.label9);
+            this.groupBox1.Controls.Add(this.labelLeftLaneProductCap);
+            this.groupBox1.Controls.Add(this.labelLeftLaneProductVal);
+            this.groupBox1.Controls.Add(this.btnLeftLaneProductReset);
+            this.groupBox1.Controls.Add(this.labelLeftPlaceTotalCap);
+            this.groupBox1.Controls.Add(this.textBoxLeftPlaceTotal);
+            this.groupBox1.Controls.Add(this.btnLeftPlaceTotalSave);
             this.groupBox1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.groupBox1.Font = new System.Drawing.Font("楷体", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.groupBox1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox1.Location = new System.Drawing.Point(0, 0);
             this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(489, 388);
+            this.groupBox1.Size = new System.Drawing.Size(318, 429);
             this.groupBox1.TabIndex = 0;
             this.groupBox1.TabStop = false;
             this.groupBox1.Text = "工位一";
-            // 
-            // label43
-            // 
-            this.label43.AutoSize = true;
-            this.label43.BackColor = System.Drawing.Color.White;
-            this.label43.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label43.ForeColor = System.Drawing.Color.Blue;
-            this.label43.Location = new System.Drawing.Point(288, 196);
-            this.label43.Name = "label43";
-            this.label43.Size = new System.Drawing.Size(116, 31);
-            this.label43.TabIndex = 34;
-            this.label43.Text = "箱子角度:";
-            // 
-            // label44
-            // 
-            this.label44.AutoSize = true;
-            this.label44.BackColor = System.Drawing.Color.White;
-            this.label44.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label44.ForeColor = System.Drawing.Color.Blue;
-            this.label44.Location = new System.Drawing.Point(288, 227);
-            this.label44.Name = "label44";
-            this.label44.Size = new System.Drawing.Size(68, 31);
-            this.label44.TabIndex = 33;
-            this.label44.Text = "偏差:";
-            // 
-            // label45
-            // 
-            this.label45.AutoSize = true;
-            this.label45.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label45.Location = new System.Drawing.Point(210, 161);
-            this.label45.Name = "label45";
-            this.label45.Size = new System.Drawing.Size(0, 31);
-            this.label45.TabIndex = 32;
-            // 
-            // label46
-            // 
-            this.label46.AutoSize = true;
-            this.label46.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label46.Location = new System.Drawing.Point(210, 193);
-            this.label46.Name = "label46";
-            this.label46.Size = new System.Drawing.Size(0, 31);
-            this.label46.TabIndex = 31;
-            // 
-            // label47
-            // 
-            this.label47.AutoSize = true;
-            this.label47.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label47.Location = new System.Drawing.Point(210, 233);
-            this.label47.Name = "label47";
-            this.label47.Size = new System.Drawing.Size(0, 31);
-            this.label47.TabIndex = 30;
-            // 
-            // label48
-            // 
-            this.label48.AutoSize = true;
-            this.label48.BackColor = System.Drawing.Color.White;
-            this.label48.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label48.ForeColor = System.Drawing.Color.Blue;
-            this.label48.Location = new System.Drawing.Point(288, 161);
-            this.label48.Name = "label48";
-            this.label48.Size = new System.Drawing.Size(140, 31);
-            this.label48.TabIndex = 29;
-            this.label48.Text = "右上角坐标:";
-            // 
-            // label49
-            // 
-            this.label49.AutoSize = true;
-            this.label49.BackColor = System.Drawing.Color.White;
-            this.label49.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
-            this.label49.ForeColor = System.Drawing.Color.Blue;
-            this.label49.Location = new System.Drawing.Point(13, 230);
-            this.label49.Name = "label49";
-            this.label49.Size = new System.Drawing.Size(189, 32);
-            this.label49.TabIndex = 28;
-            this.label49.Text = "左机台箱体摆放";
-            // 
-            // label50
-            // 
-            this.label50.AutoSize = true;
-            this.label50.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label50.Location = new System.Drawing.Point(121, 122);
-            this.label50.Name = "label50";
-            this.label50.Size = new System.Drawing.Size(62, 31);
-            this.label50.TabIndex = 27;
-            this.label50.Text = "列数";
-            // 
-            // label51
-            // 
-            this.label51.AutoSize = true;
-            this.label51.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label51.Location = new System.Drawing.Point(210, 133);
-            this.label51.Name = "label51";
-            this.label51.Size = new System.Drawing.Size(0, 31);
-            this.label51.TabIndex = 26;
-            // 
-            // label31
-            // 
-            this.label31.AutoSize = true;
-            this.label31.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label31.Location = new System.Drawing.Point(106, 269);
-            this.label31.Name = "label31";
-            this.label31.Size = new System.Drawing.Size(0, 31);
-            this.label31.TabIndex = 16;
-            // 
-            // label32
-            // 
-            this.label32.AutoSize = true;
-            this.label32.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label32.Location = new System.Drawing.Point(106, 301);
-            this.label32.Name = "label32";
-            this.label32.Size = new System.Drawing.Size(0, 31);
-            this.label32.TabIndex = 15;
-            // 
-            // label33
-            // 
-            this.label33.AutoSize = true;
-            this.label33.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label33.Location = new System.Drawing.Point(106, 341);
-            this.label33.Name = "label33";
-            this.label33.Size = new System.Drawing.Size(0, 31);
-            this.label33.TabIndex = 14;
-            // 
-            // label34
-            // 
-            this.label34.AutoSize = true;
-            this.label34.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label34.Location = new System.Drawing.Point(17, 269);
-            this.label34.Name = "label34";
-            this.label34.Size = new System.Drawing.Size(0, 31);
-            this.label34.TabIndex = 13;
             // 
             // label16
             // 
@@ -799,7 +676,7 @@ namespace 码料机
             this.label16.BackColor = System.Drawing.Color.White;
             this.label16.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.label16.ForeColor = System.Drawing.Color.Blue;
-            this.label16.Location = new System.Drawing.Point(13, 190);
+            this.label16.Location = new System.Drawing.Point(13, 230);
             this.label16.Name = "label16";
             this.label16.Size = new System.Drawing.Size(62, 31);
             this.label16.TabIndex = 11;
@@ -809,7 +686,7 @@ namespace 码料机
             // 
             this.label15.AutoSize = true;
             this.label15.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label15.Location = new System.Drawing.Point(13, 230);
+            this.label15.Location = new System.Drawing.Point(13, 270);
             this.label15.Name = "label15";
             this.label15.Size = new System.Drawing.Size(62, 31);
             this.label15.TabIndex = 10;
@@ -819,7 +696,7 @@ namespace 码料机
             // 
             this.label8.AutoSize = true;
             this.label8.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label8.Location = new System.Drawing.Point(102, 158);
+            this.label8.Location = new System.Drawing.Point(102, 198);
             this.label8.Name = "label8";
             this.label8.Size = new System.Drawing.Size(0, 31);
             this.label8.TabIndex = 9;
@@ -828,7 +705,7 @@ namespace 码料机
             // 
             this.label7.AutoSize = true;
             this.label7.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label7.Location = new System.Drawing.Point(102, 190);
+            this.label7.Location = new System.Drawing.Point(102, 230);
             this.label7.Name = "label7";
             this.label7.Size = new System.Drawing.Size(0, 31);
             this.label7.TabIndex = 8;
@@ -837,7 +714,7 @@ namespace 码料机
             // 
             this.label6.AutoSize = true;
             this.label6.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label6.Location = new System.Drawing.Point(102, 230);
+            this.label6.Location = new System.Drawing.Point(102, 270);
             this.label6.Name = "label6";
             this.label6.Size = new System.Drawing.Size(0, 31);
             this.label6.TabIndex = 7;
@@ -848,7 +725,7 @@ namespace 码料机
             this.label5.BackColor = System.Drawing.Color.White;
             this.label5.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
             this.label5.ForeColor = System.Drawing.Color.Blue;
-            this.label5.Location = new System.Drawing.Point(13, 158);
+            this.label5.Location = new System.Drawing.Point(13, 198);
             this.label5.Name = "label5";
             this.label5.Size = new System.Drawing.Size(62, 31);
             this.label5.TabIndex = 6;
@@ -913,16 +790,80 @@ namespace 码料机
             this.label9.TabIndex = 0;
             this.label9.Text = "木框状态:";
             // 
+            // labelLeftLaneProductCap
+            // 
+            this.labelLeftLaneProductCap.AutoSize = true;
+            this.labelLeftLaneProductCap.BackColor = System.Drawing.Color.White;
+            this.labelLeftLaneProductCap.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
+            this.labelLeftLaneProductCap.ForeColor = System.Drawing.Color.Blue;
+            this.labelLeftLaneProductCap.Location = new System.Drawing.Point(9, 114);
+            this.labelLeftLaneProductCap.Name = "labelLeftLaneProductCap";
+            this.labelLeftLaneProductCap.Size = new System.Drawing.Size(120, 32);
+            this.labelLeftLaneProductCap.TabIndex = 35;
+            this.labelLeftLaneProductCap.Text = "料道产品:";
+            // 
+            // labelLeftLaneProductVal
+            // 
+            this.labelLeftLaneProductVal.AutoSize = true;
+            this.labelLeftLaneProductVal.BackColor = System.Drawing.Color.White;
+            this.labelLeftLaneProductVal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
+            this.labelLeftLaneProductVal.ForeColor = System.Drawing.Color.Blue;
+            this.labelLeftLaneProductVal.Location = new System.Drawing.Point(201, 115);
+            this.labelLeftLaneProductVal.Name = "labelLeftLaneProductVal";
+            this.labelLeftLaneProductVal.Size = new System.Drawing.Size(40, 31);
+            this.labelLeftLaneProductVal.TabIndex = 36;
+            this.labelLeftLaneProductVal.Text = "—";
+            // 
+            // btnLeftLaneProductReset
+            // 
+            this.btnLeftLaneProductReset.AutoSize = true;
+            this.btnLeftLaneProductReset.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F);
+            this.btnLeftLaneProductReset.Location = new System.Drawing.Point(240, 112);
+            this.btnLeftLaneProductReset.MinimumSize = new System.Drawing.Size(64, 28);
+            this.btnLeftLaneProductReset.Name = "btnLeftLaneProductReset";
+            this.btnLeftLaneProductReset.Size = new System.Drawing.Size(67, 40);
+            this.btnLeftLaneProductReset.TabIndex = 37;
+            this.btnLeftLaneProductReset.Text = "重置";
+            this.btnLeftLaneProductReset.UseVisualStyleBackColor = true;
+            // 
+            // labelLeftPlaceTotalCap
+            // 
+            this.labelLeftPlaceTotalCap.AutoSize = true;
+            this.labelLeftPlaceTotalCap.BackColor = System.Drawing.Color.White;
+            this.labelLeftPlaceTotalCap.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
+            this.labelLeftPlaceTotalCap.ForeColor = System.Drawing.Color.Blue;
+            this.labelLeftPlaceTotalCap.Location = new System.Drawing.Point(13, 156);
+            this.labelLeftPlaceTotalCap.Name = "labelLeftPlaceTotalCap";
+            this.labelLeftPlaceTotalCap.Size = new System.Drawing.Size(62, 31);
+            this.labelLeftPlaceTotalCap.TabIndex = 38;
+            this.labelLeftPlaceTotalCap.Text = "总数";
+            // 
+            // textBoxLeftPlaceTotal
+            // 
+            this.textBoxLeftPlaceTotal.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.textBoxLeftPlaceTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
+            this.textBoxLeftPlaceTotal.Location = new System.Drawing.Point(90, 154);
+            this.textBoxLeftPlaceTotal.MinimumSize = new System.Drawing.Size(48, 28);
+            this.textBoxLeftPlaceTotal.Name = "textBoxLeftPlaceTotal";
+            this.textBoxLeftPlaceTotal.Size = new System.Drawing.Size(80, 38);
+            this.textBoxLeftPlaceTotal.TabIndex = 39;
+            this.textBoxLeftPlaceTotal.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
+            // 
+            // btnLeftPlaceTotalSave
+            // 
+            this.btnLeftPlaceTotalSave.AutoSize = true;
+            this.btnLeftPlaceTotalSave.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F);
+            this.btnLeftPlaceTotalSave.Location = new System.Drawing.Point(176, 152);
+            this.btnLeftPlaceTotalSave.MinimumSize = new System.Drawing.Size(64, 28);
+            this.btnLeftPlaceTotalSave.Name = "btnLeftPlaceTotalSave";
+            this.btnLeftPlaceTotalSave.Size = new System.Drawing.Size(67, 40);
+            this.btnLeftPlaceTotalSave.TabIndex = 40;
+            this.btnLeftPlaceTotalSave.Text = "保存";
+            this.btnLeftPlaceTotalSave.UseVisualStyleBackColor = true;
+            // 
             // groupBox2
             // 
             this.groupBox2.BackColor = System.Drawing.Color.White;
-            this.groupBox2.Controls.Add(this.label36);
-            this.groupBox2.Controls.Add(this.label37);
-            this.groupBox2.Controls.Add(this.label38);
-            this.groupBox2.Controls.Add(this.label39);
-            this.groupBox2.Controls.Add(this.label40);
-            this.groupBox2.Controls.Add(this.label41);
-            this.groupBox2.Controls.Add(this.label42);
             this.groupBox2.Controls.Add(this.label17);
             this.groupBox2.Controls.Add(this.label18);
             this.groupBox2.Controls.Add(this.label19);
@@ -934,88 +875,27 @@ namespace 码料机
             this.groupBox2.Controls.Add(this.label11);
             this.groupBox2.Controls.Add(this.label13);
             this.groupBox2.Controls.Add(this.label14);
+            this.groupBox2.Controls.Add(this.labelRightLaneProductCap);
+            this.groupBox2.Controls.Add(this.labelRightLaneProductVal);
+            this.groupBox2.Controls.Add(this.btnRightLaneProductReset);
+            this.groupBox2.Controls.Add(this.labelRightPlaceTotalCap);
+            this.groupBox2.Controls.Add(this.textBoxRightPlaceTotal);
+            this.groupBox2.Controls.Add(this.btnRightPlaceTotalSave);
             this.groupBox2.Dock = System.Windows.Forms.DockStyle.Fill;
             this.groupBox2.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.groupBox2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox2.Location = new System.Drawing.Point(0, 0);
             this.groupBox2.Name = "groupBox2";
-            this.groupBox2.Size = new System.Drawing.Size(489, 399);
+            this.groupBox2.Size = new System.Drawing.Size(318, 447);
             this.groupBox2.TabIndex = 0;
             this.groupBox2.TabStop = false;
             this.groupBox2.Text = "工位二";
-            // 
-            // label36
-            // 
-            this.label36.AutoSize = true;
-            this.label36.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label36.Location = new System.Drawing.Point(288, 188);
-            this.label36.Name = "label36";
-            this.label36.Size = new System.Drawing.Size(116, 31);
-            this.label36.TabIndex = 25;
-            this.label36.Text = "箱子角度:";
-            // 
-            // label37
-            // 
-            this.label37.AutoSize = true;
-            this.label37.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label37.Location = new System.Drawing.Point(288, 217);
-            this.label37.Name = "label37";
-            this.label37.Size = new System.Drawing.Size(68, 31);
-            this.label37.TabIndex = 24;
-            this.label37.Text = "偏差:";
-            // 
-            // label38
-            // 
-            this.label38.AutoSize = true;
-            this.label38.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label38.Location = new System.Drawing.Point(102, 256);
-            this.label38.Name = "label38";
-            this.label38.Size = new System.Drawing.Size(0, 31);
-            this.label38.TabIndex = 23;
-            // 
-            // label39
-            // 
-            this.label39.AutoSize = true;
-            this.label39.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label39.Location = new System.Drawing.Point(102, 288);
-            this.label39.Name = "label39";
-            this.label39.Size = new System.Drawing.Size(0, 31);
-            this.label39.TabIndex = 22;
-            // 
-            // label40
-            // 
-            this.label40.AutoSize = true;
-            this.label40.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label40.Location = new System.Drawing.Point(102, 328);
-            this.label40.Name = "label40";
-            this.label40.Size = new System.Drawing.Size(0, 31);
-            this.label40.TabIndex = 21;
-            // 
-            // label41
-            // 
-            this.label41.AutoSize = true;
-            this.label41.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label41.Location = new System.Drawing.Point(288, 156);
-            this.label41.Name = "label41";
-            this.label41.Size = new System.Drawing.Size(140, 31);
-            this.label41.TabIndex = 20;
-            this.label41.Text = "左上角坐标:";
-            // 
-            // label42
-            // 
-            this.label42.AutoSize = true;
-            this.label42.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
-            this.label42.Location = new System.Drawing.Point(9, 217);
-            this.label42.Name = "label42";
-            this.label42.Size = new System.Drawing.Size(189, 32);
-            this.label42.TabIndex = 19;
-            this.label42.Text = "右机台箱体摆放";
             // 
             // label17
             // 
             this.label17.AutoSize = true;
             this.label17.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label17.Location = new System.Drawing.Point(13, 188);
+            this.label17.Location = new System.Drawing.Point(13, 228);
             this.label17.Name = "label17";
             this.label17.Size = new System.Drawing.Size(62, 31);
             this.label17.TabIndex = 18;
@@ -1025,7 +905,7 @@ namespace 码料机
             // 
             this.label18.AutoSize = true;
             this.label18.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label18.Location = new System.Drawing.Point(13, 217);
+            this.label18.Location = new System.Drawing.Point(13, 268);
             this.label18.Name = "label18";
             this.label18.Size = new System.Drawing.Size(62, 31);
             this.label18.TabIndex = 17;
@@ -1035,7 +915,7 @@ namespace 码料机
             // 
             this.label19.AutoSize = true;
             this.label19.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label19.Location = new System.Drawing.Point(102, 156);
+            this.label19.Location = new System.Drawing.Point(102, 196);
             this.label19.Name = "label19";
             this.label19.Size = new System.Drawing.Size(0, 31);
             this.label19.TabIndex = 16;
@@ -1044,7 +924,7 @@ namespace 码料机
             // 
             this.label20.AutoSize = true;
             this.label20.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label20.Location = new System.Drawing.Point(102, 188);
+            this.label20.Location = new System.Drawing.Point(102, 228);
             this.label20.Name = "label20";
             this.label20.Size = new System.Drawing.Size(0, 31);
             this.label20.TabIndex = 15;
@@ -1053,7 +933,7 @@ namespace 码料机
             // 
             this.label21.AutoSize = true;
             this.label21.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label21.Location = new System.Drawing.Point(102, 228);
+            this.label21.Location = new System.Drawing.Point(102, 268);
             this.label21.Name = "label21";
             this.label21.Size = new System.Drawing.Size(0, 31);
             this.label21.TabIndex = 14;
@@ -1062,7 +942,7 @@ namespace 码料机
             // 
             this.label22.AutoSize = true;
             this.label22.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label22.Location = new System.Drawing.Point(13, 156);
+            this.label22.Location = new System.Drawing.Point(13, 196);
             this.label22.Name = "label22";
             this.label22.Size = new System.Drawing.Size(62, 31);
             this.label22.TabIndex = 13;
@@ -1118,6 +998,77 @@ namespace 码料机
             this.label14.TabIndex = 4;
             this.label14.Text = "木框状态:";
             // 
+            // labelRightLaneProductCap
+            // 
+            this.labelRightLaneProductCap.AutoSize = true;
+            this.labelRightLaneProductCap.BackColor = System.Drawing.Color.White;
+            this.labelRightLaneProductCap.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
+            this.labelRightLaneProductCap.ForeColor = System.Drawing.Color.Blue;
+            this.labelRightLaneProductCap.Location = new System.Drawing.Point(9, 116);
+            this.labelRightLaneProductCap.Name = "labelRightLaneProductCap";
+            this.labelRightLaneProductCap.Size = new System.Drawing.Size(120, 32);
+            this.labelRightLaneProductCap.TabIndex = 35;
+            this.labelRightLaneProductCap.Text = "料道产品:";
+            // 
+            // labelRightLaneProductVal
+            // 
+            this.labelRightLaneProductVal.AutoSize = true;
+            this.labelRightLaneProductVal.BackColor = System.Drawing.Color.White;
+            this.labelRightLaneProductVal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
+            this.labelRightLaneProductVal.ForeColor = System.Drawing.Color.Blue;
+            this.labelRightLaneProductVal.Location = new System.Drawing.Point(201, 117);
+            this.labelRightLaneProductVal.Name = "labelRightLaneProductVal";
+            this.labelRightLaneProductVal.Size = new System.Drawing.Size(40, 31);
+            this.labelRightLaneProductVal.TabIndex = 36;
+            this.labelRightLaneProductVal.Text = "—";
+            // 
+            // btnRightLaneProductReset
+            // 
+            this.btnRightLaneProductReset.AutoSize = true;
+            this.btnRightLaneProductReset.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F);
+            this.btnRightLaneProductReset.Location = new System.Drawing.Point(240, 114);
+            this.btnRightLaneProductReset.MinimumSize = new System.Drawing.Size(64, 28);
+            this.btnRightLaneProductReset.Name = "btnRightLaneProductReset";
+            this.btnRightLaneProductReset.Size = new System.Drawing.Size(67, 40);
+            this.btnRightLaneProductReset.TabIndex = 37;
+            this.btnRightLaneProductReset.Text = "重置";
+            this.btnRightLaneProductReset.UseVisualStyleBackColor = true;
+            // 
+            // labelRightPlaceTotalCap
+            // 
+            this.labelRightPlaceTotalCap.AutoSize = true;
+            this.labelRightPlaceTotalCap.BackColor = System.Drawing.Color.White;
+            this.labelRightPlaceTotalCap.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
+            this.labelRightPlaceTotalCap.ForeColor = System.Drawing.Color.Blue;
+            this.labelRightPlaceTotalCap.Location = new System.Drawing.Point(13, 154);
+            this.labelRightPlaceTotalCap.Name = "labelRightPlaceTotalCap";
+            this.labelRightPlaceTotalCap.Size = new System.Drawing.Size(62, 31);
+            this.labelRightPlaceTotalCap.TabIndex = 38;
+            this.labelRightPlaceTotalCap.Text = "总数";
+            // 
+            // textBoxRightPlaceTotal
+            // 
+            this.textBoxRightPlaceTotal.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.textBoxRightPlaceTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
+            this.textBoxRightPlaceTotal.Location = new System.Drawing.Point(90, 152);
+            this.textBoxRightPlaceTotal.MinimumSize = new System.Drawing.Size(48, 28);
+            this.textBoxRightPlaceTotal.Name = "textBoxRightPlaceTotal";
+            this.textBoxRightPlaceTotal.Size = new System.Drawing.Size(56, 38);
+            this.textBoxRightPlaceTotal.TabIndex = 39;
+            this.textBoxRightPlaceTotal.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
+            // 
+            // btnRightPlaceTotalSave
+            // 
+            this.btnRightPlaceTotalSave.AutoSize = true;
+            this.btnRightPlaceTotalSave.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F);
+            this.btnRightPlaceTotalSave.Location = new System.Drawing.Point(163, 150);
+            this.btnRightPlaceTotalSave.MinimumSize = new System.Drawing.Size(64, 28);
+            this.btnRightPlaceTotalSave.Name = "btnRightPlaceTotalSave";
+            this.btnRightPlaceTotalSave.Size = new System.Drawing.Size(67, 40);
+            this.btnRightPlaceTotalSave.TabIndex = 40;
+            this.btnRightPlaceTotalSave.Text = "保存";
+            this.btnRightPlaceTotalSave.UseVisualStyleBackColor = true;
+            // 
             // tableLayoutPanel2
             // 
             this.tableLayoutPanel2.ColumnCount = 1;
@@ -1125,306 +1076,70 @@ namespace 码料机
             this.tableLayoutPanel2.Controls.Add(this.groupBox4, 0, 1);
             this.tableLayoutPanel2.Controls.Add(this.groupBox3, 0, 0);
             this.tableLayoutPanel2.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.tableLayoutPanel2.Location = new System.Drawing.Point(1260, 3);
+            this.tableLayoutPanel2.Location = new System.Drawing.Point(1185, 3);
             this.tableLayoutPanel2.Name = "tableLayoutPanel2";
             this.tableLayoutPanel2.RowCount = 2;
             this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
             this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
-            this.tableLayoutPanel2.Size = new System.Drawing.Size(644, 793);
+            this.tableLayoutPanel2.Size = new System.Drawing.Size(719, 882);
             this.tableLayoutPanel2.TabIndex = 1;
             // 
             // groupBox4
             // 
             this.groupBox4.BackColor = System.Drawing.Color.White;
-            this.groupBox4.Controls.Add(this.label26);
-            this.groupBox4.Controls.Add(this.label27);
-            this.groupBox4.Controls.Add(this.label28);
-            this.groupBox4.Controls.Add(this.textBoxRightPlaceQty);
-            this.groupBox4.Controls.Add(this.labelRightPlaceQty);
-            this.groupBox4.Controls.Add(this.textBoxRightPickQty);
-            this.groupBox4.Controls.Add(this.labelRightPickQty);
-            this.groupBox4.Controls.Add(this.comboBox4);
-            this.groupBox4.Controls.Add(this.comboBox5);
-            this.groupBox4.Controls.Add(this.comboBox6);
-            this.groupBox4.Controls.Add(this.button1);
+            this.groupBox4.Controls.Add(this.stationOpPanelRight);
             this.groupBox4.Dock = System.Windows.Forms.DockStyle.Fill;
             this.groupBox4.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F, System.Drawing.FontStyle.Bold);
             this.groupBox4.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
-            this.groupBox4.Location = new System.Drawing.Point(3, 399);
+            this.groupBox4.Location = new System.Drawing.Point(3, 444);
             this.groupBox4.Name = "groupBox4";
-            this.groupBox4.Size = new System.Drawing.Size(638, 391);
+            this.groupBox4.Padding = new System.Windows.Forms.Padding(8, 10, 8, 8);
+            this.groupBox4.Size = new System.Drawing.Size(713, 435);
             this.groupBox4.TabIndex = 2;
             this.groupBox4.TabStop = false;
             this.groupBox4.Text = "右机台";
             // 
-            // label26
+            // stationOpPanelRight
             // 
-            this.label26.AutoSize = true;
-            this.label26.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label26.Location = new System.Drawing.Point(7, 142);
-            this.label26.Name = "label26";
-            this.label26.Size = new System.Drawing.Size(134, 31);
-            this.label26.TabIndex = 22;
-            this.label26.Text = "箱体规格：";
-            // 
-            // label27
-            // 
-            this.label27.AutoSize = true;
-            this.label27.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label27.Location = new System.Drawing.Point(13, 104);
-            this.label27.Name = "label27";
-            this.label27.Size = new System.Drawing.Size(134, 31);
-            this.label27.TabIndex = 21;
-            this.label27.Text = "排料方式：";
-            // 
-            // label28
-            // 
-            this.label28.AutoSize = true;
-            this.label28.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label28.Location = new System.Drawing.Point(18, 47);
-            this.label28.Name = "label28";
-            this.label28.Size = new System.Drawing.Size(134, 31);
-            this.label28.TabIndex = 20;
-            this.label28.Text = "产品型号：";
-            // 
-            // textBoxRightPlaceQty
-            // 
-            this.textBoxRightPlaceQty.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.textBoxRightPlaceQty.Location = new System.Drawing.Point(227, 206);
-            this.textBoxRightPlaceQty.Name = "textBoxRightPlaceQty";
-            this.textBoxRightPlaceQty.ReadOnly = true;
-            this.textBoxRightPlaceQty.Size = new System.Drawing.Size(50, 38);
-            this.textBoxRightPlaceQty.TabIndex = 17;
-            this.textBoxRightPlaceQty.Text = "2";
-            // 
-            // labelRightPlaceQty
-            // 
-            this.labelRightPlaceQty.AutoSize = true;
-            this.labelRightPlaceQty.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.labelRightPlaceQty.Location = new System.Drawing.Point(161, 211);
-            this.labelRightPlaceQty.Name = "labelRightPlaceQty";
-            this.labelRightPlaceQty.Size = new System.Drawing.Size(86, 31);
-            this.labelRightPlaceQty.TabIndex = 16;
-            this.labelRightPlaceQty.Text = "放料：";
-            // 
-            // textBoxRightPickQty
-            // 
-            this.textBoxRightPickQty.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.textBoxRightPickQty.Location = new System.Drawing.Point(95, 206);
-            this.textBoxRightPickQty.Name = "textBoxRightPickQty";
-            this.textBoxRightPickQty.ReadOnly = true;
-            this.textBoxRightPickQty.Size = new System.Drawing.Size(50, 38);
-            this.textBoxRightPickQty.TabIndex = 15;
-            this.textBoxRightPickQty.Text = "2";
-            // 
-            // labelRightPickQty
-            // 
-            this.labelRightPickQty.AutoSize = true;
-            this.labelRightPickQty.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.labelRightPickQty.Location = new System.Drawing.Point(23, 211);
-            this.labelRightPickQty.Name = "labelRightPickQty";
-            this.labelRightPickQty.Size = new System.Drawing.Size(86, 31);
-            this.labelRightPickQty.TabIndex = 14;
-            this.labelRightPickQty.Text = "取料：";
-            // 
-            // comboBox4
-            // 
-            this.comboBox4.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
-            this.comboBox4.FormattingEnabled = true;
-            this.comboBox4.Location = new System.Drawing.Point(136, 132);
-            this.comboBox4.Name = "comboBox4";
-            this.comboBox4.Size = new System.Drawing.Size(203, 40);
-            this.comboBox4.TabIndex = 13;
-            // 
-            // comboBox5
-            // 
-            this.comboBox5.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
-            this.comboBox5.FormattingEnabled = true;
-            this.comboBox5.Items.AddRange(new object[] {
-            "横向梅花",
-            "竖向梅花"});
-            this.comboBox5.Location = new System.Drawing.Point(136, 84);
-            this.comboBox5.Name = "comboBox5";
-            this.comboBox5.Size = new System.Drawing.Size(203, 40);
-            this.comboBox5.TabIndex = 11;
-            // 
-            // comboBox6
-            // 
-            this.comboBox6.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
-            this.comboBox6.FormattingEnabled = true;
-            this.comboBox6.Location = new System.Drawing.Point(136, 36);
-            this.comboBox6.Name = "comboBox6";
-            this.comboBox6.Size = new System.Drawing.Size(203, 40);
-            this.comboBox6.TabIndex = 10;
-            // 
-            // button1
-            // 
-            this.button1.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left) 
-            | System.Windows.Forms.AnchorStyles.Right)));
-            this.button1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(49)))), ((int)(((byte)(130)))), ((int)(((byte)(206)))));
-            this.button1.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.button1.FlatAppearance.BorderColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(99)))), ((int)(((byte)(156)))));
-            this.button1.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(99)))), ((int)(((byte)(156)))));
-            this.button1.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(56)))), ((int)(((byte)(145)))), ((int)(((byte)(220)))));
-            this.button1.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.button1.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.button1.ForeColor = System.Drawing.Color.White;
-            this.button1.Location = new System.Drawing.Point(6, 346);
-            this.button1.Name = "button1";
-            this.button1.Size = new System.Drawing.Size(616, 44);
-            this.button1.TabIndex = 19;
-            this.button1.Text = "确定产品与数量";
-            this.button1.UseVisualStyleBackColor = false;
-            this.button1.Click += new System.EventHandler(this.button1_Click);
+            this.stationOpPanelRight.BackColor = System.Drawing.Color.White;
+            this.stationOpPanelRight.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.stationOpPanelRight.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
+            this.stationOpPanelRight.Location = new System.Drawing.Point(8, 42);
+            this.stationOpPanelRight.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.stationOpPanelRight.Name = "stationOpPanelRight";
+            this.stationOpPanelRight.Size = new System.Drawing.Size(697, 385);
+            this.stationOpPanelRight.TabIndex = 0;
             // 
             // groupBox3
             // 
             this.groupBox3.BackColor = System.Drawing.Color.White;
-            this.groupBox3.Controls.Add(this.label25);
-            this.groupBox3.Controls.Add(this.label24);
-            this.groupBox3.Controls.Add(this.label1);
-            this.groupBox3.Controls.Add(this.textBoxLeftPlaceQty);
-            this.groupBox3.Controls.Add(this.labelLeftPlaceQty);
-            this.groupBox3.Controls.Add(this.textBoxLeftPickQty);
-            this.groupBox3.Controls.Add(this.labelLeftPickQty);
-            this.groupBox3.Controls.Add(this.comboBox3);
-            this.groupBox3.Controls.Add(this.comboBox2);
-            this.groupBox3.Controls.Add(this.comboBox1);
-            this.groupBox3.Controls.Add(this.button3);
+            this.groupBox3.Controls.Add(this.stationOpPanelLeft);
             this.groupBox3.Dock = System.Windows.Forms.DockStyle.Fill;
             this.groupBox3.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.groupBox3.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox3.Location = new System.Drawing.Point(3, 3);
             this.groupBox3.Name = "groupBox3";
-            this.groupBox3.Size = new System.Drawing.Size(638, 390);
+            this.groupBox3.Padding = new System.Windows.Forms.Padding(8, 10, 8, 8);
+            this.groupBox3.Size = new System.Drawing.Size(713, 435);
             this.groupBox3.TabIndex = 1;
             this.groupBox3.TabStop = false;
             this.groupBox3.Text = "左机台";
             // 
-            // label25
+            // stationOpPanelLeft
             // 
-            this.label25.AutoSize = true;
-            this.label25.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label25.Location = new System.Drawing.Point(12, 131);
-            this.label25.Name = "label25";
-            this.label25.Size = new System.Drawing.Size(134, 31);
-            this.label25.TabIndex = 13;
-            this.label25.Text = "箱体规格：";
-            // 
-            // label24
-            // 
-            this.label24.AutoSize = true;
-            this.label24.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label24.Location = new System.Drawing.Point(23, 84);
-            this.label24.Name = "label24";
-            this.label24.Size = new System.Drawing.Size(134, 31);
-            this.label24.TabIndex = 12;
-            this.label24.Text = "排料方式：";
-            // 
-            // label1
-            // 
-            this.label1.AutoSize = true;
-            this.label1.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.label1.Location = new System.Drawing.Point(23, 36);
-            this.label1.Name = "label1";
-            this.label1.Size = new System.Drawing.Size(134, 31);
-            this.label1.TabIndex = 11;
-            this.label1.Text = "产品型号：";
-            // 
-            // textBoxLeftPlaceQty
-            // 
-            this.textBoxLeftPlaceQty.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.textBoxLeftPlaceQty.Location = new System.Drawing.Point(216, 186);
-            this.textBoxLeftPlaceQty.Name = "textBoxLeftPlaceQty";
-            this.textBoxLeftPlaceQty.ReadOnly = true;
-            this.textBoxLeftPlaceQty.Size = new System.Drawing.Size(50, 38);
-            this.textBoxLeftPlaceQty.TabIndex = 8;
-            this.textBoxLeftPlaceQty.Text = "2";
-            // 
-            // labelLeftPlaceQty
-            // 
-            this.labelLeftPlaceQty.AutoSize = true;
-            this.labelLeftPlaceQty.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.labelLeftPlaceQty.Location = new System.Drawing.Point(150, 191);
-            this.labelLeftPlaceQty.Name = "labelLeftPlaceQty";
-            this.labelLeftPlaceQty.Size = new System.Drawing.Size(86, 31);
-            this.labelLeftPlaceQty.TabIndex = 7;
-            this.labelLeftPlaceQty.Text = "放料：";
-            // 
-            // textBoxLeftPickQty
-            // 
-            this.textBoxLeftPickQty.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.textBoxLeftPickQty.Location = new System.Drawing.Point(84, 186);
-            this.textBoxLeftPickQty.Name = "textBoxLeftPickQty";
-            this.textBoxLeftPickQty.ReadOnly = true;
-            this.textBoxLeftPickQty.Size = new System.Drawing.Size(50, 38);
-            this.textBoxLeftPickQty.TabIndex = 6;
-            this.textBoxLeftPickQty.Text = "2";
-            // 
-            // labelLeftPickQty
-            // 
-            this.labelLeftPickQty.AutoSize = true;
-            this.labelLeftPickQty.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.labelLeftPickQty.Location = new System.Drawing.Point(12, 191);
-            this.labelLeftPickQty.Name = "labelLeftPickQty";
-            this.labelLeftPickQty.Size = new System.Drawing.Size(86, 31);
-            this.labelLeftPickQty.TabIndex = 5;
-            this.labelLeftPickQty.Text = "取料：";
-            // 
-            // comboBox3
-            // 
-            this.comboBox3.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
-            this.comboBox3.FormattingEnabled = true;
-            this.comboBox3.Location = new System.Drawing.Point(136, 131);
-            this.comboBox3.Name = "comboBox3";
-            this.comboBox3.Size = new System.Drawing.Size(208, 40);
-            this.comboBox3.TabIndex = 4;
-            // 
-            // comboBox2
-            // 
-            this.comboBox2.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
-            this.comboBox2.FormattingEnabled = true;
-            this.comboBox2.Items.AddRange(new object[] {
-            "横向梅花",
-            "竖向梅花"});
-            this.comboBox2.Location = new System.Drawing.Point(136, 80);
-            this.comboBox2.Name = "comboBox2";
-            this.comboBox2.Size = new System.Drawing.Size(208, 40);
-            this.comboBox2.TabIndex = 2;
-            // 
-            // comboBox1
-            // 
-            this.comboBox1.Font = new System.Drawing.Font("Microsoft YaHei UI", 12.5F);
-            this.comboBox1.FormattingEnabled = true;
-            this.comboBox1.Location = new System.Drawing.Point(136, 34);
-            this.comboBox1.Name = "comboBox1";
-            this.comboBox1.Size = new System.Drawing.Size(208, 40);
-            this.comboBox1.TabIndex = 0;
-            // 
-            // button3
-            // 
-            this.button3.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left) 
-            | System.Windows.Forms.AnchorStyles.Right)));
-            this.button3.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(49)))), ((int)(((byte)(130)))), ((int)(((byte)(206)))));
-            this.button3.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.button3.FlatAppearance.BorderColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(99)))), ((int)(((byte)(156)))));
-            this.button3.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(99)))), ((int)(((byte)(156)))));
-            this.button3.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(56)))), ((int)(((byte)(145)))), ((int)(((byte)(220)))));
-            this.button3.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.button3.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.button3.ForeColor = System.Drawing.Color.White;
-            this.button3.Location = new System.Drawing.Point(11, 332);
-            this.button3.Name = "button3";
-            this.button3.Size = new System.Drawing.Size(621, 44);
-            this.button3.TabIndex = 10;
-            this.button3.Text = "确定产品与数量";
-            this.button3.UseVisualStyleBackColor = false;
-            this.button3.Click += new System.EventHandler(this.button3_Click);
+            this.stationOpPanelLeft.BackColor = System.Drawing.Color.White;
+            this.stationOpPanelLeft.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.stationOpPanelLeft.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
+            this.stationOpPanelLeft.Location = new System.Drawing.Point(8, 42);
+            this.stationOpPanelLeft.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.stationOpPanelLeft.Name = "stationOpPanelLeft";
+            this.stationOpPanelLeft.Size = new System.Drawing.Size(697, 385);
+            this.stationOpPanelLeft.TabIndex = 0;
             // 
             // splitContainer2
             // 
             this.splitContainer2.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.splitContainer2.Location = new System.Drawing.Point(498, 3);
+            this.splitContainer2.Location = new System.Drawing.Point(327, 3);
             this.splitContainer2.Name = "splitContainer2";
             this.splitContainer2.Orientation = System.Windows.Forms.Orientation.Horizontal;
             // 
@@ -1435,8 +1150,8 @@ namespace 码料机
             // splitContainer2.Panel2
             // 
             this.splitContainer2.Panel2.Controls.Add(this.listBox1);
-            this.splitContainer2.Size = new System.Drawing.Size(756, 793);
-            this.splitContainer2.SplitterDistance = 558;
+            this.splitContainer2.Size = new System.Drawing.Size(852, 882);
+            this.splitContainer2.SplitterDistance = 619;
             this.splitContainer2.SplitterWidth = 6;
             this.splitContainer2.TabIndex = 2;
             // 
@@ -1451,7 +1166,7 @@ namespace 码料机
             // 
             this.splitContainer3.Panel1.Controls.Add(this.groupBox6);
             this.splitContainer3.Panel2Collapsed = true;
-            this.splitContainer3.Size = new System.Drawing.Size(756, 558);
+            this.splitContainer3.Size = new System.Drawing.Size(852, 619);
             this.splitContainer3.SplitterDistance = 300;
             this.splitContainer3.SplitterWidth = 6;
             this.splitContainer3.TabIndex = 0;
@@ -1465,10 +1180,10 @@ namespace 码料机
             this.groupBox6.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
             this.groupBox6.Location = new System.Drawing.Point(0, 0);
             this.groupBox6.Name = "groupBox6";
-            this.groupBox6.Size = new System.Drawing.Size(756, 558);
+            this.groupBox6.Size = new System.Drawing.Size(852, 619);
             this.groupBox6.TabIndex = 0;
             this.groupBox6.TabStop = false;
-            this.groupBox6.Text = "木箱定位";
+            this.groupBox6.Text = "拍照预览";
             // 
             // tableLayoutPanel3
             // 
@@ -1480,7 +1195,7 @@ namespace 码料机
             this.tableLayoutPanel3.Name = "tableLayoutPanel3";
             this.tableLayoutPanel3.RowCount = 1;
             this.tableLayoutPanel3.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.tableLayoutPanel3.Size = new System.Drawing.Size(750, 521);
+            this.tableLayoutPanel3.Size = new System.Drawing.Size(846, 582);
             this.tableLayoutPanel3.TabIndex = 0;
             // 
             // panelVmPreviewHost
@@ -1489,7 +1204,7 @@ namespace 码料机
             this.panelVmPreviewHost.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelVmPreviewHost.Location = new System.Drawing.Point(3, 3);
             this.panelVmPreviewHost.Name = "panelVmPreviewHost";
-            this.panelVmPreviewHost.Size = new System.Drawing.Size(744, 515);
+            this.panelVmPreviewHost.Size = new System.Drawing.Size(840, 576);
             this.panelVmPreviewHost.TabIndex = 2;
             // 
             // listBox1
@@ -1501,7 +1216,7 @@ namespace 码料机
             this.listBox1.ItemHeight = 31;
             this.listBox1.Location = new System.Drawing.Point(0, 0);
             this.listBox1.Name = "listBox1";
-            this.listBox1.Size = new System.Drawing.Size(756, 229);
+            this.listBox1.Size = new System.Drawing.Size(852, 257);
             this.listBox1.TabIndex = 0;
             // 
             // contextMenuStrip1
@@ -1550,7 +1265,7 @@ namespace 码料机
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(237)))), ((int)(((byte)(242)))), ((int)(((byte)(247)))));
-            this.ClientSize = new System.Drawing.Size(1907, 870);
+            this.ClientSize = new System.Drawing.Size(1907, 992);
             this.Controls.Add(this.tableLayoutPanel1);
             this.Controls.Add(this.statusStripBottom);
             this.Controls.Add(this.toolStrip1);
@@ -1575,9 +1290,7 @@ namespace 码料机
             this.groupBox2.PerformLayout();
             this.tableLayoutPanel2.ResumeLayout(false);
             this.groupBox4.ResumeLayout(false);
-            this.groupBox4.PerformLayout();
             this.groupBox3.ResumeLayout(false);
-            this.groupBox3.PerformLayout();
             this.splitContainer2.Panel1.ResumeLayout(false);
             this.splitContainer2.Panel2.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer2)).EndInit();
@@ -1623,11 +1336,14 @@ namespace 码料机
         private System.Windows.Forms.GroupBox groupBox2;
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel2;
         private System.Windows.Forms.GroupBox groupBox4;
+        private StationOperatorPanel stationOpPanelRight;
+        private System.Windows.Forms.GroupBox groupBox3;
+        private StationOperatorPanel stationOpPanelLeft;
+        // 运行时由 MountStationOperatorPanel 指向 StationOperatorPanel 内控件
         private System.Windows.Forms.TextBox textBoxRightPlaceQty;
         private System.Windows.Forms.Label labelRightPlaceQty;
         private System.Windows.Forms.TextBox textBoxRightPickQty;
         private System.Windows.Forms.Label labelRightPickQty;
-        private System.Windows.Forms.GroupBox groupBox3;
         private System.Windows.Forms.TextBox textBoxLeftPlaceQty;
         private System.Windows.Forms.Label labelLeftPlaceQty;
         private System.Windows.Forms.TextBox textBoxLeftPickQty;
@@ -1641,6 +1357,18 @@ namespace 码料机
         private System.Windows.Forms.Label label11;
         private System.Windows.Forms.Label label13;
         private System.Windows.Forms.Label label14;
+        private System.Windows.Forms.Label labelLeftLaneProductCap;
+        private System.Windows.Forms.Label labelLeftLaneProductVal;
+        private System.Windows.Forms.Button btnLeftLaneProductReset;
+        private System.Windows.Forms.Label labelLeftPlaceTotalCap;
+        private System.Windows.Forms.TextBox textBoxLeftPlaceTotal;
+        private System.Windows.Forms.Button btnLeftPlaceTotalSave;
+        private System.Windows.Forms.Label labelRightLaneProductCap;
+        private System.Windows.Forms.Label labelRightLaneProductVal;
+        private System.Windows.Forms.Button btnRightLaneProductReset;
+        private System.Windows.Forms.Label labelRightPlaceTotalCap;
+        private System.Windows.Forms.TextBox textBoxRightPlaceTotal;
+        private System.Windows.Forms.Button btnRightPlaceTotalSave;
         private System.Windows.Forms.ContextMenuStrip contextMenuStrip1;
         private System.Windows.Forms.Label label3;
         private System.Windows.Forms.Label label4;
@@ -1695,32 +1423,6 @@ namespace 码料机
         private System.Windows.Forms.Label label23;
         private System.Windows.Forms.SplitContainer splitContainer3;
         private System.Windows.Forms.GroupBox groupBox6;
-        private System.Windows.Forms.Label label26;
-        private System.Windows.Forms.Label label27;
-        private System.Windows.Forms.Label label28;
-        private System.Windows.Forms.Label label25;
-        private System.Windows.Forms.Label label24;
-        private System.Windows.Forms.Label label1;
-        private System.Windows.Forms.Label label43;
-        private System.Windows.Forms.Label label44;
-        private System.Windows.Forms.Label label45;
-        private System.Windows.Forms.Label label46;
-        private System.Windows.Forms.Label label47;
-        private System.Windows.Forms.Label label48;
-        private System.Windows.Forms.Label label49;
-        private System.Windows.Forms.Label label50;
-        private System.Windows.Forms.Label label51;
-        private System.Windows.Forms.Label label31;
-        private System.Windows.Forms.Label label32;
-        private System.Windows.Forms.Label label33;
-        private System.Windows.Forms.Label label34;
-        private System.Windows.Forms.Label label36;
-        private System.Windows.Forms.Label label37;
-        private System.Windows.Forms.Label label38;
-        private System.Windows.Forms.Label label39;
-        private System.Windows.Forms.Label label40;
-        private System.Windows.Forms.Label label41;
-        private System.Windows.Forms.Label label42;
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel3;
         private System.Windows.Forms.Panel panelVmPreviewHost;
         private System.Windows.Forms.ToolStripPanel BottomToolStripPanel;

@@ -101,7 +101,7 @@ namespace 码料机
         /// 按物理高度层计算放料 Z：只累加目标层之前已经完成的竖直批次高度。
         /// 例如 5 层拆为 2+3，则物理第 1/2 层目标 Z 为 base，第 3/4/5 层目标 Z 为 base+2H。
         /// （与取/放个数一致：同档一次叠放，同档共用底层 Z；下一档才抬高「档内件数×产品高」。）
-        /// placeLiftGap 为放料抬高间隙，在最终位姿上只加一次。
+        /// placeLiftGap 为「高度补偿」（主机叠层末项，只加一次），与算法轴承间隙无关。
         /// </summary>
         public static double ComputePlaceZForHorizontalLayer(double baseZ, int horizontalLayer, int maxLayers, double productHeight, double placeLiftGap = 0)
         {

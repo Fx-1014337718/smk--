@@ -581,7 +581,7 @@ namespace 码料机
             RefreshStationPickPlaceQtyUi(st);
             TEXT($"[手动放料] {st.Name} 已从第 {startGroup} 组起算（跳过前 {startGroup - 1} 组）");
             UpdateProgressDisplay();
-            if (currentStation == st) UpdateStationUI();
+            UpdateStationUI(st);
             return true;
         }
 

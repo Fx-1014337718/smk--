@@ -52,21 +52,50 @@ namespace 码料机
             st.LastAlgorithmCaptureImagePath = PersistStationCaptureImage(isLeft, fullPath);
         }
 
-        /// <summary>将采图复制到本工位独立缓存，避免左右共用 Feed.bmp 时互相覆盖。</summary>
-        private static string PersistStationCaptureImage(bool isLeft, string sourcePath)
+        /// <summary>将采图复制到本工位独立缓存；源已是缓存路径则直接返回。失败会写日志，避免静默留下过期 *_last.bmp。</summary>
+        private string PersistStationCaptureImage(bool isLeft, string sourcePath)
+        {
+            string dest = GetStationCaptureCachePath(isLeft);
+            if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                return sourcePath;
+            try
+            {
+                string src = Path.GetFullPath(sourcePath);
+                string dst = Path.GetFullPath(dest);
+                if (string.Equals(src, dst, StringComparison.OrdinalIgnoreCase))
+                    return dst;
+
+                Exception last = null;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    try
+                    {
+                        File.Copy(src, dst, overwrite: true);
+                        return dst;
+                    }
+                    catch (Exception ex)
+                    {
+                        last = ex;
+                        System.Threading.Thread.Sleep(40);
+                    }
+                }
+                string side = isLeft ? "左" : "右";
+                SafeInvoke(() => TEXT($"[采图缓存] {side}机台更新 {Path.GetFileName(dst)} 失败: {last?.Message}（仍用本次原图，磁盘缓存可能仍是旧图）"));
+                return src;
+            }
+            catch (Exception ex)
+            {
+                SafeInvoke(() => TEXT($"[采图缓存] 写入失败: {ex.Message}"));
+                return sourcePath;
+            }
+        }
+
+        /// <summary>本工位最新采图缓存路径（配置文件\工位采图\左/右机台_last.bmp）。</summary>
+        private static string GetStationCaptureCachePath(bool isLeft)
         {
             string dir = Path.Combine(Parameters.IniDir, "工位采图");
             Directory.CreateDirectory(dir);
-            string dest = Path.Combine(dir, (isLeft ? "左机台" : "右机台") + "_last.bmp");
-            try
-            {
-                File.Copy(sourcePath, dest, overwrite: true);
-                return dest;
-            }
-            catch
-            {
-                return sourcePath;
-            }
+            return Path.Combine(dir, (isLeft ? "左机台" : "右机台") + "_last.bmp");
         }
 
         private StationData StationByCaptureSide(bool isLeft) => isLeft ? leftStation : rightStation;
@@ -352,10 +381,12 @@ namespace 码料机
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
                 return;
             _offlineTestImagePath = path;
-            _jinwo.SetCaptureImageOverride(path);
             bool? side = _activeHikCaptureTargetIsLeft ?? _hikConnectedIsLeft;
             if (side.HasValue)
+            {
+                _jinwo.SetCaptureImageOverride(path, side.Value);
                 MarkAlgorithmCaptureForSide(side.Value, path);
+            }
         }
 
         private void ShowOfflinePreviewBitmap(Bitmap bmp)
@@ -379,7 +410,12 @@ namespace 码料机
             }
         }
 
-        private async Task<bool> TryHikvisionCaptureAsync(bool isLeft, bool archiveCopy = false, bool reportFault = true)
+        private async Task<bool> TryHikvisionCaptureAsync(
+            bool isLeft,
+            bool archiveCopy = false,
+            bool reportFault = true,
+            string savePathOverride = null,
+            bool bindRuntimeCapture = true)
         {
             _lastHikCaptureError = null;
             bool connectSide = ResolveHikConnectSide(isLeft);
@@ -393,9 +429,19 @@ namespace 码料机
                 return false;
             }
 
-            // 实际取流侧可能与界面工位不同（右工位未启用时复用左相机），落盘仍按请求工位缓存。
+            // 实际取流侧可能与界面工位不同（右工位未启用时复用左相机）；正式采图写工位缓存，测算法写独立路径。
             bool cameraConfigIsLeft = _hikConnectedIsLeft ?? connectSide;
-            string path = _jinwo.ResolveHikCaptureSavePath(isLeft);
+            string path = string.IsNullOrWhiteSpace(savePathOverride)
+                ? _jinwo.ResolveHikCaptureSavePath(isLeft)
+                : Path.GetFullPath(savePathOverride);
+            try
+            {
+                string dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrWhiteSpace(dir))
+                    Directory.CreateDirectory(dir);
+            }
+            catch { }
+
             _activeHikCaptureTargetIsLeft = isLeft;
             _hikCamera.ConfigureAutoSave(_jinwo.HikSaveEveryFrame(cameraConfigIsLeft), path);
             _hikCamera.ConfigurePreview(_jinwo.HikLivePreview(cameraConfigIsLeft), _jinwo.HikPreviewIntervalMs(cameraConfigIsLeft));
@@ -441,10 +487,16 @@ namespace 码料机
                 return false;
             }
 
-            _offlineTestImagePath = path;
-            _jinwo.SetCaptureImageOverride(path);
-            MarkAlgorithmCaptureForSide(isLeft, path);
-            string stationCache = StationByCaptureSide(isLeft)?.LastAlgorithmCaptureImagePath;
+            if (bindRuntimeCapture)
+            {
+                _offlineTestImagePath = path;
+                _jinwo.SetCaptureImageOverride(path, isLeft);
+                MarkAlgorithmCaptureForSide(isLeft, path);
+            }
+
+            string stationCache = bindRuntimeCapture
+                ? StationByCaptureSide(isLeft)?.LastAlgorithmCaptureImagePath
+                : path;
 
             if (archiveCopy)
             {
@@ -453,9 +505,13 @@ namespace 码料机
                     SafeInvoke(() => TEXT("[海康] 已自动保存: " + archived));
             }
 
-            ProcessPipelineLog.ImageLoaded("[海康→金沃]", path,
+            ProcessPipelineLog.ImageLoaded(
+                bindRuntimeCapture ? "[海康→金沃]" : "[海康→测算法]",
+                path,
                 string.IsNullOrEmpty(stationCache) ? path : stationCache,
-                archiveCopy ? "MVS 采图（含存档）" : "MVS 采图");
+                bindRuntimeCapture
+                    ? (archiveCopy ? "MVS 采图（含存档）" : "MVS 采图")
+                    : "MVS 临时测算法采图（不写工位缓存/覆盖）");
             return true;
         }
 
@@ -501,39 +557,10 @@ namespace 码料机
         private Task<bool> TryHikvisionCaptureAsync(bool archiveCopy = false)
             => TryHikvisionCaptureAsync(IsLeftStation(currentStation), archiveCopy);
 
+        /// <summary>主界面「拍照」：弹窗选工位后临时测算法，不改写自动放料运行态。</summary>
         private async Task GrabHikFrameAndShowAsync(bool runJinwoAfterSave)
         {
-            bool isLeft = IsLeftStation(currentStation);
-            if (!CanUseHikCameraForCapture(isLeft))
-            {
-                TEXT("[海康] 当前机台未启用海康相机");
-                return;
-            }
-
-            if (!await TryHikvisionCaptureAsync(isLeft, archiveCopy: true).ConfigureAwait(true))
-            {
-                TEXT("[海康] 采图失败或未落盘（请检查相机连接与采图路径）");
-                return;
-            }
-
-            string path = _jinwo.ResolveCaptureImagePath(isLeft);
-            SafeInvoke(() => ShowOfflinePreviewAfterUndistort(path, isLeft));
-
-            if (runJinwoAfterSave && _jinwo.IsEnabled && _jinwo.IsLoaded)
-                await RunJinwoOnCaptureAsync("拍照").ConfigureAwait(true);
-        }
-
-        private async Task RunJinwoOnCaptureAsync(string tag)
-        {
-            try
-            {
-                TEXT($"[{tag}] 金沃识别中…");
-                await RunJinwoOfflineProcessAsync().ConfigureAwait(true);
-            }
-            catch (Exception ex)
-            {
-                TEXT($"[金沃] {tag} 识别异常: " + ex.Message);
-            }
+            await RunMainUiAlgorithmTestAsync(preferCapture: true, runJinwo: runJinwoAfterSave).ConfigureAwait(true);
         }
 
         /// <summary>

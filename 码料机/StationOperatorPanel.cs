@@ -55,8 +55,7 @@ namespace 码料机
             chkManualSlotSelect.Text = $"{side}机台手动指定放料位（算法识位，界面选下一发）";
             btnFrameChange.Tag = isLeft ? PlcFrameChangeBits.A换框按钮 : PlcFrameChangeBits.B换框按钮;
             btnFrameComplete.Tag = isLeft ? PlcFrameChangeBits.A换框完成按钮 : PlcFrameChangeBits.B换框完成按钮;
-            StyleFrameButton(btnFrameChange, false);
-            StyleFrameButton(btnFrameComplete, false);
+            ApplyOperatorChrome();
         }
 
         public void ApplyComboStyle()
@@ -79,17 +78,20 @@ namespace 码料机
             cb.DropDownHeight = 280;
         }
 
+        public void ApplyOperatorChrome()
+        {
+            ApplyComboStyle();
+            UiLayoutHelper.ApplyButtonTone(btnConfirm, UiButtonTone.Primary, UiLayoutHelper.BodyBold);
+            UiLayoutHelper.ApplyButtonTone(btnSaveTrackBuffer, UiButtonTone.Outline);
+            StyleFrameButton(btnFrameChange, false);
+            StyleFrameButton(btnFrameComplete, false);
+            UiLayoutHelper.StyleSoftBadge(lblFrameAllow);
+        }
+
         private static void StyleFrameButton(Button btn, bool on)
         {
             if (btn == null) return;
-            btn.FlatStyle = FlatStyle.Flat;
-            btn.FlatAppearance.BorderSize = 0;
-            btn.Cursor = Cursors.Hand;
-            btn.ForeColor = Color.White;
-            btn.BackColor = on
-                ? Color.FromArgb(22, 163, 74)
-                : Color.FromArgb(226, 232, 240);
-            if (!on) btn.ForeColor = Color.FromArgb(51, 65, 85);
+            UiLayoutHelper.ApplyButtonTone(btn, on ? UiButtonTone.Success : UiButtonTone.Secondary);
         }
 
         private void btnSaveTrackBuffer_Click(object sender, EventArgs e) =>

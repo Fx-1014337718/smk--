@@ -1,0 +1,14 @@
+---
+description: WinForms 界面必须用设计器/TableLayout，禁止代码堆控件导致挤压
+alwaysApply: true
+---
+
+# WinForms 界面布局规范
+
+本项目新增或改动窗体/面板 UI 时：
+
+1. **优先 Designer**：在 `*.Designer.cs` 中用 Visual Studio 拖拉拽生成控件；业务逻辑写在对应 `*.cs`。
+2. **禁止运行时拼装主布局**：不要在构造函数里 `new Label/TextBox/GroupBox` 再靠 `Location`/`Point` 绝对坐标堆叠主界面（易 DPI 缩放挤压重叠）。
+3. **用布局容器**：`TableLayoutPanel` / `FlowLayoutPanel` + `Dock`/`Anchor`/`Padding`/`Margin`；行列用 `AutoSize` 或固定行高，输入框给足最小高度（≥26）。
+4. **风格对齐**：新分组外观（字体、边距、GroupBox 内边距）与同窗体已有「取料位置」等区块一致。
+5. **例外**：仅动态列表项、图纸叠层等确属运行时内容时，可代码创建，且须放在已预留的容器内，不得挤占设计器主布局。

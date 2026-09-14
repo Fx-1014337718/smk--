@@ -140,7 +140,7 @@ namespace 码料机
             if (writePlcFullClear)
                 WritePlcFullMaterialFlag(st, isLeft, false);
             UpdateProgressDisplay();
-            if (currentStation == st) UpdateStationUI();
+            UpdateStationUI(st);
         }
 
         /// <summary>切换放料模式时清空本箱会话（进度语义在自动/手动间不通用，禁止热切换串用）。</summary>
@@ -317,7 +317,7 @@ namespace 码料机
             {
                 RefreshStationPickPlaceQtyUi(st);
                 UpdateProgressDisplay();
-                if (currentStation == st) UpdateStationUI();
+                UpdateStationUI(st);
                 TEXT($"[规划] {stationName} 采用算法中心结果：{logCols}列×{logRows}行×{logLayers}层，容量{totalCap}；XY 顺序保持 DLL 原样");
             });
         }
@@ -334,7 +334,7 @@ namespace 码料机
                 MessageBoxIcon.Information);
         }
 
-        private bool TryBuildBoxPlacementPlan(StationData st, string imagePath, out string error)
+        private bool TryBuildBoxPlacementPlan(StationData st, string imagePath, out string error, bool checkExpectedTotal = true)
         {
             error = null;
             if (st.BoxPlan != null && st.BoxPlan.IsValid)
@@ -345,6 +345,7 @@ namespace 码料机
             st.BoxPlan = null;
 
             var slots = new List<BoxPlanSlot>();
+            int? recognizedTotal = null;
             if (_jinwo.IsEnabled && _jinwo.IsLoaded && st.HasJinwoTrayConfig)
             {
                 try
@@ -356,6 +357,7 @@ namespace 码料机
                     int layerFloor = GetTrayLayerCountFloor(st);
                     SyncStationGridFromCenters(st, centers);
                     ApplyTrayLayerCountFloor(st, layerFloor);
+                    recognizedTotal = ComputeAlgorithmBoxTotal(st, centers);
                     // 识图返回的中心点数量是最终真实容量，包含交叉排料被裁掉的空格。
                     st.ConfirmedBearingCapacity = Math.Max(1, centers.Length);
                     ApplyAlgorithmGridFromRecognition(st);
@@ -445,6 +447,8 @@ namespace 码料机
                 error = "规划表为空";
                 return false;
             }
+            if (checkExpectedTotal && !TryMatchExpectedBoxTotal(st, recognizedTotal ?? slots.Count, out error))
+                return false;
             StationBoxPlacementPlan.ComputeCenterFromSlots(slots, out float centerX, out float centerY);
             st.BoxPlan = new StationBoxPlacementPlan
             {
@@ -480,7 +484,7 @@ namespace 码料机
                 {
                     RefreshStationPickPlaceQtyUi(st);
                     UpdateProgressDisplay();
-                    if (currentStation == st) UpdateStationUI();
+                    UpdateStationUI(st);
                     int physicalCap = st.BoxPlan?.Slots?.Count > 0 ? st.BoxPlan.Slots.Count : GetBearingCapacity(st);
                     TEXT($"[确认] {st.Name} 第 {ResolveGroupIndex(st, slotIndex) + 1} 组已计入（放料{newCount}/{GetPlaceSlotCapacity(st)} 轴承{GetConfirmedBearingCount(st)}/{GetBearingCapacity(st)}）");
                     if (st.IsFull) PromptBoxChangeRequired(st);
@@ -495,7 +499,7 @@ namespace 码料机
             {
                 RefreshStationPickPlaceQtyUi(st);
                 UpdateProgressDisplay();
-                if (currentStation == st) UpdateStationUI();
+                UpdateStationUI(st);
                 TEXT($"[确认] {st.Name} 第 {newCountSeq} 组已计入（放料{newCountSeq}/{GetPlaceSlotCapacity(st)} 组，" +
                      $"轴承{GetConfirmedBearingCount(st)}/{GetBearingCapacity(st)}）");
                 if (st.IsFull) PromptBoxChangeRequired(st);
@@ -553,7 +557,7 @@ namespace 码料机
                         ? $"[确认] {st.Name} 已回退，已确认 {n} 件（请重新在「手动指定放料」选下一发位）。"
                         : $"[确认] {st.Name} 已回退到第 {n} 件（下一发第 {n + 1} 件）。");
                     UpdateProgressDisplay();
-                    if (currentStation == st) UpdateStationUI();
+                    UpdateStationUI(st);
                     return true;
                 case WorkerAssistAction.ReplannEmptyBox:
                     ResetStationAfterBoxChange(st, IsLeftStation(st), writePlcFullClear: true);
@@ -699,6 +703,8 @@ D_A工位中心点X=4248
 D_B工位中心点X=4256
 D_PC_A工位生产总数=4400
 D_PC_B工位生产总数=4402
+D_PC_A工位当前料道产品数=1000
+D_PC_B工位当前料道产品数=1002
 D_PC_A工位料道缓存个数=4410
 D_PC_B工位料道缓存个数=4412
 D_PC工位生产选择=4414
@@ -1023,6 +1029,9 @@ D_机器人运动中=-1
                 _lastPlcAProductionTotal = null;
                 _lastPlcBProductionTotal = null;
                 ApplyProductionTotalToUi(null, null);
+                _lastPlcALaneProductCount = null;
+                _lastPlcBLaneProductCount = null;
+                ApplyLaneProductCountToUi(null, null);
 
                 if ((_machine.IsAutoRunning || _machine.IsPaused) && !_machine.IsFault)
                 {
@@ -1172,15 +1181,23 @@ D_机器人运动中=-1
             StyleFrameActionButton(ui.BtnComplete, (word & (1 << bitComplete)) != 0);
             bool allow = (word & (1 << bitAllow)) != 0;
             ui.IndicatorLabel.Text = allow ? "允许取框" : "禁止取框";
-            ui.IndicatorLabel.BackColor = allow ? FrameAllowOnBack : FrameAllowOffBack;
-            ui.IndicatorLabel.ForeColor = Color.White;
+            if (allow)
+            {
+                ui.IndicatorLabel.BackColor = UiLayoutHelper.ColorSuccessSoft;
+                ui.IndicatorLabel.ForeColor = UiLayoutHelper.ColorSuccessText;
+            }
+            else
+            {
+                ui.IndicatorLabel.BackColor = Color.FromArgb(254, 226, 226);
+                ui.IndicatorLabel.ForeColor = Color.FromArgb(153, 27, 27);
+            }
+            ui.IndicatorLabel.Invalidate();
         }
 
         private static void StyleFrameActionButton(Button btn, bool on)
         {
             if (btn == null) return;
-            btn.BackColor = on ? FrameBitOnBack : FrameBitOffBack;
-            btn.ForeColor = on ? FrameBitOnFore : FrameBitOffFore;
+            UiLayoutHelper.ApplyButtonTone(btn, on ? UiButtonTone.Success : UiButtonTone.Secondary);
         }
 
         private void RefreshFrameChangeControlsEnabled()
@@ -1683,6 +1700,7 @@ D_机器人运动中=-1
             PollPlcFullMaterialCleared();
             PollPlcFrameChangeBits();
             PollPlcProductionTotals();
+            PollPlcLaneProductCounts();
             if (!_machine.CanProcessPlcHandshake) return;
             if (await PlcOnPickRequestAsync(leftStation, true).ConfigureAwait(false)) return; // 左：D4018
             if (await PlcOnPickRequestAsync(rightStation, false).ConfigureAwait(false)) return; // 右：D4020
@@ -1752,11 +1770,216 @@ D_机器人运动中=-1
                 _labelRightProductionTotal.Text = rightTotal.HasValue ? rightTotal.Value.ToString("N0") : "—";
         }
 
+        private static void SyncPlaceTotalTextBox(TextBox box, int? total)
+        {
+            if (box == null || box.IsDisposed || box.Focused) return;
+            box.Text = total.HasValue && total.Value > 0 ? total.Value.ToString() : "";
+        }
+
         private void ClearProductionTotalDisplay()
         {
             _lastPlcAProductionTotal = 0;
             _lastPlcBProductionTotal = 0;
             SafeInvoke(() => ApplyProductionTotalToUi(0, 0));
+        }
+
+        private int? _lastPlcALaneProductCount;
+        private int? _lastPlcBLaneProductCount;
+
+        /// <summary>握手轮询读 A/B 当前料道产品数（D1000/D1002，DINT）并刷新工位摘要。</summary>
+        private void PollPlcLaneProductCounts()
+        {
+            if (!_plcConfig.Enabled || !Hs.HandshakeEnabled || _plcSession?.IsConnected != true)
+                return;
+            if (!IsConfiguredPlcD(Hs.D_PC_A工位当前料道产品数) || !IsConfiguredPlcD(Hs.D_PC_B工位当前料道产品数))
+                return;
+            try
+            {
+                int a = _plcSession.ReadInt32(Hs.Holding(Hs.D_PC_A工位当前料道产品数));
+                int b = _plcSession.ReadInt32(Hs.Holding(Hs.D_PC_B工位当前料道产品数));
+                if (_lastPlcALaneProductCount == a && _lastPlcBLaneProductCount == b)
+                    return;
+                _lastPlcALaneProductCount = a;
+                _lastPlcBLaneProductCount = b;
+                SafeInvoke(() => ApplyLaneProductCountToUi(a, b));
+            }
+            catch (Exception ex)
+            {
+                if (IsPlcCommunicationFailure(ex))
+                    HandlePlcConnectionLost("当前料道产品数读取失败", ex);
+            }
+        }
+
+        private void ApplyLaneProductCountToUi(int? leftCount, int? rightCount)
+        {
+            if (labelLeftLaneProductVal != null)
+                labelLeftLaneProductVal.Text = leftCount.HasValue ? leftCount.Value.ToString("N0") : "—";
+            if (labelRightLaneProductVal != null)
+                labelRightLaneProductVal.Text = rightCount.HasValue ? rightCount.Value.ToString("N0") : "—";
+        }
+
+        private void WireLaneProductResetButtons()
+        {
+            if (btnLeftLaneProductReset != null)
+            {
+                btnLeftLaneProductReset.Click -= LeftLaneProductReset_Click;
+                btnLeftLaneProductReset.Click += LeftLaneProductReset_Click;
+            }
+            if (btnRightLaneProductReset != null)
+            {
+                btnRightLaneProductReset.Click -= RightLaneProductReset_Click;
+                btnRightLaneProductReset.Click += RightLaneProductReset_Click;
+            }
+        }
+
+        private void WirePlaceTotalSaveButtons()
+        {
+            if (btnLeftPlaceTotalSave != null)
+            {
+                btnLeftPlaceTotalSave.Click -= LeftPlaceTotalSave_Click;
+                btnLeftPlaceTotalSave.Click += LeftPlaceTotalSave_Click;
+            }
+            if (btnRightPlaceTotalSave != null)
+            {
+                btnRightPlaceTotalSave.Click -= RightPlaceTotalSave_Click;
+                btnRightPlaceTotalSave.Click += RightPlaceTotalSave_Click;
+            }
+        }
+
+        private void LeftPlaceTotalSave_Click(object sender, EventArgs e) => SaveExpectedBoxTotal(isLeft: true);
+
+        private void RightPlaceTotalSave_Click(object sender, EventArgs e) => SaveExpectedBoxTotal(isLeft: false);
+
+        private static bool TryParseBoxTotal(string text, out int total)
+        {
+            total = 0;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            string raw = text.Trim().Replace(",", "").Replace(" ", "");
+            return int.TryParse(raw, out total) && total > 0;
+        }
+
+        /// <summary>保存工位摘要「总数」：本箱应放件数，供识箱后与算法点位×层数核对。</summary>
+        private void SaveExpectedBoxTotal(bool isLeft)
+        {
+            var box = isLeft ? textBoxLeftPlaceTotal : textBoxRightPlaceTotal;
+            var st = isLeft ? leftStation : rightStation;
+            string side = isLeft ? "工位一" : "工位二";
+            if (box == null || st == null) return;
+
+            if (!TryParseBoxTotal(box.Text, out int total))
+            {
+                DialogPrompts.ShowWarning($"{side}总数请输入大于 0 的整数（本箱应放件数，如 50 点×16 层=800）。", "保存");
+                return;
+            }
+
+            st.ExpectedBoxTotal = total;
+            StationUiSelectionConfig.SaveExpectedBoxTotal(isLeft, total);
+            box.Text = total.ToString();
+            TEXT($"[规划] {st.Name} 本箱应放总数已保存为 {total}（识箱后按点位×层数核对）");
+        }
+
+        private int GetExpectedBoxTotal(StationData st)
+        {
+            if (st == null) return 0;
+            int value = st.ExpectedBoxTotal;
+            void ReadFromTextBox()
+            {
+                var box = IsLeftStation(st) ? textBoxLeftPlaceTotal : textBoxRightPlaceTotal;
+                if (TryParseBoxTotal(box?.Text, out int typed))
+                    value = typed;
+            }
+            if (IsHandleCreated && !IsDisposed)
+            {
+                if (InvokeRequired)
+                    InvokeSync(ReadFromTextBox);
+                else
+                    ReadFromTextBox();
+            }
+            return value;
+        }
+
+        /// <summary>
+        /// 算法结果折算本箱总数：仅一层点位时 × 层数；已含多层则用识别点数。
+        /// 例：识别 50 点、16 层 → 800。
+        /// </summary>
+        private static int ComputeAlgorithmBoxTotal(StationData st, JinwoNative.JinwoBearingCenterResult[] centers) =>
+            ExpectedBoxTotalCheck.Compute(Math.Max(1, st?.MaxLayers ?? 1), centers);
+
+        private bool TryMatchExpectedBoxTotal(StationData st, int algorithmTotal, out string error)
+        {
+            int expected = GetExpectedBoxTotal(st);
+            int layers = Math.Max(1, st?.MaxLayers ?? 1);
+            string name = st?.Name ?? "工位";
+            bool ok = ExpectedBoxTotalCheck.TryMatch(expected, algorithmTotal, name, layers, out error);
+            if (ok)
+                SafeInvoke(() => TEXT($"[规划] {name} 总数核对通过：算法 {algorithmTotal} = 填写 {expected}"));
+            else if (!string.IsNullOrEmpty(error))
+            {
+                string log = error.Replace('\n', ' ');
+                SafeInvoke(() => TEXT($"[规划] {log}"));
+            }
+            return ok;
+        }
+
+        private static bool IsExpectedBoxTotalMismatch(string error) =>
+            ExpectedBoxTotalCheck.IsMismatch(error);
+
+        private static bool IsExpectedBoxTotalNotSet(string error) =>
+            ExpectedBoxTotalCheck.IsNotSet(error);
+
+        private void LeftLaneProductReset_Click(object sender, EventArgs e) => ResetLaneProductCount(isLeft: true);
+
+        private void RightLaneProductReset_Click(object sender, EventArgs e) => ResetLaneProductCount(isLeft: false);
+
+        /// <summary>向 A/B 当前料道产品数（D1000/D1002，DINT）写 0，并刷新摘要显示。</summary>
+        private void ResetLaneProductCount(bool isLeft)
+        {
+            int d = isLeft ? Hs.D_PC_A工位当前料道产品数 : Hs.D_PC_B工位当前料道产品数;
+            string side = isLeft ? "A/左机台" : "B/右机台";
+            if (!_plcConfig.Enabled || !Hs.HandshakeEnabled || !IsConfiguredPlcD(d))
+            {
+                TEXT($"[料道产品数] {side} 未配置 D{d}");
+                return;
+            }
+            if (_plcSession?.IsConnected != true)
+            {
+                TEXT($"[料道产品数] PLC 未连接，无法重置 {side}");
+                DialogPrompts.ShowWarning("PLC 未连接，无法重置当前料道产品数。", "重置");
+                return;
+            }
+
+            if (MessageBox.Show(this,
+                    $"确认将 {side} 当前料道产品数（D{d}）清零？",
+                    "重置料道产品数",
+                    MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Question) != DialogResult.OK)
+                return;
+
+            try
+            {
+                _plcSession.WriteInt32(Hs.Holding(d), 0);
+                if (isLeft)
+                {
+                    _lastPlcALaneProductCount = 0;
+                    if (labelLeftLaneProductVal != null)
+                        labelLeftLaneProductVal.Text = "0";
+                }
+                else
+                {
+                    _lastPlcBLaneProductCount = 0;
+                    if (labelRightLaneProductVal != null)
+                        labelRightLaneProductVal.Text = "0";
+                }
+                TEXT($"[料道产品数] {side} 已重置 D{d}=0");
+            }
+            catch (Exception ex)
+            {
+                TEXT($"[料道产品数] {side} 重置失败: {ex.Message}");
+                if (IsPlcCommunicationFailure(ex))
+                    HandlePlcConnectionLost("当前料道产品数重置失败", ex);
+                else
+                    DialogPrompts.ShowWarning("重置失败：" + ex.Message, "重置");
+            }
         }
 
         private void PollPlcAlarmBits(string phase)
@@ -2446,15 +2669,20 @@ D_机器人运动中=-1
                     int logGroup = useManualSlot
                         ? ResolveGroupIndex(st, issuedSlot) + 1
                         : sent;
-                    SafeInvoke(() => TEXT($"[PLC] {st.Name} 下发" +
-                        $"第{logGroup}/{placeCap}组放料" +
-                        $" 放{logPlace}个" +
-                        (logFull ? "，满料=1" : "") +
-                        $" 轴承{logBearing}+{logPlace}/{logBearingCap}" +
-                        $" X={logX:F2} Y={logY:F2} Z={logZ:F2} RZ={logRz:F2}° → D{dPlace}" +
-                        (useManualSlot
-                            ? "（请在「现场放料确认」中确认上一组后再选下一组）"
-                            : (logFull ? "（本件放完后请确认已放入，随后换箱）" : "（待机器人放完后自动确认或暂停后人工确认）"))));
+                    SafeInvoke(() =>
+                    {
+                        TEXT($"[PLC] {st.Name} 下发" +
+                            $"第{logGroup}/{placeCap}组放料" +
+                            $" 放{logPlace}个" +
+                            (logFull ? "，满料=1" : "") +
+                            $" 轴承{logBearing}+{logPlace}/{logBearingCap}" +
+                            $" X={logX:F2} Y={logY:F2} Z={logZ:F2} RZ={logRz:F2}° → D{dPlace}" +
+                            (useManualSlot
+                                ? "（请在「现场放料确认」中确认上一组后再选下一组）"
+                                : (logFull ? "（本件放完后请确认已放入，随后换箱）" : "（待机器人放完后自动确认或暂停后人工确认）")));
+                        UpdateProgressDisplay();
+                        UpdateStationUI(st);
+                    });
                 }).ConfigureAwait(false);
 
                 await Task.Delay(PlcPickAckDelayMs).ConfigureAwait(false);
@@ -2470,7 +2698,7 @@ D_机器人运动中=-1
                         TEXT($"[确认] {st.Name} 本组坐标已下发，请确认现场是否已放入后再选下一组。");
                         ShowWorkerAssistForStation(st, pendingRequired: true);
                         UpdateProgressDisplay();
-                        if (currentStation == st) UpdateStationUI();
+                        UpdateStationUI(st);
                     });
                 }
             }
@@ -3019,27 +3247,32 @@ D_机器人运动中=-1
             string lastPeekErr = peek.LastError ?? "识箱/算位失败";
             SafeInvoke(() => TEXT($"[算法识别] {st.Name} 码放预览自动重试后仍失败: {lastPeekErr}"));
 
-            VisionRecognizeRetryAction action = VisionRecognizeRetryAction.Abort;
-            InvokeSync(() => action = PromptVisionRecognizeRetry(st.Name + " 码放预览", lastPeekErr));
-            if (action == VisionRecognizeRetryAction.Abort)
+            while (true)
             {
-                SafeInvoke(() => TEXT("[金沃] " + lastPeekErr));
-                return PlcPeekPlacementResult.Fail;
+                VisionRecognizeRetryAction action = VisionRecognizeRetryAction.Abort;
+                InvokeSync(() => action = PromptVisionRecognizeRetry(st.Name + " 码放预览", lastPeekErr));
+                if (action == VisionRecognizeRetryAction.Abort)
+                {
+                    SafeInvoke(() => TEXT("[金沃] " + lastPeekErr));
+                    return PlcPeekPlacementResult.Fail;
+                }
+
+                if (!await ExecuteVisionRecognizeRetryActionAsync(action, st.Name).ConfigureAwait(false))
+                {
+                    lastPeekErr = "未加载有效重试图片，请重新拍照或加载图片";
+                    continue;
+                }
+
+                peek = await Plc_CaptureRefreshPoseAndPeekNextCoreAsync(st, isLeft, skipAutoRetry: true).ConfigureAwait(false);
+                if (peek.Ok)
+                {
+                    SafeInvoke(() => TEXT($"[算法识别] {st.Name} 人工重试后码放预览成功"));
+                    return new PlcPeekPlacementResult(true, peek.Target);
+                }
+
+                lastPeekErr = peek.LastError ?? "识箱/算位失败";
+                SafeInvoke(() => TEXT($"[算法识别] {st.Name} 人工重试后仍失败，再次弹窗: {lastPeekErr}"));
             }
-
-            if (!await ExecuteVisionRecognizeRetryActionAsync(action, st.Name).ConfigureAwait(false))
-                return PlcPeekPlacementResult.Fail;
-
-            peek = await Plc_CaptureRefreshPoseAndPeekNextCoreAsync(st, isLeft, skipAutoRetry: true).ConfigureAwait(false);
-            if (peek.Ok)
-            {
-                SafeInvoke(() => TEXT($"[算法识别] {st.Name} 人工重试后码放预览成功"));
-                return new PlcPeekPlacementResult(true, peek.Target);
-            }
-
-            lastPeekErr = peek.LastError ?? "识箱/算位失败";
-            SafeInvoke(() => TEXT($"[算法识别] {st.Name} 人工重试后仍失败，本次预览结束，不再重复弹窗: {lastPeekErr}"));
-            return PlcPeekPlacementResult.Fail;
         }
 
         private struct PlcPeekAttemptResult
@@ -3137,6 +3370,7 @@ D_机器人运动中=-1
             AdvanceStationAfterPlcPlace(currentStation);
             RefreshStationPickPlaceQtyUi(currentStation);
             UpdateProgressDisplay();
+            UpdateStationUI(currentStation);
         }
 
         public bool Plc_TrySwitchStation() => TrySwitchStation();
@@ -3170,7 +3404,10 @@ D_机器人运动中=-1
             });
         }
 
-        /// <summary>指定开始组：现场放料拍照后，按已跳过组数用金沃 DLL 刷新规划表世界坐标。</summary>
+        /// <summary>
+        /// 指定开始组：现场放料拍照后，先按空箱语义（count=0）核对点位×层数，
+        /// 再按已跳过组数刷新规划表世界坐标。总数不对应则不写规划、不放料。
+        /// </summary>
         private bool TryRealignSequentialStartBoxPlanFromLiveImage(StationData st, string imagePath, out string error)
         {
             error = null;
@@ -3197,7 +3434,14 @@ D_机器人运动中=-1
             try
             {
                 var cfg = st.JinwoTray;
-                var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, alignFromPhysical, ResolveNinePointCalibIsLeft(st), out string effectPath);
+                bool calibLeft = ResolveNinePointCalibIsLeft(st);
+                // 与「确认规划并开始」相同：按 count=0 折算本箱总数。对齐调用可能带已放组数，
+                // 不能用那次数组长度当整箱点数，否则半箱续跑会误判。
+                var totalCenters = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, 0, calibLeft, out _);
+                if (!TryMatchExpectedBoxTotal(st, ComputeAlgorithmBoxTotal(st, totalCenters), out error))
+                    return false;
+
+                var centers = _jinwo.CalculateAllBearingCenters(ref cfg, imagePath, alignFromPhysical, calibLeft, out string effectPath);
                 st.JinwoTray = cfg;
                 int layerFloor = GetTrayLayerCountFloor(st);
                 SyncStationGridFromCenters(st, centers);
@@ -3314,6 +3558,11 @@ D_机器人运动中=-1
                     return once;
 
                 lastError = once.Error;
+                if (IsExpectedBoxTotalNotSet(lastError))
+                {
+                    SafeInvoke(() => TEXT($"[算法识别] {st.Name} {lastError}"));
+                    return once;
+                }
                 if (attempt < maxAttempts)
                 {
                     string action = lastError.Contains("规划") ? "放料规划" : "放料识箱";
@@ -3327,31 +3576,38 @@ D_机器人运动中=-1
         }
 
         /// <summary>
-        /// 人工选择重拍/加载图片后只重试一次。取消选图或再次识别失败即结束本次 PLC 请求，
-        /// 由失败锁存等待 PLC 请求清 0，禁止在同一次请求内无限重复弹窗。
+        /// 人工重拍/加载图片，直到识别成功或点「放弃识别」。
+        /// 再次失败会继续弹窗，避免夹爪停在拍照位无法再处理。
         /// </summary>
         private async Task<(bool Ok, string Error)> RunPlaceBoxVisionManualRetryAsync(StationData st, string lastError)
         {
             string phase = st?.Name ?? "放料识箱";
-            VisionRecognizeRetryAction action = VisionRecognizeRetryAction.Abort;
-            // 必须等对话框结果；BeginInvoke 会导致仍为默认 Abort
-            InvokeSync(() => action = PromptVisionRecognizeRetry(phase, lastError));
-            if (action == VisionRecognizeRetryAction.Abort)
-                return (false, lastError);
-
-            if (!await ExecuteVisionRecognizeRetryActionAsync(action, phase).ConfigureAwait(false))
-                return (false, "未加载有效重试图片，本次识别已结束");
-
-            var once = await RunPlaceBoxVisionOnceAsync(st).ConfigureAwait(false);
-            if (once.Ok)
+            while (true)
             {
-                SafeInvoke(() => TEXT($"[算法识别] {phase} 人工重试后识别成功"));
-                return once;
-            }
+                ThrowIfMachineInterrupted($"{phase} 人工识别重试");
+                VisionRecognizeRetryAction action = VisionRecognizeRetryAction.Abort;
+                // 必须等对话框结果；BeginInvoke 会导致仍为默认 Abort
+                InvokeSync(() => action = PromptVisionRecognizeRetry(phase, lastError));
+                if (action == VisionRecognizeRetryAction.Abort)
+                    return (false, lastError);
 
-            lastError = once.Error ?? "人工重试后识别失败";
-            SafeInvoke(() => TEXT($"[算法识别] {phase} 人工重试后仍失败，本次请求结束，不再重复弹窗: {lastError}"));
-            return (false, lastError);
+                if (!await ExecuteVisionRecognizeRetryActionAsync(action, phase).ConfigureAwait(false))
+                {
+                    lastError = "未加载有效重试图片，请重新拍照或加载图片";
+                    SafeInvoke(() => TEXT($"[算法识别] {phase} {lastError}"));
+                    continue;
+                }
+
+                var once = await RunPlaceBoxVisionOnceAsync(st).ConfigureAwait(false);
+                if (once.Ok)
+                {
+                    SafeInvoke(() => TEXT($"[算法识别] {phase} 人工重试后识别成功"));
+                    return once;
+                }
+
+                lastError = once.Error ?? "人工重试后识别失败";
+                SafeInvoke(() => TEXT($"[算法识别] {phase} 人工重试后仍失败，再次弹窗: {lastError}"));
+            }
         }
 
         /// <summary>顺序放料：将进度设为「下一发第 startGroup 组」（1 基），后续与正常按组放料一致。</summary>
@@ -3438,7 +3694,7 @@ D_机器人运动中=-1
             KickPlcHandshakeAfterStartPiece(st, isLeft);
 
             UpdateProgressDisplay();
-            if (currentStation == st) UpdateStationUI();
+            UpdateStationUI(st);
             return true;
         }
 
@@ -3607,7 +3863,7 @@ D_机器人运动中=-1
             }
         }
 
-        /// <summary>放料 Z 基准、单件高度、放料抬高间隙、Rz：间隙为放料位总抬高量，只加一次。</summary>
+        /// <summary>放料 Z 基准、单件高度、高度补偿、Rz：高度补偿为叠层公式末项（只加一次），与算法轴承间隙分离。</summary>
         private void ResolveJinwoPlaceZAndRz(StationData st, out double baseZ, out double productHeight, out double placeLiftGap, out double rz)
         {
             bool isLeft = IsLeftStation(st);
@@ -3632,19 +3888,15 @@ D_机器人运动中=-1
             else
                 productHeight = 0;
 
-            if (ini.BearingGap > 1e-3)
-                placeLiftGap = ini.BearingGap;
-            else if (st.HasJinwoTrayConfig && st.JinwoTray.BearingGap > 1e-3)
-                placeLiftGap = st.JinwoTray.BearingGap;
-            else
-                placeLiftGap = 0;
+            // 主机叠层末项：仅用 INI「高度补偿」；轴承间隙只给算法，不再参与此处。
+            placeLiftGap = ini.HeightCompensation;
 
             double configuredRz = Math.Abs(photo.PlaceRz) > 1e-6 ? photo.PlaceRz : ini.TargetRz;
             rz = ResolveRzDeg(configuredRz, plcRz);
         }
 
         /// <summary>
-        /// XY 用 DLL 识箱结果；Z = 基准 + Σ(已完成竖直档×单件高) + 放料抬高间隙。
+        /// XY 用 DLL 识箱结果；Z = 基准 + Σ(已完成竖直档×单件高) + 高度补偿（INI「高度补偿」，与轴承间隙无关）。
         /// 物理层以 DLL/规划槽真实 Layer 为准；交叉排料每层有效位不等于 rows×cols，
         /// 不能用 planIndex/(rows×cols) 推算，否则第二层首位会被错分档。
         /// </summary>

@@ -17,7 +17,8 @@ namespace 码料机
         private string _undistortionErrorLeft;
         private string _undistortionErrorRight;
         private string _loadError;
-        private string _captureImageOverride;
+        private string _captureImageOverrideLeft;
+        private string _captureImageOverrideRight;
         private string _lastUndistortedPath;
         private int _lastUndistortedSourceTicks;
         private bool _lastUndistortedIsLeft = true;
@@ -686,15 +687,40 @@ namespace 码料机
         public string EffectImageDirectory(bool isLeft)
             => StationIni(isLeft)?.ResolveEffectImageDir() ?? Path.Combine(Application.StartupPath, "jinwo_render");
 
-        /// <summary>离线测试图路径（优先于 INI「采图路径」）。</summary>
+        /// <summary>按工位覆盖采图路径（左右独立，避免一侧采图后另一侧算法误用对方图）。</summary>
+        public void SetCaptureImageOverride(string path, bool isLeft)
+        {
+            string full = string.IsNullOrWhiteSpace(path) ? null : Path.GetFullPath(path);
+            if (isLeft) _captureImageOverrideLeft = full;
+            else _captureImageOverrideRight = full;
+            if (_lastUndistortedIsLeft == isLeft)
+                _lastUndistortedPath = null;
+        }
+
+        /// <summary>兼容旧调用：无工位信息时写入两侧（仅离线单图调试场景）。</summary>
         public void SetCaptureImageOverride(string path)
         {
-            _captureImageOverride = string.IsNullOrWhiteSpace(path) ? null : Path.GetFullPath(path);
-            _lastUndistortedPath = null;
+            SetCaptureImageOverride(path, true);
+            SetCaptureImageOverride(path, false);
         }
 
         public string ResolveCaptureImagePath(bool isLeft)
-            => JinwoAlgorithmConfig.ResolveCaptureImagePath(_captureImageOverride ?? StationIni(isLeft)?.CaptureImagePath);
+        {
+            string overridePath = isLeft ? _captureImageOverrideLeft : _captureImageOverrideRight;
+            if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
+                return Path.GetFullPath(overridePath);
+
+            string iniPath = StationIni(isLeft)?.CaptureImagePath;
+            if (!string.IsNullOrWhiteSpace(iniPath) && File.Exists(iniPath))
+                return Path.GetFullPath(iniPath);
+
+            // 默认回落到本工位最新缓存，而不是全局 Feed.bmp。
+            string cache = ResolveHikCaptureSavePath(isLeft);
+            if (File.Exists(cache))
+                return cache;
+
+            return JinwoAlgorithmConfig.ResolveCaptureImagePath(null);
+        }
 
         public string ResolveCaptureImagePath() => ResolveCaptureImagePath(true);
 
@@ -711,8 +737,16 @@ namespace 码料机
         public bool HikSaveEveryFrame(bool isLeft) => StationIni(isLeft)?.HikSaveEveryFrame != false;
         public int RecognizeRetryCount => _left?.RecognizeRetryCount ?? 2;
         public int RecognizeRetryDelayMs => _left?.RecognizeRetryDelayMs ?? 300;
-        public string ResolveHikCaptureSavePath(bool isLeft) => StationIni(isLeft)?.ResolveHikCaptureSavePath()
-            ?? Path.Combine(Application.StartupPath, OfflineCaptureHelper.DefaultOfflineFeedFileName);
+        public string ResolveHikCaptureSavePath(bool isLeft)
+        {
+            var ini = StationIni(isLeft);
+            // INI 显式配置采图路径时尊重配置；否则左右分别落到工位缓存，避免共用 Feed.bmp 互相覆盖且 *_last.bmp 不更新。
+            if (!string.IsNullOrWhiteSpace(ini?.CaptureImagePath))
+                return Path.GetFullPath(ini.CaptureImagePath);
+            string dir = Path.Combine(Parameters.IniDir, "工位采图");
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, (isLeft ? "左机台" : "右机台") + "_last.bmp");
+        }
 
         public void Dispose()
         {
